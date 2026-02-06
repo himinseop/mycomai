@@ -3,6 +3,7 @@ import json
 import requests
 import msal # Assuming 'msal' is installed (pip install msal)
 from dotenv import load_dotenv # Added for loading .env file
+import sys # Added for sys.stderr
 
 load_dotenv() # Load environment variables from .env file
 
@@ -84,21 +85,29 @@ def get_channel_messages(team_id, channel_id, access_token):
 def main():
     try:
         access_token = get_access_token()
-        print("Successfully acquired access token.")
+        print("Successfully acquired access token.", file=sys.stderr)
 
         team_id = get_team_id_by_display_name(TEAMS_GROUP_NAME, access_token)
-        print(f"Team ID for '{TEAMS_GROUP_NAME}': {team_id}")
+        print(f"Team ID for '{TEAMS_GROUP_NAME}': {team_id}", file=sys.stderr)
 
         channels = get_channels_for_team(team_id, access_token)
-        print(f"Found {len(channels)} channels in Team '{TEAMS_GROUP_NAME}'.")
+        print(f"Found {len(channels)} channels in Team '{TEAMS_GROUP_NAME}'.", file=sys.stderr)
 
         for channel in channels:
             channel_id = channel['id']
             channel_display_name = channel['displayName']
-            print(f"Fetching messages from channel: {channel_display_name}")
+            print(f"Fetching messages from channel: {channel_display_name}", file=sys.stderr)
 
             messages = get_channel_messages(team_id, channel_id, access_token)
             for message in messages:
+                author_info = message.get('from', {})
+                author_name = "Unknown"
+                if author_info:
+                    if author_info.get('user'):
+                        author_name = author_info['user'].get('displayName', "Unknown User")
+                    elif author_info.get('application'):
+                        author_name = author_info['application'].get('displayName', "Unknown Application")
+                
                 extracted_data_schema = {
                     "id": f"teams-{message.get('id')}",
                     "source": "teams",
@@ -109,7 +118,7 @@ def main():
                     "content_type": "message",
                     "created_at": message.get('createdDateTime'),
                     "updated_at": message.get('lastModifiedDateTime'),
-                    "author": message.get('from', {}).get('user', {}).get('displayName') or message.get('from', {}).get('application', {}).get('displayName'),
+                    "author": author_name,
                     "metadata": {
                         "teams_team_name": TEAMS_GROUP_NAME,
                         "teams_team_id": team_id,
@@ -123,9 +132,17 @@ def main():
                 # Process replies
                 replies = message.get('replies', [])
                 for reply in replies:
+                    reply_author_info = reply.get('from', {})
+                    reply_author_name = "Unknown"
+                    if reply_author_info:
+                        if reply_author_info.get('user'):
+                            reply_author_name = reply_author_info['user'].get('displayName', "Unknown User")
+                        elif reply_author_info.get('application'):
+                            reply_author_name = reply_author_info['application'].get('displayName', "Unknown Application")
+                    
                     extracted_data_schema["metadata"]["replies"].append({
                         "id": reply.get('id'),
-                        "author": reply.get('from', {}).get('user', {}).get('displayName') or reply.get('from', {}).get('application', {}).get('displayName'),
+                        "author": reply_author_name,
                         "created_at": reply.get('createdDateTime'),
                         "content": reply.get('body', {}).get('content')
                     })
@@ -133,12 +150,12 @@ def main():
                 print(json.dumps(extracted_data_schema, ensure_ascii=False))
         
     except requests.exceptions.RequestException as e:
-        print(f"Error calling Microsoft Graph API: {e}", file=os.stderr)
+        print(f"Error calling Microsoft Graph API: {e}", file=sys.stderr)
         if e.response:
-            print(f"Response status: {e.response.status_code}", file=os.stderr)
-            print(f"Response body: {e.response.text}", file=os.stderr)
+            print(f"Response status: {e.response.status_code}", file=sys.stderr)
+            print(f"Response body: {e.response.text}", file=sys.stderr)
     except Exception as e:
-        print(f"An unexpected error occurred: {e}", file=os.stderr)
+        print(f"An unexpected error occurred: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()

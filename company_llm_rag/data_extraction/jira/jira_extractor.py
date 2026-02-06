@@ -3,6 +3,7 @@ import requests
 import os
 import base64 # Added for base64 encoding
 from dotenv import load_dotenv
+import sys # Added for sys.stderr
 
 load_dotenv() # Load environment variables from .env file
 
@@ -54,7 +55,7 @@ def get_issues_for_project(project_key):
     return all_issues
 
 def main():
-    print(f"Fetching Jira issues for project: {JIRA_PROJECT_KEY}...")
+    print(f"Fetching Jira issues for project: {JIRA_PROJECT_KEY}...", file=sys.stderr)
     try:
         issues_data = get_issues_for_project(JIRA_PROJECT_KEY)
         if issues_data:

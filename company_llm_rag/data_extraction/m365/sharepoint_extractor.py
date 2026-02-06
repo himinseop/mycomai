@@ -53,28 +53,34 @@ def call_graph_api(endpoint, access_token):
 
 def get_sharepoint_site_id(site_name, access_token):
     """Gets the SharePoint site ID by its name."""
-    # This endpoint finds sites by hostname and relative path.
-    # Assuming the site is directly under the root or a known path.
-    # For a root site collection: "https://graph.microsoft.com/v1.0/sites/root"
-    # For a named site collection: "https://graph.microsoft.com/v1.0/sites/{hostname}:/sites/{site-path}"
-    # Let's try searching by display name for simplicity, though direct URL is more robust.
-    # A more robust approach would be: https://graph.microsoft.com/v1.0/sites?search={site_name}
-    # Or if you know the tenant's hostname: https://graph.microsoft.com/v1.0/sites/{tenant-hostname}:/sites/{site_name}
+    # First, try to find the site using the search endpoint which is often more reliable
+    # with application permissions for non-root sites.
+    try:
+        search_endpoint = f"https://graph.microsoft.com/v1.0/sites?search='{site_name}'"
+        search_results = call_graph_api(search_endpoint, access_token)
+        sites = search_results.get('value', [])
+        if sites:
+            # Look for an exact match on display name
+            for site in sites:
+                if site.get('displayName').lower() == site_name.lower():
+                    return site['id']
+            # If no exact display name match, take the first one if any
+            return sites[0]['id']
+    except requests.exceptions.HTTPError as e:
+        # If search fails, it might be due to permissions or the search mechanism itself
+        print(f"SharePoint site search failed: {e}. Falling back to hostname-based lookup.", file=sys.stderr)
+        # Continue to original hostname-based lookup
 
-    # First, get the root site to deduce the hostname
+    # Fallback to original hostname-based lookup if search didn't work or failed
     root_site_info = call_graph_api("https://graph.microsoft.com/v1.0/sites/root", access_token)
     hostname = urlparse(root_site_info['webUrl']).hostname
 
-    # Now, try to get the specific site by hostname and path
-    # If site_name is 'o2olab', the path might be '/sites/o2olab' or just '/o2olab'
-    # Let's try with '/sites/{site_name}' as a common pattern
     endpoint = f"https://graph.microsoft.com/v1.0/sites/{hostname}:/sites/{site_name}"
     try:
         site_info = call_graph_api(endpoint, access_token)
         return site_info['id']
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 404:
-            # If not found at /sites/{site_name}, try as a direct path under root if applicable
             endpoint = f"https://graph.microsoft.com/v1.0/sites/{hostname}:/{site_name}"
             site_info = call_graph_api(endpoint, access_token)
             return site_info['id']
@@ -127,15 +133,15 @@ def download_file_content(download_url, access_token):
 def main():
     try:
         access_token = get_access_token()
-        print("Successfully acquired access token.")
+        print("Successfully acquired access token.", file=sys.stderr)
 
         site_id = get_sharepoint_site_id(SHAREPOINT_SITE_NAME, access_token)
-        print(f"SharePoint Site ID for '{SHAREPOINT_SITE_NAME}': {site_id}")
+        print(f"SharePoint Site ID for '{SHAREPOINT_SITE_NAME}': {site_id}", file=sys.stderr)
 
         drive_id = get_drive_id_for_site(site_id, access_token)
-        print(f"Default Drive ID for site: {drive_id}")
+        print(f"Default Drive ID for site: {drive_id}", file=sys.stderr)
 
-        print(f"Fetching files from SharePoint site '{SHAREPOINT_SITE_NAME}'...")
+        print(f"Fetching files from SharePoint site '{SHAREPOINT_SITE_NAME}'...", file=sys.stderr)
         files_metadata = get_files_in_folder(drive_id, "", access_token) # Start from root of the drive
 
         if files_metadata:
@@ -193,7 +199,7 @@ def main():
                 
                 print(json.dumps(extracted_data_schema, ensure_ascii=False))
         else:
-            print(f"No files found in SharePoint site '{SHAREPOINT_SITE_NAME}'.")
+            print(f"No files found in SharePoint site '{SHAREPOINT_SITE_NAME}'.", file=sys.stderr)
 
     except requests.exceptions.RequestException as e:
         print(f"Error calling Microsoft Graph API: {e}", file=sys.stderr)

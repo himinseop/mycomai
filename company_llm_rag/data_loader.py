@@ -70,7 +70,7 @@ def load_data_to_chromadb(data_stream):
             metadata_from_source = document.get("metadata", {})
 
             if not doc_id or not content:
-                print(f"Skipping document due to missing ID or content: {document.get('id')}", file=os.stderr)
+                print(f"Skipping document due to missing ID or content: {document.get('id')}", file=sys.stderr)
                 continue
 
             chunks = chunk_content(content)
@@ -118,12 +118,12 @@ def load_data_to_chromadb(data_stream):
                     )
                     # print(f"Loaded chunk {chunk_id} into ChromaDB.")
                 except Exception as e:
-                    print(f"Error loading chunk {chunk_id} to ChromaDB: {e}", file=os.stderr)
+                    print(f"Error loading chunk {chunk_id} to ChromaDB: {e}", file=sys.stderr)
 
         except json.JSONDecodeError as e:
-            print(f"Skipping invalid JSONL line: {line.strip()} - Error: {e}", file=os.stderr)
+            print(f"Skipping invalid JSONL line: {line.strip()} - Error: {e}", file=sys.stderr)
         except Exception as e:
-            print(f"An unexpected error occurred while processing line: {line.strip()} - Error: {e}", file=os.stderr)
+            print(f"An unexpected error occurred while processing line: {line.strip()} - Error: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":

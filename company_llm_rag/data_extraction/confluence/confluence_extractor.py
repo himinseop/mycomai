@@ -3,6 +3,7 @@ import os
 import json
 import base64 # Added for base64 encoding
 from dotenv import load_dotenv # Added for loading .env file
+import sys # Added for sys.stderr
 
 load_dotenv() # Load environment variables from .env file
 
@@ -97,7 +98,7 @@ def get_confluence_comments_for_page(page_id):
     return all_comments
 
 def main():
-    print(f"Fetching Confluence pages from space: {CONFLUENCE_SPACE_KEY}...")
+    print(f"Fetching Confluence pages from space: {CONFLUENCE_SPACE_KEY}...", file=sys.stderr)
     try:
         pages_data = get_confluence_pages_in_space(CONFLUENCE_SPACE_KEY)
         if pages_data:
@@ -133,14 +134,14 @@ def main():
                 
                 print(json.dumps(extracted_data_schema, ensure_ascii=False))
         else:
-            print(f"No pages found for Confluence space {CONFLUENCE_SPACE_KEY}.")
+            print(f"No pages found for Confluence space {CONFLUENCE_SPACE_KEY}.", file=sys.stderr)
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching Confluence data: {e}")
+        print(f"Error fetching Confluence data: {e}", file=sys.stderr)
         if e.response:
-            print(f"Response status: {e.response.status_code}")
-            print(f"Response body: {e.response.text}")
+            print(f"Response status: {e.response.status_code}", file=sys.stderr)
+            print(f"Response body: {e.response.text}", file=sys.stderr)
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        print(f"An unexpected error occurred: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()

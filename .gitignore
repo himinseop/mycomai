@@ -1,0 +1,5 @@
+.env
+*.jsonl
+*.log
+chroma_db/
+company_llm_rag/data_extraction/jira/jira_extractor_original.py
