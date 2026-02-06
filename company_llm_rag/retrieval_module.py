@@ -20,7 +20,7 @@ if not OPENAI_API_KEY:
 
 openai_ef = embedding_functions.OpenAIEmbeddingFunction(
     api_key=OPENAI_API_KEY,
-    model_name="text-embedding-ada-002"
+    model_name="text-embedding-3-small"
 )
 
 # Initialize ChromaDB client

@@ -16,12 +16,12 @@ COLLECTION_NAME = os.getenv('COLLECTION_NAME', "company_llm_rag_collection")
 
 # Initialize OpenAI embedding function for ChromaDB
 if not OPENAI_API_KEY:
-    print("Please set the OPENAI_API_KEY environment variable.")
+    print("Please set the OPENAI_API_KEY environment variable.", file=sys.stderr)
     exit(1)
 
 openai_ef = embedding_functions.OpenAIEmbeddingFunction(
     api_key=OPENAI_API_KEY,
-    model_name="text-embedding-ada-002"
+    model_name="text-embedding-3-small"
 )
 
 # Initialize ChromaDB client
@@ -33,7 +33,25 @@ collection = client.get_or_create_collection(
     embedding_function=openai_ef
 )
 
-def chunk_content(content: str, chunk_size: int = 500, chunk_overlap: int = 50) -> List[str]:
+def _extract_text_from_adf_node(node):
+    text_content = ""
+    if isinstance(node, dict):
+        if node.get('type') == 'text' and 'text' in node:
+            text_content += node['text'] + " "
+        if 'content' in node:
+            for child_node in node['content']:
+                text_content += _extract_text_from_adf_node(child_node)
+    elif isinstance(node, list):
+        for item in node:
+            text_content += _extract_text_from_adf_node(item)
+    return text_content.strip()
+
+def convert_adf_to_plain_text(adf_json):
+    if isinstance(adf_json, dict) and adf_json.get('type') == 'doc' and 'content' in adf_json:
+        return _extract_text_from_adf_node(adf_json['content'])
+    return str(adf_json) # Fallback if it's not a valid ADF doc
+
+def chunk_content(content: str, chunk_size: int = 200, chunk_overlap: int = 50) -> List[str]:
     """
     Splits text content into smaller chunks.
     A simple fixed-size chunking strategy. More advanced chunking can be implemented.
@@ -69,6 +87,10 @@ def load_data_to_chromadb(data_stream):
             content_type = document.get("content_type", "")
             metadata_from_source = document.get("metadata", {})
 
+            # Convert ADF content to plain text if necessary
+            if isinstance(content, dict) and content.get('type') == 'doc':
+                content = convert_adf_to_plain_text(content)
+            
             if not doc_id or not content:
                 print(f"Skipping document due to missing ID or content: {document.get('id')}", file=sys.stderr)
                 continue
@@ -127,8 +149,8 @@ def load_data_to_chromadb(data_stream):
 
 
 if __name__ == "__main__":
-    print(f"Loading data into ChromaDB collection: {COLLECTION_NAME} at path: {CHROMA_DB_PATH}")
+    print(f"Loading data into ChromaDB collection: {COLLECTION_NAME} at path: {CHROMA_DB_PATH}", file=sys.stderr)
     # Read from stdin
     load_data_to_chromadb(iter(lambda: sys.stdin.readline().strip(), ''))
-    print("Data loading complete.")
+    print("Data loading complete.", file=sys.stderr)
 

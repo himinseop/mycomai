@@ -20,7 +20,7 @@ AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPE = ["https://graph.microsoft.com/.default"] # Requesting default permissions
 
 if not all([TENANT_ID, CLIENT_ID, CLIENT_SECRET, TEAMS_GROUP_NAME]):
-    print("Please set TENANT_ID, CLIENT_ID, CLIENT_SECRET, and TEAMS_GROUP_NAME environment variables.")
+    print("Please set TENANT_ID, CLIENT_ID, CLIENT_SECRET, and TEAMS_GROUP_NAME environment variables.", file=sys.stderr)
     exit(1)
 
 # Initialize MSAL ConfidentialClientApplication

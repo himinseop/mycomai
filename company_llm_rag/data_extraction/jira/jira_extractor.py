@@ -14,7 +14,7 @@ JIRA_EMAIL = os.getenv('JIRA_EMAIL')
 JIRA_PROJECT_KEY = os.getenv('JIRA_PROJECT_KEY')
 
 if not all([JIRA_BASE_URL, JIRA_API_TOKEN, JIRA_EMAIL, JIRA_PROJECT_KEY]):
-    print("Please set JIRA_BASE_URL, JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_PROJECT_KEY environment variables.")
+    print("Please set JIRA_BASE_URL, JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_PROJECT_KEY environment variables.", file=sys.stderr)
     exit(1)
 
 HEADERS = {
@@ -95,14 +95,14 @@ def main():
                 
                 print(json.dumps(extracted_data_schema, ensure_ascii=False))
         else:
-            print(f"No issues found for project {JIRA_PROJECT_KEY} or unexpected response format.")
+            print(f"No issues found for project {JIRA_PROJECT_KEY} or unexpected response format.", file=sys.stderr)
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching issues: {e}")
+        print(f"Error fetching issues: {e}", file=sys.stderr)
         if e.response:
-            print(f"Response status: {e.response.status_code}")
-            print(f"Response body: {e.response.text}")
+            print(f"Response status: {e.response.status_code}", file=sys.stderr)
+            print(f"Response body: {e.response.text}", file=sys.stderr)
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        print(f"An unexpected error occurred: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()
