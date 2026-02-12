@@ -15,9 +15,11 @@ CONFLUENCE_API_TOKEN = os.getenv('CONFLUENCE_API_TOKEN')
 CONFLUENCE_EMAIL = os.getenv('CONFLUENCE_EMAIL')
 # Confluence Space Keys (e.g., 'SPACE1,SPACE2')
 CONFLUENCE_SPACE_KEYS = os.getenv('CONFLUENCE_SPACE_KEY', "").split(',')
+# Number of days to look back for updates
+LOOKBACK_DAYS = os.getenv('LOOKBACK_DAYS')
 
-if not all([CONFLUENCE_BASE_URL, CONFLUENCE_API_TOKEN, CONFLUENCE_EMAIL]) or not any(CONFLUENCE_SPACE_KEYS):
-    print("Please set CONFLUENCE_BASE_URL, CONFLUENCE_API_TOKEN, CONFLUENCE_EMAIL, and CONFLUENCE_SPACE_KEY environment variables.", file=sys.stderr)
+if not all([CONFLUENCE_BASE_URL, CONFLUENCE_API_TOKEN, CONFLUENCE_EMAIL]):
+    print("Please set CONFLUENCE_BASE_URL, CONFLUENCE_API_TOKEN, and CONFLUENCE_EMAIL environment variables.", file=sys.stderr)
     exit(1)
 
 HEADERS = {
@@ -47,24 +49,39 @@ def get_all_spaces():
 
 def get_confluence_pages_in_space(space_key):
     """
-    Fetches all pages from a given Confluence space.
+    Fetches pages from a space. Uses LOOKBACK_DAYS for incremental updates if set.
     """
     all_pages = []
     start_at = 0
-    limit = 25 # Confluence API default and maximum is 25 for content search
+    limit = 25 
 
     while True:
-        url = f"{CONFLUENCE_BASE_URL}/rest/api/content"
-        params = {
-            "spaceKey": space_key,
-            "expand": "body.storage,version,history,ancestors", # Include page content, version, history
-            "start": start_at,
-            "limit": limit,
-            "type": "page" # Only fetch pages, not blog posts or other content types
-        }
+        if LOOKBACK_DAYS:
+            # Use search API with CQL for date filtering
+            url = f"{CONFLUENCE_BASE_URL}/rest/api/content/search"
+            cql = f"space = \"{space_key}\" AND type = \"page\" AND lastModified >= \"-{LOOKBACK_DAYS}d\""
+            params = {
+                "cql": cql,
+                "expand": "body.storage,version,history,ancestors",
+                "start": start_at,
+                "limit": limit
+            }
+        else:
+            # Standard content API
+            url = f"{CONFLUENCE_BASE_URL}/rest/api/content"
+            params = {
+                "spaceKey": space_key,
+                "expand": "body.storage,version,history,ancestors",
+                "start": start_at,
+                "limit": limit,
+                "type": "page"
+            }
+        
         response = requests.get(url, headers=HEADERS, params=params)
         response.raise_for_status()
         data = response.json()
+        
+        # Search API returns results in 'results', Content API also in 'results'
         pages = data.get('results', [])
         
         if not pages:

@@ -36,6 +36,17 @@ services:
     stdin_open: true
     tty: true
 
+  cron-scheduler:
+    extends:
+      service: base
+    volumes:
+      - ../data:/app/data
+      - ./crontab:/etc/cron.d/my-cron
+      - ./cron-entrypoint.sh:/app/cron-entrypoint.sh
+    entrypoint: /bin/bash /app/cron-entrypoint.sh
+    user: root
+    restart: always
+
 networks:
   me:
     driver: bridge

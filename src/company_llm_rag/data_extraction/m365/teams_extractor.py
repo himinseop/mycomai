@@ -1,11 +1,12 @@
 import os
 import json
 import requests
-import msal # Assuming 'msal' is installed (pip install msal)
-from dotenv import load_dotenv # Added for loading .env file
-import sys # Added for sys.stderr
+import msal 
+from datetime import datetime, timedelta, timezone
+from dotenv import load_dotenv 
+import sys 
 
-load_dotenv() # Load environment variables from .env file
+load_dotenv() 
 
 # Environment variables for Azure AD App registration
 TENANT_ID = os.getenv('TENANT_ID')
@@ -14,13 +15,11 @@ CLIENT_SECRET = os.getenv('CLIENT_SECRET')
 
 # Teams specific environment variable
 TEAMS_GROUP_NAMES = os.getenv('TEAMS_GROUP_NAME', "").split(',')
+# Number of days to look back for updates
+LOOKBACK_DAYS = os.getenv('LOOKBACK_DAYS')
 
-# Authority and Scope for Microsoft Graph API
-AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPE = ["https://graph.microsoft.com/.default"] # Requesting default permissions
-
-if not all([TENANT_ID, CLIENT_ID, CLIENT_SECRET]) or not any(TEAMS_GROUP_NAMES):
-    print("Please set TENANT_ID, CLIENT_ID, CLIENT_SECRET, and TEAMS_GROUP_NAME environment variables.", file=sys.stderr)
+if not all([TENANT_ID, CLIENT_ID, CLIENT_SECRET]):
+    print("Please set TENANT_ID, CLIENT_ID, and CLIENT_SECRET environment variables.", file=sys.stderr)
     exit(1)
 
 # Initialize MSAL ConfidentialClientApplication
@@ -76,10 +75,15 @@ def get_channels_for_team(team_id, access_token):
     return all_channels
 
 def get_channel_messages(team_id, channel_id, access_token):
-    """Gets all messages (and replies) for a given channel."""
+    """Gets messages for a channel. Filters by date if LOOKBACK_DAYS is set."""
     all_messages = []
-    # Using /messages endpoint to get top-level messages
+    # Base URL for messages
     endpoint = f"https://graph.microsoft.com/v1.0/teams/{team_id}/channels/{channel_id}/messages?$expand=replies"
+    
+    if LOOKBACK_DAYS:
+        lookback_date = (datetime.now(timezone.utc) - timedelta(days=int(LOOKBACK_DAYS))).isoformat()
+        # Graph API filter for messages modified after a certain date
+        endpoint += f"&$filter=lastModifiedDateTime ge {lookback_date}"
     
     while endpoint:
         response_data = call_graph_api(endpoint, access_token)

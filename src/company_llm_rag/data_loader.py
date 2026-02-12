@@ -133,14 +133,14 @@ def load_data_to_chromadb(data_stream):
 
 
                 try:
-                    collection.add(
+                    collection.upsert(
                         documents=[chunk],
                         metadatas=[metadata_to_store],
                         ids=[chunk_id]
                     )
-                    # print(f"Loaded chunk {chunk_id} into ChromaDB.")
+                    # print(f"Loaded/Updated chunk {chunk_id} in ChromaDB.")
                 except Exception as e:
-                    print(f"Error loading chunk {chunk_id} to ChromaDB: {e}", file=sys.stderr)
+                    print(f"Error upserting chunk {chunk_id} to ChromaDB: {e}", file=sys.stderr)
 
         except json.JSONDecodeError as e:
             print(f"Skipping invalid JSONL line: {line.strip()} - Error: {e}", file=sys.stderr)

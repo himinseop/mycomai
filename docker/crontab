@@ -1,0 +1,8 @@
+# Set the lookback days for incremental updates (1 day)
+LOOKBACK_DAYS=1
+
+# Run the data loader every day at 02:00 AM
+0 2 * * * cd /app && /usr/local/bin/python3 -c "import os; print('
+'.join(f'{k}={v}' for k,v in os.environ.items()))" > /tmp/env.sh && . /tmp/env.sh && bash -c "echo 'Starting scheduled data collection...' && python3 company_llm_rag/data_extraction/jira/jira_extractor.py > data/jira_data.jsonl && python3 company_llm_rag/data_extraction/confluence/confluence_extractor.py > data/confluence_data.jsonl && python3 company_llm_rag/data_extraction/m365/sharepoint_extractor.py > data/sharepoint_data.jsonl && python3 company_llm_rag/data_extraction/m365/teams_extractor.py > data/teams_data.jsonl && cat data/*.jsonl | python3 company_llm_rag/data_loader.py" >> /var/log/cron.log 2>&1
+
+# Empty line required at the end of crontab

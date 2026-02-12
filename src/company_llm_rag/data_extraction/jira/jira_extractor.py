@@ -12,9 +12,11 @@ JIRA_BASE_URL = os.getenv('JIRA_BASE_URL')
 JIRA_API_TOKEN = os.getenv('JIRA_API_TOKEN')
 JIRA_EMAIL = os.getenv('JIRA_EMAIL')
 JIRA_PROJECT_KEYS = os.getenv('JIRA_PROJECT_KEY', "").split(',')
+# Number of days to look back for updates (None means all time)
+LOOKBACK_DAYS = os.getenv('LOOKBACK_DAYS')
 
-if not all([JIRA_BASE_URL, JIRA_API_TOKEN, JIRA_EMAIL]) or not any(JIRA_PROJECT_KEYS):
-    print("Please set JIRA_BASE_URL, JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_PROJECT_KEY environment variables.", file=sys.stderr)
+if not all([JIRA_BASE_URL, JIRA_API_TOKEN, JIRA_EMAIL]):
+    print("Please set JIRA_BASE_URL, JIRA_API_TOKEN, and JIRA_EMAIL environment variables.", file=sys.stderr)
     exit(1)
 
 HEADERS = {
@@ -31,16 +33,21 @@ def get_all_projects():
 
 def get_issues_for_project(project_key):
     """
-    Fetches all issues for a given project from Jira Cloud.
+    Fetches issues for a given project. Uses LOOKBACK_DAYS for incremental updates if set.
     """
     all_issues = []
     start_at = 0
-    max_results = 50 # Jira API default and maximum is 50 for search
+    max_results = 50 
+
+    jql = f"project = \"{project_key}\""
+    if LOOKBACK_DAYS:
+        jql += f" AND updated >= \"-{LOOKBACK_DAYS}d\""
+    jql += " ORDER BY updated DESC"
 
     while True:
         url = f"{JIRA_BASE_URL}/rest/api/3/search/jql"
         params = {
-            "jql": f"project = \"{project_key}\" ORDER BY created DESC",
+            "jql": jql,
             "startAt": start_at,
             "maxResults": max_results,
             "fields": "summary,description,comment,status,priority,reporter,assignee,issuetype,created,updated"

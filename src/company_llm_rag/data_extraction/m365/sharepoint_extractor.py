@@ -100,30 +100,34 @@ def get_drive_id_for_site(site_id, access_token):
     return drive_info['id']
 
 def get_files_in_folder(drive_id, folder_path, access_token):
-    """Recursively gets all files within a SharePoint folder."""
+    """Recursively gets files within a folder. Filters by date if LOOKBACK_DAYS is set."""
     all_files_metadata = []
     
-    # Start with the root folder if folder_path is empty or refers to root
+    # Base URL for children
     if folder_path == "" or folder_path == "/":
-        endpoint = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/children"
+        base_endpoint = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/children"
     else:
-        # Encode the folder path for URL
         encoded_folder_path = requests.utils.quote(folder_path.lstrip('/'))
-        endpoint = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{encoded_folder_path}:/children"
+        base_endpoint = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{encoded_folder_path}:/children"
+
+    endpoint = base_endpoint
+    if LOOKBACK_DAYS:
+        lookback_date = (datetime.now(timezone.utc) - timedelta(days=int(LOOKBACK_DAYS))).isoformat()
+        # Graph API filter for files modified after a certain date
+        endpoint += f"?$filter=lastModifiedDateTime ge {lookback_date}"
 
     while endpoint:
         response_data = call_graph_api(endpoint, access_token)
         items = response_data.get('value', [])
         
         for item in items:
-            if 'file' in item: # It's a file
+            if 'file' in item: 
                 all_files_metadata.append(item)
-            elif 'folder' in item: # It's a folder, recurse
-                # Construct new folder_path for recursion
+            elif 'folder' in item: 
                 new_folder_path = os.path.join(folder_path, item['name'])
                 all_files_metadata.extend(get_files_in_folder(drive_id, new_folder_path, access_token))
         
-        endpoint = response_data.get('@odata.nextLink') # For pagination
+        endpoint = response_data.get('@odata.nextLink') 
 
     return all_files_metadata
 
