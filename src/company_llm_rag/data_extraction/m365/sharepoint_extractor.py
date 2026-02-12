@@ -14,13 +14,13 @@ CLIENT_ID = os.getenv('CLIENT_ID')
 CLIENT_SECRET = os.getenv('CLIENT_SECRET')
 
 # SharePoint specific environment variable
-SHAREPOINT_SITE_NAME = os.getenv('SHAREPOINT_SITE_NAME') # e.g., 'o2olab'
+SHAREPOINT_SITE_NAMES = os.getenv('SHAREPOINT_SITE_NAME', "").split(',')
 
 # Authority and Scope for Microsoft Graph API
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPE = ["https://graph.microsoft.com/.default"] # Requesting default permissions
 
-if not all([TENANT_ID, CLIENT_ID, CLIENT_SECRET, SHAREPOINT_SITE_NAME]):
+if not all([TENANT_ID, CLIENT_ID, CLIENT_SECRET]) or not any(SHAREPOINT_SITE_NAMES):
     print("Please set TENANT_ID, CLIENT_ID, CLIENT_SECRET, and SHAREPOINT_SITE_NAME environment variables.", file=sys.stderr)
     exit(1)
 
@@ -135,71 +135,75 @@ def main():
         access_token = get_access_token()
         print("Successfully acquired access token.", file=sys.stderr)
 
-        site_id = get_sharepoint_site_id(SHAREPOINT_SITE_NAME, access_token)
-        print(f"SharePoint Site ID for '{SHAREPOINT_SITE_NAME}': {site_id}", file=sys.stderr)
+        for site_name in SHAREPOINT_SITE_NAMES:
+            site_name = site_name.strip()
+            if not site_name:
+                continue
+            
+            try:
+                site_id = get_sharepoint_site_id(site_name, access_token)
+                print(f"SharePoint Site ID for '{site_name}': {site_id}", file=sys.stderr)
 
-        drive_id = get_drive_id_for_site(site_id, access_token)
-        print(f"Default Drive ID for site: {drive_id}", file=sys.stderr)
+                drive_id = get_drive_id_for_site(site_id, access_token)
+                print(f"Default Drive ID for site: {drive_id}", file=sys.stderr)
 
-        print(f"Fetching files from SharePoint site '{SHAREPOINT_SITE_NAME}'...", file=sys.stderr)
-        files_metadata = get_files_in_folder(drive_id, "", access_token) # Start from root of the drive
+                print(f"Fetching files from SharePoint site '{site_name}'...", file=sys.stderr)
+                files_metadata = get_files_in_folder(drive_id, "", access_token) # Start from root of the drive
 
-        if files_metadata:
-            for file_meta in files_metadata:
-                file_name = file_meta.get('name')
-                file_id = file_meta.get('id')
-                file_web_url = file_meta.get('webUrl')
-                file_download_url = file_meta.get('@microsoft.graph.downloadUrl')
-                file_path = file_meta.get('parentReference', {}).get('path')
-                
-                content_to_store = None
-                mime_type = file_meta.get('file', {}).get('mimeType')
-                file_size = file_meta.get('size')
+                if files_metadata:
+                    for file_meta in files_metadata:
+                        file_name = file_meta.get('name')
+                        file_id = file_meta.get('id')
+                        file_web_url = file_meta.get('webUrl')
+                        file_download_url = file_meta.get('@microsoft.graph.downloadUrl')
+                        file_path = file_meta.get('parentReference', {}).get('path')
+                        
+                        content_to_store = None
+                        mime_type = file_meta.get('file', {}).get('mimeType')
+                        file_size = file_meta.get('size')
 
-                # Attempt to download content only for supported text-based files
-                # This is a simplified check; a robust solution would use a proper file type parser
-                if file_download_url and mime_type in [
-                    "text/plain", "text/markdown", "application/json", "application/xml",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", # .docx
-                    "application/pdf" # For PDF, you'd need a separate library like PyPDF2
-                ]:
-                    try:
-                        # For docx/pdf, content won't be directly text from downloadUrl without conversion.
-                        # This part would need external libraries to parse non-plain text files.
-                        # For now, we'll just download as text and it will likely fail for binary formats.
-                        file_content = download_file_content(file_download_url, access_token)
-                        content_to_store = file_content
-                    except Exception as e:
-                        content_to_store = f"[Error downloading or parsing content: {e}]"
-                        print(f"Warning: Could not download/parse content for {file_name}: {e}", file=sys.stderr)
-                elif file_download_url:
-                    content_to_store = f"[Content not extracted: Unsupported MIME type {mime_type}]"
+                        # Attempt to download content only for supported text-based files
+                        if file_download_url and mime_type in [
+                            "text/plain", "text/markdown", "application/json", "application/xml",
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document", # .docx
+                            "application/pdf" # For PDF
+                        ]:
+                            try:
+                                file_content = download_file_content(file_download_url, access_token)
+                                content_to_store = file_content
+                            except Exception as e:
+                                content_to_store = f"[Error downloading or parsing content: {e}]"
+                                print(f"Warning: Could not download/parse content for {file_name}: {e}", file=sys.stderr)
+                        elif file_download_url:
+                            content_to_store = f"[Content not extracted: Unsupported MIME type {mime_type}]"
+                        else:
+                            content_to_store = "[Content not available for download]"
+
+
+                        extracted_data_schema = {
+                            "id": f"sharepoint-{file_id}",
+                            "source": "sharepoint",
+                            "source_id": file_id,
+                            "url": file_web_url,
+                            "title": file_name,
+                            "content": content_to_store,
+                            "content_type": "file",
+                            "created_at": file_meta.get('createdDateTime'),
+                            "updated_at": file_meta.get('lastModifiedDateTime'),
+                            "author": file_meta.get('lastModifiedBy', {}).get('user', {}).get('displayName'), # Using lastModifiedBy for author
+                            "metadata": {
+                                "sharepoint_site_name": site_name,
+                                "sharepoint_file_path": file_path,
+                                "mime_type": mime_type,
+                                "size": file_size
+                            }
+                        }
+                        
+                        print(json.dumps(extracted_data_schema, ensure_ascii=False))
                 else:
-                    content_to_store = "[Content not available for download]"
-
-
-                extracted_data_schema = {
-                    "id": f"sharepoint-{file_id}",
-                    "source": "sharepoint",
-                    "source_id": file_id,
-                    "url": file_web_url,
-                    "title": file_name,
-                    "content": content_to_store,
-                    "content_type": "file",
-                    "created_at": file_meta.get('createdDateTime'),
-                    "updated_at": file_meta.get('lastModifiedDateTime'),
-                    "author": file_meta.get('lastModifiedBy', {}).get('user', {}).get('displayName'), # Using lastModifiedBy for author
-                    "metadata": {
-                        "sharepoint_site_name": SHAREPOINT_SITE_NAME,
-                        "sharepoint_file_path": file_path,
-                        "mime_type": mime_type,
-                        "size": file_size
-                    }
-                }
-                
-                print(json.dumps(extracted_data_schema, ensure_ascii=False))
-        else:
-            print(f"No files found in SharePoint site '{SHAREPOINT_SITE_NAME}'.", file=sys.stderr)
+                    print(f"No files found in SharePoint site '{site_name}'.", file=sys.stderr)
+            except Exception as e:
+                print(f"Error processing SharePoint site '{site_name}': {e}", file=sys.stderr)
 
     except requests.exceptions.RequestException as e:
         print(f"Error calling Microsoft Graph API: {e}", file=sys.stderr)

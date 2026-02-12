@@ -51,7 +51,7 @@ def convert_adf_to_plain_text(adf_json):
         return _extract_text_from_adf_node(adf_json['content'])
     return str(adf_json) # Fallback if it's not a valid ADF doc
 
-def chunk_content(content: str, chunk_size: int = 200, chunk_overlap: int = 50) -> List[str]:
+def chunk_content(content: str, chunk_size: int = 100, chunk_overlap: int = 50) -> List[str]:
     """
     Splits text content into smaller chunks.
     A simple fixed-size chunking strategy. More advanced chunking can be implemented.

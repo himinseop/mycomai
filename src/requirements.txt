@@ -1,0 +1,6 @@
+requests
+msal
+chromadb
+openai
+python-dotenv
+google-generativeai

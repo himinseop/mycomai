@@ -13,10 +13,10 @@ CONFLUENCE_BASE_URL = os.getenv('CONFLUENCE_BASE_URL')
 CONFLUENCE_API_TOKEN = os.getenv('CONFLUENCE_API_TOKEN')
 # Your Atlassian email
 CONFLUENCE_EMAIL = os.getenv('CONFLUENCE_EMAIL')
-# Confluence Space Key (e.g., 'O2OLAB')
-CONFLUENCE_SPACE_KEY = os.getenv('CONFLUENCE_SPACE_KEY')
+# Confluence Space Keys (e.g., 'SPACE1,SPACE2')
+CONFLUENCE_SPACE_KEYS = os.getenv('CONFLUENCE_SPACE_KEY', "").split(',')
 
-if not all([CONFLUENCE_BASE_URL, CONFLUENCE_API_TOKEN, CONFLUENCE_EMAIL, CONFLUENCE_SPACE_KEY]):
+if not all([CONFLUENCE_BASE_URL, CONFLUENCE_API_TOKEN, CONFLUENCE_EMAIL]) or not any(CONFLUENCE_SPACE_KEYS):
     print("Please set CONFLUENCE_BASE_URL, CONFLUENCE_API_TOKEN, CONFLUENCE_EMAIL, and CONFLUENCE_SPACE_KEY environment variables.", file=sys.stderr)
     exit(1)
 
@@ -98,50 +98,54 @@ def get_confluence_comments_for_page(page_id):
     return all_comments
 
 def main():
-    print(f"Fetching Confluence pages from space: {CONFLUENCE_SPACE_KEY}...", file=sys.stderr)
-    try:
-        pages_data = get_confluence_pages_in_space(CONFLUENCE_SPACE_KEY)
-        if pages_data:
-            for page in pages_data:
-                extracted_data_schema = {
-                    "id": f"confluence-{page.get('id')}",
-                    "source": "confluence",
-                    "source_id": page.get('id'),
-                    "url": f"{CONFLUENCE_BASE_URL}{page.get('_links', {}).get('webui')}",
-                    "title": page.get('title'),
-                    "content": page.get('body', {}).get('storage', {}).get('value'),
-                    "content_type": "page",
-                    "created_at": page.get('history', {}).get('createdDate'),
-                    "updated_at": page.get('version', {}).get('when'),
-                    "author": page.get('history', {}).get('createdBy', {}).get('displayName'),
-                    "metadata": {
-                        "confluence_space_key": CONFLUENCE_SPACE_KEY,
-                        "confluence_space_name": CONFLUENCE_SPACE_KEY, # Assuming space key is the name
-                        "last_updated_author": page.get('version', {}).get('by', {}).get('displayName'),
-                        "comments": []
+    for space_key in CONFLUENCE_SPACE_KEYS:
+        space_key = space_key.strip()
+        if not space_key:
+            continue
+        print(f"Fetching Confluence pages from space: {space_key}...", file=sys.stderr)
+        try:
+            pages_data = get_confluence_pages_in_space(space_key)
+            if pages_data:
+                for page in pages_data:
+                    extracted_data_schema = {
+                        "id": f"confluence-{page.get('id')}",
+                        "source": "confluence",
+                        "source_id": page.get('id'),
+                        "url": f"{CONFLUENCE_BASE_URL}{page.get('_links', {}).get('webui')}",
+                        "title": page.get('title'),
+                        "content": page.get('body', {}).get('storage', {}).get('value'),
+                        "content_type": "page",
+                        "created_at": page.get('history', {}).get('createdDate'),
+                        "updated_at": page.get('version', {}).get('when'),
+                        "author": page.get('history', {}).get('createdBy', {}).get('displayName'),
+                        "metadata": {
+                            "confluence_space_key": space_key,
+                            "confluence_space_name": space_key, # Assuming space key is the name
+                            "last_updated_author": page.get('version', {}).get('by', {}).get('displayName'),
+                            "comments": []
+                        }
                     }
-                }
 
-                # Fetch comments for the page
-                comments_data = get_confluence_comments_for_page(page.get('id'))
-                for comment in comments_data:
-                    extracted_data_schema["metadata"]["comments"].append({
-                        "id": comment.get('id'),
-                        "author": comment.get('author', {}).get('displayName'),
-                        "created_at": comment.get('history', {}).get('createdDate'),
-                        "content": comment.get('body', {}).get('storage', {}).get('value')
-                    })
-                
-                print(json.dumps(extracted_data_schema, ensure_ascii=False))
-        else:
-            print(f"No pages found for Confluence space {CONFLUENCE_SPACE_KEY}.", file=sys.stderr)
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching Confluence data: {e}", file=sys.stderr)
-        if e.response:
-            print(f"Response status: {e.response.status_code}", file=sys.stderr)
-            print(f"Response body: {e.response.text}", file=sys.stderr)
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}", file=sys.stderr)
+                    # Fetch comments for the page
+                    comments_data = get_confluence_comments_for_page(page.get('id'))
+                    for comment in comments_data:
+                        extracted_data_schema["metadata"]["comments"].append({
+                            "id": comment.get('id'),
+                            "author": comment.get('author', {}).get('displayName'),
+                            "created_at": comment.get('history', {}).get('createdDate'),
+                            "content": comment.get('body', {}).get('storage', {}).get('value')
+                        })
+                    
+                    print(json.dumps(extracted_data_schema, ensure_ascii=False))
+            else:
+                print(f"No pages found for Confluence space {space_key}.", file=sys.stderr)
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching Confluence data for space {space_key}: {e}", file=sys.stderr)
+            if e.response:
+                print(f"Response status: {e.response.status_code}", file=sys.stderr)
+                print(f"Response body: {e.response.text}", file=sys.stderr)
+        except Exception as e:
+            print(f"An unexpected error occurred for space {space_key}: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()
