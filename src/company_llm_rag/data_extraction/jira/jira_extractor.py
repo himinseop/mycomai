@@ -1,11 +1,11 @@
 import json
 import requests
 import os
-import base64 # Added for base64 encoding
+import base64
 from dotenv import load_dotenv
-import sys # Added for sys.stderr
+import sys
 
-load_dotenv() # Load environment variables from .env file
+load_dotenv()
 
 # Jira Cloud URL (e.g., 'https://your-company.atlassian.net')
 JIRA_BASE_URL = os.getenv('JIRA_BASE_URL')
@@ -89,39 +89,54 @@ def main():
                 print(f"  - Found {len(issues_data)} issues.", file=sys.stderr)
                 # Output in JSON Lines format
                 for issue in issues_data:
-                    # Extract relevant fields and format as a flat structure for RAG
-                    extracted_data_schema = {
-                        "id": f"jira-{issue.get('id')}",
-                        "source": "jira",
-                        "source_id": issue.get('id'),
-                        "url": f"{JIRA_BASE_URL}/browse/{issue.get('key')}",
-                        "title": issue['fields'].get('summary'),
-                        "content": issue['fields'].get('description'),
-                        "content_type": "issue",
-                        "created_at": issue['fields'].get('created'),
-                        "updated_at": issue['fields'].get('updated'),
-                        "author": issue['fields'].get('reporter', {}).get('displayName'),
-                        "metadata": {
-                            "jira_project_key": project_key,
-                            "jira_issue_key": issue.get('key'),
-                            "jira_issue_type": issue['fields'].get('issuetype', {}).get('name'),
-                            "status": issue['fields'].get('status', {}).get('name'),
-                            "priority": issue['fields'].get('priority', {}).get('name'),
-                            "assignee": issue['fields'].get('assignee', {}).get('displayName'),
-                            "comments": []
+                    try:
+                        fields = issue.get('fields')
+                        if not fields:
+                            print(f"  - Skipping issue {issue.get('key')} due to missing fields.", file=sys.stderr)
+                            continue
+
+                        # Extract relevant fields and format as a flat structure for RAG
+                        description = fields.get('description')
+                        if description is None:
+                            description = ""
+                        
+                        extracted_data_schema = {
+                            "id": f"jira-{issue.get('id')}",
+                            "source": "jira",
+                            "source_id": issue.get('id'),
+                            "url": f"{JIRA_BASE_URL}/browse/{issue.get('key')}",
+                            "title": fields.get('summary', 'No Summary'),
+                            "content": description,
+                            "content_type": "issue",
+                            "created_at": fields.get('created'),
+                            "updated_at": fields.get('updated'),
+                            "author": fields.get('reporter', {}).get('displayName') if fields.get('reporter') else "Unknown",
+                            "metadata": {
+                                "jira_project_key": project_key,
+                                "jira_issue_key": issue.get('key'),
+                                "jira_issue_type": fields.get('issuetype', {}).get('name') if fields.get('issuetype') else "Unknown",
+                                "status": fields.get('status', {}).get('name') if fields.get('status') else "Unknown",
+                                "priority": fields.get('priority', {}).get('name') if fields.get('priority') else "None",
+                                "assignee": fields.get('assignee', {}).get('displayName') if fields.get('assignee') else "Unassigned",
+                                "comments": []
+                            }
                         }
-                    }
-                    # Process comments
-                    comments = issue['fields'].get('comment', {}).get('comments', [])
-                    for comment in comments:
-                        extracted_data_schema["metadata"]["comments"].append({
-                            "id": comment.get('id'),
-                            "author": comment.get('author', {}).get('displayName'),
-                            "created_at": comment.get('created'),
-                            "content": comment.get('body')
-                        })
-                    
-                    print(json.dumps(extracted_data_schema, ensure_ascii=False))
+                        # Process comments
+                        comment_obj = fields.get('comment', {})
+                        comments = comment_obj.get('comments', []) if comment_obj else []
+                        for comment in comments:
+                            if not comment: continue
+                            extracted_data_schema["metadata"]["comments"].append({
+                                "id": comment.get('id'),
+                                "author": comment.get('author', {}).get('displayName') if comment.get('author') else "Unknown",
+                                "created_at": comment.get('created'),
+                                "content": comment.get('body')
+                            })
+                        
+                        print(json.dumps(extracted_data_schema, ensure_ascii=False))
+                    except Exception as inner_e:
+                        print(f"  - Error processing issue {issue.get('key', 'unknown')}: {inner_e}", file=sys.stderr)
+                        continue
             else:
                 print(f"No issues found for project {project_key} or unexpected response format.", file=sys.stderr)
         except requests.exceptions.RequestException as e:

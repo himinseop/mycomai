@@ -3,10 +3,10 @@ import json
 from typing import List, Dict
 
 import openai # pip install openai
-from retrieval_module import retrieve_documents # Assuming retrieval_module is in the same directory
-from dotenv import load_dotenv # Added for loading .env file
+from retrieval_module import retrieve_documents
+from dotenv import load_dotenv
 
-load_dotenv() # Load environment variables from .env file
+load_dotenv()
 
 # Environment variables
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
@@ -37,45 +37,35 @@ def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
         elif source == "teams" and doc['metadata'].get('replies'):
             comments_or_replies = [f"Reply by {r.get('sender')} on {r.get('created_at')}: {r.get('content')}" for r in doc['metadata']['replies']]
 
-        comments_or_replies_str = "
-".join(comments_or_replies) if comments_or_replies else ""
+        comments_or_replies_str = "\n".join(comments_or_replies) if comments_or_replies else ""
 
-        context_parts.append(f"--- Document {i+1} (Source: {source}, Title: {title}, URL: {url}) ---
-"
-                             f"{doc['content']}
-"
-                             f"{comments_or_replies_str}"
+        context_parts.append(f"--- Document {i+1} (Source: {source}, Title: {title}, URL: {url}) ---\n"
+                             f"{doc['content']}\n"
+                             f"{comments_or_replies_str}\n"
                              f"----------------------------------------------------------")
 
-    context = "
-
-".join(context_parts)
+    context = "\n\n".join(context_parts)
 
     prompt = (
         "You are an AI assistant for a company. Your task is to answer questions based on the provided company knowledge base. "
         "Use only the information from the documents provided below to answer the question. "
         "If the answer cannot be found in the documents, state that you don't have enough information. "
-        "Do not make up any information.
-
-"
-        "Company Knowledge Base:
-"
-        f"{context}
-
-"
-        f"User Query: {user_query}
-
-"
+        "Do not make up any information.\n\n"
+        "Company Knowledge Base:\n"
+        f"{context}\n\n"
+        f"User Query: {user_query}\n\n"
         "Answer:"
     )
     return prompt
 
-def get_llm_response(prompt: str, model: str = "gpt-3.5-turbo", temperature: float = 0.7) -> str:
+def get_llm_response(prompt: str, model: str = "gpt-4o", temperature: float = 0.7) -> str:
     """
     Gets a response from the LLM.
     """
     try:
-        response = openai.chat.completions.create(
+        # Compatibility with latest openai library
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        response = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -91,7 +81,7 @@ def rag_query(user_query: str) -> str:
     """
     Executes a RAG query: retrieves documents and generates an LLM response.
     """
-    retrieved_docs = retrieve_documents(user_query)
+    retrieved_docs = retrieve_documents(user_query, n_results=3)
     
     if not retrieved_docs:
         return "I could not find any relevant information in the company knowledge base for your query."
@@ -104,12 +94,15 @@ def rag_query(user_query: str) -> str:
 if __name__ == "__main__":
     print("Company LLM RAG System ready. Type 'exit' to quit.")
     while True:
-        query = input("
-Enter your query: ")
-        if query.lower() == 'exit':
+        try:
+            query = input("\nEnter your query: ")
+            if query.lower() == 'exit':
+                break
+            
+            response = rag_query(query)
+            print("\nLLM Response:")
+            print(response)
+        except EOFError:
             break
-        
-        response = rag_query(query)
-        print("
-LLM Response:")
-        print(response)
+        except Exception as e:
+            print(f"Error: {e}")
