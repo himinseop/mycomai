@@ -25,6 +25,26 @@ HEADERS = {
     "Authorization": f"Basic {base64.b64encode(f'{CONFLUENCE_EMAIL}:{CONFLUENCE_API_TOKEN}'.encode()).decode()}"
 }
 
+def get_all_spaces():
+    """Fetches all spaces available to the user."""
+    all_spaces = []
+    start_at = 0
+    limit = 50
+    while True:
+        url = f"{CONFLUENCE_BASE_URL}/rest/api/space"
+        params = {"start": start_at, "limit": limit}
+        response = requests.get(url, headers=HEADERS, params=params)
+        response.raise_for_status()
+        data = response.json()
+        results = data.get('results', [])
+        if not results:
+            break
+        all_spaces.extend(results)
+        start_at += len(results)
+        if len(results) < limit:
+            break
+    return all_spaces
+
 def get_confluence_pages_in_space(space_key):
     """
     Fetches all pages from a given Confluence space.
@@ -98,14 +118,24 @@ def get_confluence_comments_for_page(page_id):
     return all_comments
 
 def main():
-    for space_key in CONFLUENCE_SPACE_KEYS:
-        space_key = space_key.strip()
-        if not space_key:
-            continue
-        print(f"Fetching Confluence pages from space: {space_key}...", file=sys.stderr)
+    target_spaces = [k.strip() for k in CONFLUENCE_SPACE_KEYS if k.strip()]
+
+    if not target_spaces:
+        print("No CONFLUENCE_SPACE_KEY specified. Discovering all accessible spaces...", file=sys.stderr)
+        try:
+            spaces = get_all_spaces()
+            target_spaces = [s['key'] for s in spaces]
+            print(f"Discovered {len(target_spaces)} spaces: {', '.join(target_spaces)}", file=sys.stderr)
+        except Exception as e:
+            print(f"Error discovering spaces: {e}", file=sys.stderr)
+            return
+
+    for i, space_key in enumerate(target_spaces):
+        print(f"[{i+1}/{len(target_spaces)}] Processing Confluence space: {space_key}...", file=sys.stderr)
         try:
             pages_data = get_confluence_pages_in_space(space_key)
             if pages_data:
+                print(f"  - Found {len(pages_data)} pages.", file=sys.stderr)
                 for page in pages_data:
                     extracted_data_schema = {
                         "id": f"confluence-{page.get('id')}",

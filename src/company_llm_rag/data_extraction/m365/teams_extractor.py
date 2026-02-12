@@ -48,9 +48,15 @@ def call_graph_api(endpoint, access_token):
     response.raise_for_status()
     return response.json()
 
+def get_all_teams(access_token):
+    """Fetches all Teams (M365 Groups with Team provisioning) available to the user/application."""
+    endpoint = "https://graph.microsoft.com/v1.0/groups?$filter=resourceProvisioningOptions/any(x:x eq 'Team')&$select=id,displayName"
+    results = call_graph_api(endpoint, access_token)
+    return results.get('value', [])
+
 def get_team_id_by_display_name(team_display_name, access_token):
     """Gets the Team (Microsoft 365 Group) ID by its display name."""
-    endpoint = f"https://graph.microsoft.com/v1.0/groups?$filter=displayName eq '{team_display_name}'&$select=id,displayName"
+    endpoint = f"https://graph.microsoft.com/v1.0/groups?$filter=displayName eq '{team_display_name}' and resourceProvisioningOptions/any(x:x eq 'Team')&$select=id,displayName"
     response_data = call_graph_api(endpoint, access_token)
     groups = response_data.get('value', [])
     if groups:
@@ -87,24 +93,38 @@ def main():
         access_token = get_access_token()
         print("Successfully acquired access token.", file=sys.stderr)
 
-        for group_name in TEAMS_GROUP_NAMES:
-            group_name = group_name.strip()
-            if not group_name:
-                continue
-            
+        target_teams = [g.strip() for g in TEAMS_GROUP_NAMES if g.strip()]
+        
+        if not target_teams:
+            print("No TEAMS_GROUP_NAME specified. Discovering all accessible teams...", file=sys.stderr)
             try:
-                team_id = get_team_id_by_display_name(group_name, access_token)
-                print(f"Team ID for '{group_name}': {team_id}", file=sys.stderr)
+                teams = get_all_teams(access_token)
+                target_teams = [t['displayName'] for t in teams]
+                team_map = { t['displayName']: t['id'] for t in teams }
+                print(f"Discovered {len(target_teams)} teams: {', '.join(target_teams)}", file=sys.stderr)
+            except Exception as e:
+                print(f"Error discovering teams: {e}", file=sys.stderr)
+                return
+        else:
+            team_map = {}
+
+        for i, group_name in enumerate(target_teams):
+            print(f"[{i+1}/{len(target_teams)}] Processing Teams team: {group_name}...", file=sys.stderr)
+            try:
+                team_id = team_map.get(group_name) or get_team_id_by_display_name(group_name, access_token)
+                print(f"  - Team ID: {team_id}", file=sys.stderr)
 
                 channels = get_channels_for_team(team_id, access_token)
-                print(f"Found {len(channels)} channels in Team '{group_name}'.", file=sys.stderr)
+                print(f"  - Found {len(channels)} channels.", file=sys.stderr)
 
                 for channel in channels:
                     channel_id = channel['id']
                     channel_display_name = channel['displayName']
-                    print(f"Fetching messages from channel: {channel_display_name}", file=sys.stderr)
+                    print(f"    - Fetching messages from channel: {channel_display_name}", file=sys.stderr)
 
                     messages = get_channel_messages(team_id, channel_id, access_token)
+                    if messages:
+                        print(f"      - Found {len(messages)} message threads.", file=sys.stderr)
                     for message in messages:
                         author_info = message.get('from', {})
                         author_name = "Unknown"

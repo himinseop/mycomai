@@ -51,6 +51,13 @@ def call_graph_api(endpoint, access_token):
     response.raise_for_status()
     return response.json()
 
+def get_all_sites(access_token):
+    """Fetches all SharePoint sites available to the user/application."""
+    # Searching with '*' is a common way to list accessible sites
+    endpoint = "https://graph.microsoft.com/v1.0/sites?search=*"
+    results = call_graph_api(endpoint, access_token)
+    return results.get('value', [])
+
 def get_sharepoint_site_id(site_name, access_token):
     """Gets the SharePoint site ID by its name."""
     # First, try to find the site using the search endpoint which is often more reliable
@@ -62,16 +69,15 @@ def get_sharepoint_site_id(site_name, access_token):
         if sites:
             # Look for an exact match on display name
             for site in sites:
-                if site.get('displayName').lower() == site_name.lower():
+                if site.get('displayName').lower() == site_name.lower() or site.get('name').lower() == site_name.lower():
                     return site['id']
-            # If no exact display name match, take the first one if any
+            # If no exact match, take the first one if any
             return sites[0]['id']
     except requests.exceptions.HTTPError as e:
         # If search fails, it might be due to permissions or the search mechanism itself
-        print(f"SharePoint site search failed: {e}. Falling back to hostname-based lookup.", file=sys.stderr)
-        # Continue to original hostname-based lookup
+        print(f"SharePoint site search failed for '{site_name}': {e}. Falling back to hostname-based lookup.", file=sys.stderr)
 
-    # Fallback to original hostname-based lookup if search didn't work or failed
+    # Fallback to original hostname-based lookup
     root_site_info = call_graph_api("https://graph.microsoft.com/v1.0/sites/root", access_token)
     hostname = urlparse(root_site_info['webUrl']).hostname
 
@@ -135,22 +141,34 @@ def main():
         access_token = get_access_token()
         print("Successfully acquired access token.", file=sys.stderr)
 
-        for site_name in SHAREPOINT_SITE_NAMES:
-            site_name = site_name.strip()
-            if not site_name:
-                continue
-            
+        target_sites = [s.strip() for s in SHAREPOINT_SITE_NAMES if s.strip()]
+        
+        if not target_sites:
+            print("No SHAREPOINT_SITE_NAME specified. Discovering all accessible sites...", file=sys.stderr)
             try:
-                site_id = get_sharepoint_site_id(site_name, access_token)
-                print(f"SharePoint Site ID for '{site_name}': {site_id}", file=sys.stderr)
+                sites = get_all_sites(access_token)
+                target_sites = [s.get('displayName') or s.get('name') for s in sites]
+                # Store mapping for later use if needed
+                site_map = { (s.get('displayName') or s.get('name')): s['id'] for s in sites }
+                print(f"Discovered {len(target_sites)} sites: {', '.join(target_sites)}", file=sys.stderr)
+            except Exception as e:
+                print(f"Error discovering sites: {e}", file=sys.stderr)
+                return
+        else:
+            site_map = {}
+
+        for i, site_name in enumerate(target_sites):
+            print(f"[{i+1}/{len(target_sites)}] Processing SharePoint site: {site_name}...", file=sys.stderr)
+            try:
+                site_id = site_map.get(site_name) or get_sharepoint_site_id(site_name, access_token)
+                print(f"  - Site ID: {site_id}", file=sys.stderr)
 
                 drive_id = get_drive_id_for_site(site_id, access_token)
-                print(f"Default Drive ID for site: {drive_id}", file=sys.stderr)
+                print(f"  - Drive ID: {drive_id}", file=sys.stderr)
 
-                print(f"Fetching files from SharePoint site '{site_name}'...", file=sys.stderr)
-                files_metadata = get_files_in_folder(drive_id, "", access_token) # Start from root of the drive
-
+                files_metadata = get_files_in_folder(drive_id, "", access_token)
                 if files_metadata:
+                    print(f"  - Found {len(files_metadata)} files. Downloading content...", file=sys.stderr)
                     for file_meta in files_metadata:
                         file_name = file_meta.get('name')
                         file_id = file_meta.get('id')

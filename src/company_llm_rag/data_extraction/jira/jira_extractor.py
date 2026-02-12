@@ -22,6 +22,13 @@ HEADERS = {
     "Authorization": f"Basic {base64.b64encode(f'{JIRA_EMAIL}:{JIRA_API_TOKEN}'.encode()).decode()}"
 }
 
+def get_all_projects():
+    """Fetches all projects available to the user."""
+    url = f"{JIRA_BASE_URL}/rest/api/3/project"
+    response = requests.get(url, headers=HEADERS)
+    response.raise_for_status()
+    return response.json()
+
 def get_issues_for_project(project_key):
     """
     Fetches all issues for a given project from Jira Cloud.
@@ -55,14 +62,24 @@ def get_issues_for_project(project_key):
     return all_issues
 
 def main():
-    for project_key in JIRA_PROJECT_KEYS:
-        project_key = project_key.strip()
-        if not project_key:
-            continue
-        print(f"Fetching Jira issues for project: {project_key}...", file=sys.stderr)
+    target_projects = [k.strip() for k in JIRA_PROJECT_KEYS if k.strip()]
+    
+    if not target_projects:
+        print("No JIRA_PROJECT_KEY specified. Discovering all accessible projects...", file=sys.stderr)
+        try:
+            projects = get_all_projects()
+            target_projects = [p['key'] for p in projects]
+            print(f"Discovered {len(target_projects)} projects: {', '.join(target_projects)}", file=sys.stderr)
+        except Exception as e:
+            print(f"Error discovering projects: {e}", file=sys.stderr)
+            return
+
+    for i, project_key in enumerate(target_projects):
+        print(f"[{i+1}/{len(target_projects)}] Processing Jira project: {project_key}...", file=sys.stderr)
         try:
             issues_data = get_issues_for_project(project_key)
             if issues_data:
+                print(f"  - Found {len(issues_data)} issues.", file=sys.stderr)
                 # Output in JSON Lines format
                 for issue in issues_data:
                     # Extract relevant fields and format as a flat structure for RAG
