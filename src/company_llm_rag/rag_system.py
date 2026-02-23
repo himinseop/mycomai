@@ -1,21 +1,9 @@
-import os
-import json
 from typing import List, Dict
 
-import openai # pip install openai
-from retrieval_module import retrieve_documents
-from dotenv import load_dotenv
+import openai
 
-load_dotenv()
-
-# Environment variables
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-
-if not OPENAI_API_KEY:
-    print("Please set the OPENAI_API_KEY environment variable.")
-    exit(1)
-
-openai.api_key = OPENAI_API_KEY
+from company_llm_rag.config import settings
+from company_llm_rag.retrieval_module import retrieve_documents
 
 def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
     """
@@ -58,13 +46,25 @@ def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
     )
     return prompt
 
-def get_llm_response(prompt: str, model: str = "gpt-4o", temperature: float = 0.7) -> str:
+def get_llm_response(prompt: str, model: str = None, temperature: float = None) -> str:
     """
-    Gets a response from the LLM.
+    LLM으로부터 응답을 가져옵니다.
+
+    Args:
+        prompt: LLM에 전달할 프롬프트
+        model: 사용할 모델 (기본값: settings.OPENAI_CHAT_MODEL)
+        temperature: 생성 온도 (기본값: settings.OPENAI_TEMPERATURE)
+
+    Returns:
+        LLM 응답 텍스트
     """
+    if model is None:
+        model = settings.OPENAI_CHAT_MODEL
+    if temperature is None:
+        temperature = settings.OPENAI_TEMPERATURE
+
     try:
-        # Compatibility with latest openai library
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
         response = client.chat.completions.create(
             model=model,
             messages=[
@@ -77,18 +77,25 @@ def get_llm_response(prompt: str, model: str = "gpt-4o", temperature: float = 0.
     except Exception as e:
         return f"Error getting response from LLM: {e}"
 
-def rag_query(user_query: str) -> str:
+def rag_query(user_query: str, n_results: int = None) -> str:
     """
-    Executes a RAG query: retrieves documents and generates an LLM response.
+    RAG 쿼리 실행: 문서를 검색하고 LLM 응답을 생성합니다.
+
+    Args:
+        user_query: 사용자 질문
+        n_results: 검색할 문서 개수 (기본값: settings.RETRIEVAL_TOP_K)
+
+    Returns:
+        LLM 응답
     """
-    retrieved_docs = retrieve_documents(user_query, n_results=3)
-    
+    retrieved_docs = retrieve_documents(user_query, n_results=n_results)
+
     if not retrieved_docs:
         return "I could not find any relevant information in the company knowledge base for your query."
-    
+
     prompt = build_rag_prompt(user_query, retrieved_docs)
     llm_response = get_llm_response(prompt)
-    
+
     return llm_response
 
 if __name__ == "__main__":

@@ -1,41 +1,20 @@
 import requests
-import os
 import json
-import base64 # Added for base64 encoding
-from dotenv import load_dotenv # Added for loading .env file
-import sys # Added for sys.stderr
+import sys
 
-load_dotenv() # Load environment variables from .env file
-
-# Confluence Cloud URL (e.g., 'https://your-company.atlassian.net/wiki')
-CONFLUENCE_BASE_URL = os.getenv('CONFLUENCE_BASE_URL')
-# API Token generated from your Atlassian account (https://id.atlassian.com/manage-api/create-api-token)
-CONFLUENCE_API_TOKEN = os.getenv('CONFLUENCE_API_TOKEN')
-# Your Atlassian email
-CONFLUENCE_EMAIL = os.getenv('CONFLUENCE_EMAIL')
-# Confluence Space Keys (e.g., 'SPACE1,SPACE2')
-CONFLUENCE_SPACE_KEYS = os.getenv('CONFLUENCE_SPACE_KEY', "").split(',')
-# Number of days to look back for updates
-LOOKBACK_DAYS = os.getenv('LOOKBACK_DAYS')
-
-if not all([CONFLUENCE_BASE_URL, CONFLUENCE_API_TOKEN, CONFLUENCE_EMAIL]):
-    print("Please set CONFLUENCE_BASE_URL, CONFLUENCE_API_TOKEN, and CONFLUENCE_EMAIL environment variables.", file=sys.stderr)
-    exit(1)
-
-HEADERS = {
-    "Accept": "application/json",
-    "Authorization": f"Basic {base64.b64encode(f'{CONFLUENCE_EMAIL}:{CONFLUENCE_API_TOKEN}'.encode()).decode()}"
-}
+from company_llm_rag.config import settings
 
 def get_all_spaces():
-    """Fetches all spaces available to the user."""
+    """사용자가 접근 가능한 모든 스페이스를 가져옵니다."""
     all_spaces = []
     start_at = 0
     limit = 50
+    headers = settings.get_auth_header("confluence")
+
     while True:
-        url = f"{CONFLUENCE_BASE_URL}/rest/api/space"
+        url = f"{settings.CONFLUENCE_BASE_URL}/rest/api/space"
         params = {"start": start_at, "limit": limit}
-        response = requests.get(url, headers=HEADERS, params=params)
+        response = requests.get(url, headers=headers, params=params)
         response.raise_for_status()
         data = response.json()
         results = data.get('results', [])
@@ -49,17 +28,25 @@ def get_all_spaces():
 
 def get_confluence_pages_in_space(space_key):
     """
-    Fetches pages from a space. Uses LOOKBACK_DAYS for incremental updates if set.
+    스페이스의 페이지를 가져옵니다.
+    LOOKBACK_DAYS가 설정된 경우 증분 업데이트를 수행합니다.
+
+    Args:
+        space_key: Confluence 스페이스 키
+
+    Returns:
+        페이지 리스트
     """
     all_pages = []
     start_at = 0
-    limit = 25 
+    limit = settings.CONFLUENCE_PAGE_LIMIT
+    headers = settings.get_auth_header("confluence")
 
     while True:
-        if LOOKBACK_DAYS:
+        if settings.LOOKBACK_DAYS:
             # Use search API with CQL for date filtering
-            url = f"{CONFLUENCE_BASE_URL}/rest/api/content/search"
-            cql = f"space = \"{space_key}\" AND type = \"page\" AND lastModified >= \"-{LOOKBACK_DAYS}d\""
+            url = f"{settings.CONFLUENCE_BASE_URL}/rest/api/content/search"
+            cql = f"space = \"{space_key}\" AND type = \"page\" AND lastModified >= \"-{settings.LOOKBACK_DAYS}d\""
             params = {
                 "cql": cql,
                 "expand": "body.storage,version,history,ancestors",
@@ -68,7 +55,7 @@ def get_confluence_pages_in_space(space_key):
             }
         else:
             # Standard content API
-            url = f"{CONFLUENCE_BASE_URL}/rest/api/content"
+            url = f"{settings.CONFLUENCE_BASE_URL}/rest/api/content"
             params = {
                 "spaceKey": space_key,
                 "expand": "body.storage,version,history,ancestors",
@@ -76,45 +63,48 @@ def get_confluence_pages_in_space(space_key):
                 "limit": limit,
                 "type": "page"
             }
-        
-        response = requests.get(url, headers=HEADERS, params=params)
+
+        response = requests.get(url, headers=headers, params=params)
         response.raise_for_status()
         data = response.json()
-        
-        # Search API returns results in 'results', Content API also in 'results'
+
         pages = data.get('results', [])
-        
+
         if not pages:
             break
-        
+
         all_pages.extend(pages)
         start_at += len(pages)
 
-        if start_at >= data.get('size', 0) and data.get('size',0) < data.get('limit',0): # No more pages if current size is less than limit, assuming it's the last page
+        # Simplified pagination logic
+        if start_at >= data.get('total', 0):
             break
-        elif start_at >= data.get('size', 0) and data.get('size',0) == data.get('limit',0) and data.get('total',0) == start_at:
-             break # No more pages if start_at equals total results
-        elif start_at >= data.get('total', 0):
-            break
-            
+
     return all_pages
 
 def get_confluence_comments_for_page(page_id):
     """
-    Fetches all comments for a given Confluence page.
+    주어진 Confluence 페이지의 모든 댓글을 가져옵니다.
+
+    Args:
+        page_id: Confluence 페이지 ID
+
+    Returns:
+        댓글 리스트
     """
     all_comments = []
     start_at = 0
-    limit = 100 # Confluence API default and maximum is 100 for comments
+    limit = 100  # Confluence API default and maximum is 100 for comments
+    headers = settings.get_auth_header("confluence")
 
     while True:
-        url = f"{CONFLUENCE_BASE_URL}/rest/api/content/{page_id}/child/comment"
+        url = f"{settings.CONFLUENCE_BASE_URL}/rest/api/content/{page_id}/child/comment"
         params = {
             "expand": "body.storage,author",
             "start": start_at,
             "limit": limit
         }
-        response = requests.get(url, headers=HEADERS, params=params)
+        response = requests.get(url, headers=headers, params=params)
         response.raise_for_status()
         data = response.json()
         comments = data.get('results', [])
@@ -125,17 +115,14 @@ def get_confluence_comments_for_page(page_id):
         all_comments.extend(comments)
         start_at += len(comments)
 
-        if start_at >= data.get('size', 0) and data.get('size',0) < data.get('limit',0): # No more comments if current size is less than limit, assuming it's the last page
-            break
-        elif start_at >= data.get('size', 0) and data.get('size',0) == data.get('limit',0) and data.get('total',0) == start_at:
-             break # No more comments if start_at equals total results
-        elif start_at >= data.get('total', 0):
+        # Simplified pagination logic
+        if start_at >= data.get('total', 0):
             break
 
     return all_comments
 
 def main():
-    target_spaces = [k.strip() for k in CONFLUENCE_SPACE_KEYS if k.strip()]
+    target_spaces = settings.CONFLUENCE_SPACE_KEYS
 
     if not target_spaces:
         print("No CONFLUENCE_SPACE_KEY specified. Discovering all accessible spaces...", file=sys.stderr)
@@ -158,7 +145,7 @@ def main():
                         "id": f"confluence-{page.get('id')}",
                         "source": "confluence",
                         "source_id": page.get('id'),
-                        "url": f"{CONFLUENCE_BASE_URL}{page.get('_links', {}).get('webui')}",
+                        "url": f"{settings.CONFLUENCE_BASE_URL}{page.get('_links', {}).get('webui')}",
                         "title": page.get('title'),
                         "content": page.get('body', {}).get('storage', {}).get('value'),
                         "content_type": "page",

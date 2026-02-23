@@ -17,6 +17,7 @@ COPY .env.sample .env.sample
 
 # Define environment variables (these will be overwritten by host .env or Docker run args)
 # It's better to pass them at runtime using docker run -e KEY=VALUE or docker compose
+ENV PYTHONPATH="/app"
 ENV CHROMA_DB_PATH="./chroma_db"
 ENV COLLECTION_NAME="company_llm_rag_collection"
 

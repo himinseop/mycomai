@@ -1,37 +1,9 @@
 import sys
 import json
-import os
-from typing import List, Dict
+from typing import List
 
-import chromadb
-from chromadb.utils import embedding_functions
-from dotenv import load_dotenv # Added for loading .env file
-
-load_dotenv() # Load environment variables from .env file
-
-# Environment variables
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-CHROMA_DB_PATH = os.getenv('CHROMA_DB_PATH', "./chroma_db") # Path for persistent ChromaDB storage
-COLLECTION_NAME = os.getenv('COLLECTION_NAME', "company_llm_rag_collection")
-
-# Initialize OpenAI embedding function for ChromaDB
-if not OPENAI_API_KEY:
-    print("Please set the OPENAI_API_KEY environment variable.", file=sys.stderr)
-    exit(1)
-
-openai_ef = embedding_functions.OpenAIEmbeddingFunction(
-    api_key=OPENAI_API_KEY,
-    model_name="text-embedding-3-small"
-)
-
-# Initialize ChromaDB client
-client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
-
-# Get or create collection
-collection = client.get_or_create_collection(
-    name=COLLECTION_NAME,
-    embedding_function=openai_ef
-)
+from company_llm_rag.config import settings
+from company_llm_rag.database import db_manager
 
 def _extract_text_from_adf_node(node):
     text_content = ""
@@ -51,11 +23,23 @@ def convert_adf_to_plain_text(adf_json):
         return _extract_text_from_adf_node(adf_json['content'])
     return str(adf_json) # Fallback if it's not a valid ADF doc
 
-def chunk_content(content: str, chunk_size: int = 100, chunk_overlap: int = 50) -> List[str]:
+def chunk_content(content: str, chunk_size: int = None, chunk_overlap: int = None) -> List[str]:
     """
-    Splits text content into smaller chunks.
-    A simple fixed-size chunking strategy. More advanced chunking can be implemented.
+    텍스트 콘텐츠를 작은 청크로 분할합니다.
+
+    Args:
+        content: 분할할 텍스트
+        chunk_size: 청크 크기 (단어 수, 기본값: settings.CHUNK_SIZE)
+        chunk_overlap: 청크 중복 (단어 수, 기본값: settings.CHUNK_OVERLAP)
+
+    Returns:
+        청크 리스트
     """
+    if chunk_size is None:
+        chunk_size = settings.CHUNK_SIZE
+    if chunk_overlap is None:
+        chunk_overlap = settings.CHUNK_OVERLAP
+
     chunks = []
     if not content:
         return chunks
@@ -71,8 +55,13 @@ def chunk_content(content: str, chunk_size: int = 100, chunk_overlap: int = 50) 
 
 def load_data_to_chromadb(data_stream):
     """
-    Reads JSONL data, chunks content, generates embeddings, and loads into ChromaDB.
+    JSONL 데이터를 읽고, 청크로 분할하고, 임베딩을 생성하여 ChromaDB에 로드합니다.
+
+    Args:
+        data_stream: JSONL 라인의 iterable
     """
+    collection = db_manager.get_collection()
+
     for line in data_stream:
         try:
             document = json.loads(line)
@@ -149,8 +138,12 @@ def load_data_to_chromadb(data_stream):
 
 
 if __name__ == "__main__":
-    print(f"Loading data into ChromaDB collection: {COLLECTION_NAME} at path: {CHROMA_DB_PATH}", file=sys.stderr)
+    print(f"Loading data into ChromaDB collection: {settings.COLLECTION_NAME} at path: {settings.CHROMA_DB_PATH}", file=sys.stderr)
     # Read from stdin
     load_data_to_chromadb(iter(lambda: sys.stdin.readline().strip(), ''))
     print("Data loading complete.", file=sys.stderr)
+
+    # Print stats
+    stats = db_manager.get_collection_stats()
+    print(f"Total documents in collection: {stats['count']}", file=sys.stderr)
 

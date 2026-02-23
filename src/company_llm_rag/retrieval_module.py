@@ -1,61 +1,37 @@
-import os
 import json
 from typing import List, Dict
 
-import chromadb
-from chromadb.utils import embedding_functions
-from dotenv import load_dotenv
+from company_llm_rag.config import settings
+from company_llm_rag.database import db_manager
 
-load_dotenv()
-
-# Environment variables
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-CHROMA_DB_PATH = os.getenv('CHROMA_DB_PATH', "./chroma_db")
-COLLECTION_NAME = os.getenv('COLLECTION_NAME', "company_llm_rag_collection")
-
-# Initialize OpenAI embedding function for ChromaDB
-if not OPENAI_API_KEY:
-    print("Please set the OPENAI_API_KEY environment variable.")
-    exit(1)
-
-openai_ef = embedding_functions.OpenAIEmbeddingFunction(
-    api_key=OPENAI_API_KEY,
-    model_name="text-embedding-3-small"
-)
-
-# Initialize ChromaDB client
-client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
-
-# Get collection
-try:
-    collection = client.get_collection(
-        name=COLLECTION_NAME,
-        embedding_function=openai_ef
-    )
-except Exception as e:
-    # If not found, try to get or create (for robust testing)
-    collection = client.get_or_create_collection(
-        name=COLLECTION_NAME,
-        embedding_function=openai_ef
-    )
-
-def retrieve_documents(query: str, n_results: int = 5) -> List[Dict]:
+def retrieve_documents(query: str, n_results: int = None) -> List[Dict]:
     """
-    Retrieves relevant document chunks from ChromaDB based on a user query.
+    ChromaDB에서 사용자 쿼리와 관련된 문서 청크를 검색합니다.
+
+    Args:
+        query: 검색 쿼리
+        n_results: 반환할 결과 개수 (기본값: settings.RETRIEVAL_TOP_K)
+
+    Returns:
+        검색된 문서 리스트
     """
+    if n_results is None:
+        n_results = settings.RETRIEVAL_TOP_K
+
     try:
+        collection = db_manager.get_collection()
         results = collection.query(
             query_texts=[query],
             n_results=n_results,
             include=['documents', 'metadatas']
         )
-        
+
         retrieved_docs = []
         if results and results['documents'] and len(results['documents']) > 0:
             for i in range(len(results['documents'][0])):
                 doc_content = results['documents'][0][i]
                 metadata = results['metadatas'][0][i]
-                
+
                 # Reconstruct comments/replies if they were stringified in metadata
                 if "comments" in metadata and isinstance(metadata["comments"], str):
                     try:
@@ -78,13 +54,17 @@ def retrieve_documents(query: str, n_results: int = 5) -> List[Dict]:
         return []
 
 if __name__ == "__main__":
-    print(f"Retrieval module connected to ChromaDB collection: {COLLECTION_NAME} at path: {CHROMA_DB_PATH}")
+    stats = db_manager.get_collection_stats()
+    print(f"Retrieval module connected to ChromaDB collection: {stats['name']}")
+    print(f"  - Path: {stats['path']}")
+    print(f"  - Documents: {stats['count']}")
+
     while True:
         try:
             user_query = input("\nEnter your query (or 'exit' to quit): ")
             if user_query.lower() == 'exit':
                 break
-            
+
             results = retrieve_documents(user_query)
             if results:
                 print("\n--- Retrieved Documents ---")
