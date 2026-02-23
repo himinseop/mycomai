@@ -3,6 +3,9 @@ from typing import List, Dict
 
 from company_llm_rag.config import settings
 from company_llm_rag.database import db_manager
+from company_llm_rag.logger import get_logger
+
+logger = get_logger(__name__)
 
 def retrieve_documents(query: str, n_results: int = None) -> List[Dict]:
     """
@@ -50,14 +53,14 @@ def retrieve_documents(query: str, n_results: int = None) -> List[Dict]:
                 })
         return retrieved_docs
     except Exception as e:
-        print(f"Error during document retrieval: {e}")
+        logger.error(f"Error during document retrieval: {e}", exc_info=True)
         return []
 
 if __name__ == "__main__":
     stats = db_manager.get_collection_stats()
-    print(f"Retrieval module connected to ChromaDB collection: {stats['name']}")
-    print(f"  - Path: {stats['path']}")
-    print(f"  - Documents: {stats['count']}")
+    logger.info(f"Retrieval module connected to ChromaDB collection: {stats['name']}")
+    logger.info(f"  - Path: {stats['path']}")
+    logger.info(f"  - Documents: {stats['count']}")
 
     while True:
         try:
@@ -77,7 +80,7 @@ if __name__ == "__main__":
                     print(f"  Original Doc ID: {doc['metadata'].get('original_doc_id')}")
                     print("-" * 30)
             else:
-                print("No relevant documents found.")
+                logger.warning("No relevant documents found.")
         except EOFError:
             break
-    print("Exiting retrieval module.")
+    logger.info("Exiting retrieval module.")

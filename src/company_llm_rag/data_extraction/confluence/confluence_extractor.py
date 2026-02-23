@@ -3,6 +3,9 @@ import json
 import sys
 
 from company_llm_rag.config import settings
+from company_llm_rag.logger import get_logger
+
+logger = get_logger(__name__)
 
 def get_all_spaces():
     """사용자가 접근 가능한 모든 스페이스를 가져옵니다."""
@@ -125,21 +128,21 @@ def main():
     target_spaces = settings.CONFLUENCE_SPACE_KEYS
 
     if not target_spaces:
-        print("No CONFLUENCE_SPACE_KEY specified. Discovering all accessible spaces...", file=sys.stderr)
+        logger.info("No CONFLUENCE_SPACE_KEY specified. Discovering all accessible spaces...")
         try:
             spaces = get_all_spaces()
             target_spaces = [s['key'] for s in spaces]
-            print(f"Discovered {len(target_spaces)} spaces: {', '.join(target_spaces)}", file=sys.stderr)
+            logger.info(f"Discovered {len(target_spaces)} spaces: {', '.join(target_spaces)}")
         except Exception as e:
-            print(f"Error discovering spaces: {e}", file=sys.stderr)
+            logger.error(f"Error discovering spaces: {e}", exc_info=True)
             return
 
     for i, space_key in enumerate(target_spaces):
-        print(f"[{i+1}/{len(target_spaces)}] Processing Confluence space: {space_key}...", file=sys.stderr)
+        logger.info(f"[{i+1}/{len(target_spaces)}] Processing Confluence space: {space_key}...")
         try:
             pages_data = get_confluence_pages_in_space(space_key)
             if pages_data:
-                print(f"  - Found {len(pages_data)} pages.", file=sys.stderr)
+                logger.info(f"  - Found {len(pages_data)} pages.")
                 for page in pages_data:
                     extracted_data_schema = {
                         "id": f"confluence-{page.get('id')}",
@@ -172,14 +175,14 @@ def main():
                     
                     print(json.dumps(extracted_data_schema, ensure_ascii=False))
             else:
-                print(f"No pages found for Confluence space {space_key}.", file=sys.stderr)
+                logger.warning(f"No pages found for Confluence space {space_key}.")
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching Confluence data for space {space_key}: {e}", file=sys.stderr)
+            logger.error(f"Error fetching Confluence data for space {space_key}: {e}")
             if e.response:
-                print(f"Response status: {e.response.status_code}", file=sys.stderr)
-                print(f"Response body: {e.response.text}", file=sys.stderr)
+                logger.error(f"Response status: {e.response.status_code}")
+                logger.debug(f"Response body: {e.response.text}")
         except Exception as e:
-            print(f"An unexpected error occurred for space {space_key}: {e}", file=sys.stderr)
+            logger.error(f"An unexpected error occurred for space {space_key}: {e}", exc_info=True)
 
 if __name__ == "__main__":
     main()

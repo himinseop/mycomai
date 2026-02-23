@@ -56,7 +56,7 @@
 
 ---
 
-### 3. 에러 핸들링 및 로깅
+### 3. ✅ 에러 핸들링 및 로깅 [완료]
 **문제점:**
 - `print()`로 로깅 → 프로덕션 환경 부적합
 - 일관성 없는 에러 처리 (일부는 exit(1), 일부는 continue)
@@ -65,16 +65,32 @@
 **영향**: 장애 추적 어려움, 복구 불가능, 운영 모니터링 불가
 
 **해결 방안:**
-- [ ] 구조화된 로깅 (structlog 또는 Python logging)
-- [ ] 로그 레벨 표준화 (DEBUG, INFO, WARNING, ERROR)
-- [ ] 재시도 로직 추가 (tenacity 라이브러리)
-- [ ] 커스텀 예외 클래스 정의
+- [x] 구조화된 로깅 (Python logging with custom formatter)
+- [x] 로그 레벨 표준화 (DEBUG, INFO, WARNING, ERROR)
+- [x] 컬러 출력 지원 (터미널 환경)
+- [x] 모든 모듈에 로거 적용
+- [ ] 재시도 로직 추가 (tenacity 라이브러리) - Phase 2
+- [ ] 커스텀 예외 클래스 정의 - Phase 2
+
+**완료일**: 2026-02-23
+
+**변경 사항:**
+- `logger.py` 생성 - 구조화된 로깅 모듈
+- ColoredFormatter - 컬러 터미널 출력
+- 모든 print 문을 logger로 교체
+- config.py에 LOG_LEVEL 설정 추가
+- .env.sample에 LOG_LEVEL 문서화
+
+**테스트 결과:**
+- ✅ 로거 모듈 정상 작동
+- ✅ 컬러 출력 정상 작동
+- ✅ 로그 레벨별 필터링 정상 작동
 
 ---
 
 ## ⚠️ High Priority: 빠른 시일 내 개선
 
-### 4. 의존성 및 타입 안정성
+### 4. ✅ 의존성 관리 [완료] / 타입 안정성 [부분 완료]
 **문제점:**
 - `requirements.txt`에 버전 명시 없음 → 재현 불가능한 빌드
 - 타입 힌트가 일부만 적용됨
@@ -83,10 +99,24 @@
 **영향**: 배포 안정성 저하, 팀 협업 시 버그 증가
 
 **해결 방안:**
-- [ ] 의존성 버전 고정 (poetry 또는 pip-tools)
-- [ ] 미사용 의존성 제거
-- [ ] 타입 힌트 완성 (모든 함수/메서드)
-- [ ] mypy strict mode 적용
+- [x] 의존성 버전 고정
+- [x] 미사용 의존성 제거 (google-generativeai)
+- [x] requirements.txt 문서화 및 주석 추가
+- [x] .gitignore 확장 (Python, IDE 관련)
+- [ ] 타입 힌트 완성 (모든 함수/메서드) - Phase 2
+- [ ] mypy strict mode 적용 - Phase 2
+
+**완료일**: 2026-02-23
+
+**변경 사항:**
+- requirements.txt 버전 명시 및 주석 추가:
+  - requests==2.32.5
+  - msal==1.34.0
+  - chromadb==1.4.1
+  - openai==2.17.0
+  - python-dotenv==1.2.1
+- google-generativeai 제거
+- .gitignore 대폭 확장 (Python, IDE, .claude/)
 
 ---
 
@@ -233,8 +263,8 @@ def chunk_content(content: str, chunk_size: int = 100, chunk_overlap: int = 50)
 |-------|------|--------|--------|--------|
 | 1 | 패키지 구조 개선 | 🟢 완료 | CTO | 2026-02-23 |
 | 1 | 설정 관리 | 🟢 완료 | CTO | 2026-02-23 |
-| 1 | 로깅 개선 | ⚪ 대기 | - | - |
-| 1 | 의존성 관리 | ⚪ 대기 | - | - |
+| 1 | 로깅 개선 | 🟢 완료 | CTO | 2026-02-23 |
+| 1 | 의존성 관리 | 🟢 완료 | CTO | 2026-02-23 |
 
 **상태**: ⚪ 대기 | 🟡 진행중 | 🟢 완료 | 🔴 블로킹
 

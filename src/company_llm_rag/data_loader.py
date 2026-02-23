@@ -4,6 +4,9 @@ from typing import List
 
 from company_llm_rag.config import settings
 from company_llm_rag.database import db_manager
+from company_llm_rag.logger import get_logger
+
+logger = get_logger(__name__)
 
 def _extract_text_from_adf_node(node):
     text_content = ""
@@ -81,7 +84,7 @@ def load_data_to_chromadb(data_stream):
                 content = convert_adf_to_plain_text(content)
             
             if not doc_id or not content:
-                print(f"Skipping document due to missing ID or content: {document.get('id')}", file=sys.stderr)
+                logger.warning(f"Skipping document due to missing ID or content: {document.get('id')}")
                 continue
 
             chunks = chunk_content(content)
@@ -127,23 +130,23 @@ def load_data_to_chromadb(data_stream):
                         metadatas=[metadata_to_store],
                         ids=[chunk_id]
                     )
-                    # print(f"Loaded/Updated chunk {chunk_id} in ChromaDB.")
+                    logger.debug(f"Loaded/Updated chunk {chunk_id} in ChromaDB.")
                 except Exception as e:
-                    print(f"Error upserting chunk {chunk_id} to ChromaDB: {e}", file=sys.stderr)
+                    logger.error(f"Error upserting chunk {chunk_id} to ChromaDB: {e}", exc_info=True)
 
         except json.JSONDecodeError as e:
-            print(f"Skipping invalid JSONL line: {line.strip()} - Error: {e}", file=sys.stderr)
+            logger.warning(f"Skipping invalid JSONL line: {line.strip()[:100]}... - Error: {e}")
         except Exception as e:
-            print(f"An unexpected error occurred while processing line: {line.strip()} - Error: {e}", file=sys.stderr)
+            logger.error(f"An unexpected error occurred while processing line: {line.strip()[:100]}... - Error: {e}", exc_info=True)
 
 
 if __name__ == "__main__":
-    print(f"Loading data into ChromaDB collection: {settings.COLLECTION_NAME} at path: {settings.CHROMA_DB_PATH}", file=sys.stderr)
+    logger.info(f"Loading data into ChromaDB collection: {settings.COLLECTION_NAME} at path: {settings.CHROMA_DB_PATH}")
     # Read from stdin
     load_data_to_chromadb(iter(lambda: sys.stdin.readline().strip(), ''))
-    print("Data loading complete.", file=sys.stderr)
+    logger.info("Data loading complete.")
 
     # Print stats
     stats = db_manager.get_collection_stats()
-    print(f"Total documents in collection: {stats['count']}", file=sys.stderr)
+    logger.info(f"Total documents in collection: {stats['count']}")
 

@@ -62,6 +62,9 @@ class Settings:
     JIRA_MAX_RESULTS: int = int(os.getenv("JIRA_MAX_RESULTS", "50"))
     CONFLUENCE_PAGE_LIMIT: int = int(os.getenv("CONFLUENCE_PAGE_LIMIT", "25"))
 
+    # 로깅 설정
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+
     def validate(self) -> None:
         """필수 설정값 검증"""
         errors = []

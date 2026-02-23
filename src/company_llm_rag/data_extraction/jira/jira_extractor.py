@@ -3,6 +3,9 @@ import requests
 import sys
 
 from company_llm_rag.config import settings
+from company_llm_rag.logger import get_logger
+
+logger = get_logger(__name__)
 
 def get_all_projects():
     """사용자가 접근 가능한 모든 프로젝트를 가져옵니다."""
@@ -62,27 +65,27 @@ def main():
     target_projects = settings.JIRA_PROJECT_KEYS
 
     if not target_projects:
-        print("No JIRA_PROJECT_KEY specified. Discovering all accessible projects...", file=sys.stderr)
+        logger.info("No JIRA_PROJECT_KEY specified. Discovering all accessible projects...")
         try:
             projects = get_all_projects()
             target_projects = [p['key'] for p in projects]
-            print(f"Discovered {len(target_projects)} projects: {', '.join(target_projects)}", file=sys.stderr)
+            logger.info(f"Discovered {len(target_projects)} projects: {', '.join(target_projects)}")
         except Exception as e:
-            print(f"Error discovering projects: {e}", file=sys.stderr)
+            logger.error(f"Error discovering projects: {e}", exc_info=True)
             return
 
     for i, project_key in enumerate(target_projects):
-        print(f"[{i+1}/{len(target_projects)}] Processing Jira project: {project_key}...", file=sys.stderr)
+        logger.info(f"[{i+1}/{len(target_projects)}] Processing Jira project: {project_key}...")
         try:
             issues_data = get_issues_for_project(project_key)
             if issues_data:
-                print(f"  - Found {len(issues_data)} issues.", file=sys.stderr)
+                logger.info(f"  - Found {len(issues_data)} issues.")
                 # Output in JSON Lines format
                 for issue in issues_data:
                     try:
                         fields = issue.get('fields')
                         if not fields:
-                            print(f"  - Skipping issue {issue.get('key')} due to missing fields.", file=sys.stderr)
+                            logger.warning(f"  - Skipping issue {issue.get('key')} due to missing fields.")
                             continue
 
                         # Extract relevant fields and format as a flat structure for RAG
@@ -125,17 +128,17 @@ def main():
                         
                         print(json.dumps(extracted_data_schema, ensure_ascii=False))
                     except Exception as inner_e:
-                        print(f"  - Error processing issue {issue.get('key', 'unknown')}: {inner_e}", file=sys.stderr)
+                        logger.error(f"  - Error processing issue {issue.get('key', 'unknown')}: {inner_e}", exc_info=True)
                         continue
             else:
-                print(f"No issues found for project {project_key} or unexpected response format.", file=sys.stderr)
+                logger.warning(f"No issues found for project {project_key} or unexpected response format.")
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching issues for project {project_key}: {e}", file=sys.stderr)
+            logger.error(f"Error fetching issues for project {project_key}: {e}")
             if e.response:
-                print(f"Response status: {e.response.status_code}", file=sys.stderr)
-                print(f"Response body: {e.response.text}", file=sys.stderr)
+                logger.error(f"Response status: {e.response.status_code}")
+                logger.debug(f"Response body: {e.response.text}")
         except Exception as e:
-            print(f"An unexpected error occurred for project {project_key}: {e}", file=sys.stderr)
+            logger.error(f"An unexpected error occurred for project {project_key}: {e}", exc_info=True)
 
 if __name__ == "__main__":
     main()

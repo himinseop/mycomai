@@ -4,6 +4,9 @@ import openai
 
 from company_llm_rag.config import settings
 from company_llm_rag.retrieval_module import retrieve_documents
+from company_llm_rag.logger import get_logger
+
+logger = get_logger(__name__)
 
 def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
     """
@@ -75,6 +78,7 @@ def get_llm_response(prompt: str, model: str = None, temperature: float = None) 
         )
         return response.choices[0].message.content
     except Exception as e:
+        logger.error(f"Error getting response from LLM: {e}", exc_info=True)
         return f"Error getting response from LLM: {e}"
 
 def rag_query(user_query: str, n_results: int = None) -> str:
@@ -99,17 +103,18 @@ def rag_query(user_query: str, n_results: int = None) -> str:
     return llm_response
 
 if __name__ == "__main__":
-    print("Company LLM RAG System ready. Type 'exit' to quit.")
+    logger.info("Company LLM RAG System ready. Type 'exit' to quit.")
     while True:
         try:
             query = input("\nEnter your query: ")
             if query.lower() == 'exit':
                 break
-            
+
+            logger.debug(f"Processing query: {query}")
             response = rag_query(query)
             print("\nLLM Response:")
             print(response)
         except EOFError:
             break
         except Exception as e:
-            print(f"Error: {e}")
+            logger.error(f"Error: {e}", exc_info=True)
