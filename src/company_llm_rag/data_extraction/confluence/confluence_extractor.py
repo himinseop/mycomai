@@ -72,15 +72,21 @@ def get_confluence_pages_in_space(space_key):
         data = response.json()
 
         pages = data.get('results', [])
+        size = data.get('size', 0)
 
         if not pages:
+            logger.debug(f"No more pages found. Fetched {len(all_pages)} total.")
             break
 
         all_pages.extend(pages)
         start_at += len(pages)
 
-        # Simplified pagination logic
-        if start_at >= data.get('total', 0):
+        logger.debug(f"Fetched {len(pages)} pages, total so far: {len(all_pages)}")
+
+        # Check if this is the last page
+        # When size < limit, it means we've reached the end
+        if size < limit:
+            logger.debug(f"Reached last page: size ({size}) < limit ({limit})")
             break
 
     return all_pages

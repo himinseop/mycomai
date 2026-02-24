@@ -27,7 +27,6 @@ def get_issues_for_project(project_key):
         이슈 리스트
     """
     all_issues = []
-    start_at = 0
     max_results = settings.JIRA_MAX_RESULTS
 
     jql = f"project = \"{project_key}\""
@@ -36,27 +35,39 @@ def get_issues_for_project(project_key):
     jql += " ORDER BY updated DESC"
 
     headers = settings.get_auth_header("jira")
+    next_page_token = None
 
     while True:
+        # Use API v3 with nextPageToken-based pagination
         url = f"{settings.JIRA_BASE_URL}/rest/api/3/search/jql"
         params = {
             "jql": jql,
-            "startAt": start_at,
             "maxResults": max_results,
             "fields": "summary,description,comment,status,priority,reporter,assignee,issuetype,created,updated"
         }
+
+        # Add nextPageToken if we have one (for subsequent pages)
+        if next_page_token:
+            params["nextPageToken"] = next_page_token
+
         response = requests.get(url, headers=headers, params=params)
         response.raise_for_status()
         data = response.json()
+
         issues = data.get('issues', [])
+        is_last = data.get('isLast', True)
+        next_page_token = data.get('nextPageToken')
 
         if not issues:
+            logger.debug(f"No more issues found. Fetched {len(all_issues)} total.")
             break
 
         all_issues.extend(issues)
-        start_at += len(issues)
+        logger.debug(f"Fetched {len(issues)} issues, total so far: {len(all_issues)}, isLast: {is_last}")
 
-        if start_at >= data.get('total', 0):
+        # Check if this is the last page
+        if is_last:
+            logger.debug(f"Reached last page. Total issues: {len(all_issues)}")
             break
 
     return all_issues
