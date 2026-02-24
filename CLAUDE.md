@@ -37,20 +37,30 @@ src/company_llm_rag/
 - ✅ Confluence 페이지네이션 버그 수정 (`size < limit` 체크)
 - ✅ SharePoint/Teams extractor 리팩토링
 - ✅ Teams 일반 채팅 수집 기능 추가 (`TEAMS_CHAT_IDS`)
+- ✅ 콘텐츠 해시 기반 임베딩 스킵 (`data_loader.py`) — 재수집 시 변경분만 임베딩 생성
 
 ### 발견된 버그 및 수정 내역
 - **Jira**: `/rest/api/3/search/jql`은 `total` 필드 없음 → `isLast` + `nextPageToken` 사용
 - **Confluence**: `total` 필드 없음 → `size < limit`으로 마지막 페이지 판단
 - **Teams 채팅**: `/v1.0/chats` 엔드포인트는 Application context 미지원 → `/chats/{id}/messages` 직접 호출
 
+### data_loader.py 핵심 동작 (중요)
+재수집 시 모든 문서를 re-embed하지 않음:
+1. 각 청크의 MD5 해시를 계산
+2. ChromaDB에 이미 동일한 `content_hash`가 있으면 `upsert()` 호출 자체를 스킵
+3. 실행 완료 시 `new / updated / skipped` 카운트 출력
+- **첫 실행**: 전체 임베딩 생성 (비용 발생)
+- **이후 실행**: 변경된 문서만 임베딩 → 비용 95% 절감
+
 ### 수집된 데이터 현황
 - 기존 ChromaDB: **48,485개** 문서 (페이지네이션 버그 있던 상태로 수집)
-- 예상 재수집 후: Jira/Confluence 대폭 증가 예정
-- Teams 채팅 3개 추가 예정 (업무소통방, 슈퍼커넥트 전사방, 대표님과 함께하는 조직장들)
+- **재수집 필요**: 페이지네이션 버그 수정 반영 + Teams 채팅 3개 신규 추가
+  - Teams 채팅: 업무소통방, 슈퍼커넥트 전사방, 대표님과 함께하는 조직장들
 
-### 다음 할 일
-- [ ] 데이터 재수집 (페이지네이션 버그 수정 반영)
-- [ ] Teams 채팅 데이터 수집 및 ChromaDB 적재
+### 다음 할 일 (다른 머신에서 수행)
+- [ ] `git pull` 로 최신 코드 반영
+- [ ] `pip3 install -r src/requirements.txt` 로 의존성 설치
+- [ ] 데이터 재수집 및 ChromaDB 적재 (아래 명령어 참고)
 - [ ] Phase 2 작업: 재시도 로직, 타입 힌트, 테스트 커버리지
 
 ## 필수 환경변수 (.env)
