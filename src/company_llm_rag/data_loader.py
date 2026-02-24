@@ -57,6 +57,45 @@ def chunk_content(content: str, chunk_size: int = None, chunk_overlap: int = Non
         chunks.append(chunk)
     return chunks
 
+def _upsert_with_fallback(collection, chunk: str, metadata: dict, chunk_id: str, stats: dict, is_existing: bool):
+    """
+    청크를 ChromaDB에 upsert합니다.
+    토큰 초과 오류 발생 시 절반 크기로 분할하여 sub-chunk ID로 재시도합니다.
+    """
+    try:
+        collection.upsert(documents=[chunk], metadatas=[metadata], ids=[chunk_id])
+        if is_existing:
+            stats["updated"] += 1
+            logger.debug(f"Updated chunk {chunk_id}.")
+        else:
+            stats["new"] += 1
+            logger.debug(f"Added chunk {chunk_id}.")
+    except Exception as e:
+        err = str(e).lower()
+        if any(k in err for k in ("token", "too long", "maximum", "rate", "context length")):
+            words = chunk.split()
+            half = max(len(words) // 2, 1)
+            sub_chunks = [" ".join(words[j:j + half]) for j in range(0, len(words), half)]
+            logger.warning(
+                f"Chunk {chunk_id} failed ({len(words)} words). "
+                f"Splitting into {len(sub_chunks)} sub-chunks and retrying."
+            )
+            for j, sub_chunk in enumerate(sub_chunks):
+                sub_id = f"{chunk_id}-sub-{j}"
+                sub_hash = hashlib.md5(sub_chunk.encode()).hexdigest()
+                sub_metadata = {**metadata, "content_hash": sub_hash}
+                try:
+                    collection.upsert(documents=[sub_chunk], metadatas=[sub_metadata], ids=[sub_id])
+                    stats["new"] += 1
+                    logger.debug(f"Added sub-chunk {sub_id}.")
+                except Exception as sub_e:
+                    logger.error(f"Sub-chunk {sub_id} also failed: {sub_e}")
+                    stats.setdefault("failed", 0)
+                    stats["failed"] += 1
+        else:
+            raise
+
+
 def load_data_to_chromadb(data_stream):
     """
     JSONL 데이터를 읽고, 청크로 분할하고, 임베딩을 생성하여 ChromaDB에 로드합니다.
@@ -136,17 +175,7 @@ def load_data_to_chromadb(data_stream):
                         stats["skipped"] += 1
                         continue
 
-                    collection.upsert(
-                        documents=[chunk],
-                        metadatas=[metadata_to_store],
-                        ids=[chunk_id]
-                    )
-                    if existing["ids"]:
-                        stats["updated"] += 1
-                        logger.debug(f"Updated chunk {chunk_id} in ChromaDB.")
-                    else:
-                        stats["new"] += 1
-                        logger.debug(f"Added new chunk {chunk_id} to ChromaDB.")
+                    _upsert_with_fallback(collection, chunk, metadata_to_store, chunk_id, stats, existing["ids"])
                 except Exception as e:
                     logger.error(f"Error upserting chunk {chunk_id} to ChromaDB: {e}", exc_info=True)
 
@@ -155,7 +184,11 @@ def load_data_to_chromadb(data_stream):
         except Exception as e:
             logger.error(f"An unexpected error occurred while processing line: {line.strip()[:100]}... - Error: {e}", exc_info=True)
 
-    logger.info(f"Load complete — new: {stats['new']}, updated: {stats['updated']}, skipped (unchanged): {stats['skipped']}")
+    failed = stats.get("failed", 0)
+    logger.info(
+        f"Load complete — new: {stats['new']}, updated: {stats['updated']}, "
+        f"skipped (unchanged): {stats['skipped']}, failed: {failed}"
+    )
 
 
 if __name__ == "__main__":
