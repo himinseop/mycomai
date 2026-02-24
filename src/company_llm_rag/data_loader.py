@@ -72,7 +72,9 @@ def _upsert_with_fallback(collection, chunk: str, metadata: dict, chunk_id: str,
             logger.debug(f"Added chunk {chunk_id}.")
     except Exception as e:
         err = str(e).lower()
-        if any(k in err for k in ("token", "too long", "maximum", "rate", "context length")):
+        # 토큰/길이 초과는 결정론적 오류 → sub-chunk로 분할
+        # rate limit 등 일시적 오류는 여기서 처리하지 않고 상위로 전파
+        if any(k in err for k in ("token", "too long", "maximum", "context length")):
             words = chunk.split()
             half = max(len(words) // 2, 1)
             sub_chunks = [" ".join(words[j:j + half]) for j in range(0, len(words), half)]
