@@ -1,5 +1,6 @@
 import sys
 import json
+import hashlib
 from typing import List
 
 from company_llm_rag.config import settings
@@ -64,6 +65,7 @@ def load_data_to_chromadb(data_stream):
         data_stream: JSONL 라인의 iterable
     """
     collection = db_manager.get_collection()
+    stats = {"new": 0, "updated": 0, "skipped": 0}
 
     for line in data_stream:
         try:
@@ -123,14 +125,28 @@ def load_data_to_chromadb(data_stream):
                     if not isinstance(value, (str, int, float, bool)):
                         metadata_to_store[key] = str(value)
 
+                # 콘텐츠 해시: 동일한 내용이면 임베딩 재생성 스킵 (비용 절감)
+                content_hash = hashlib.md5(chunk.encode()).hexdigest()
+                metadata_to_store["content_hash"] = content_hash
 
                 try:
+                    existing = collection.get(ids=[chunk_id], include=["metadatas"])
+                    if existing["ids"] and existing["metadatas"][0].get("content_hash") == content_hash:
+                        logger.debug(f"Skipping unchanged chunk {chunk_id}.")
+                        stats["skipped"] += 1
+                        continue
+
                     collection.upsert(
                         documents=[chunk],
                         metadatas=[metadata_to_store],
                         ids=[chunk_id]
                     )
-                    logger.debug(f"Loaded/Updated chunk {chunk_id} in ChromaDB.")
+                    if existing["ids"]:
+                        stats["updated"] += 1
+                        logger.debug(f"Updated chunk {chunk_id} in ChromaDB.")
+                    else:
+                        stats["new"] += 1
+                        logger.debug(f"Added new chunk {chunk_id} to ChromaDB.")
                 except Exception as e:
                     logger.error(f"Error upserting chunk {chunk_id} to ChromaDB: {e}", exc_info=True)
 
@@ -138,6 +154,8 @@ def load_data_to_chromadb(data_stream):
             logger.warning(f"Skipping invalid JSONL line: {line.strip()[:100]}... - Error: {e}")
         except Exception as e:
             logger.error(f"An unexpected error occurred while processing line: {line.strip()[:100]}... - Error: {e}", exc_info=True)
+
+    logger.info(f"Load complete — new: {stats['new']}, updated: {stats['updated']}, skipped (unchanged): {stats['skipped']}")
 
 
 if __name__ == "__main__":
