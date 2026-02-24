@@ -1,5 +1,6 @@
 import json
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 
@@ -42,13 +43,15 @@ def get_access_token() -> str:
         error_msg = result.get('error_description') or result.get('error') or "Access token is empty or could not be acquired."
         raise Exception(f"Could not acquire access token: {error_msg}")
 
-def call_graph_api(endpoint: str, access_token: str) -> Dict:
+def call_graph_api(endpoint: str, access_token: str, max_retries: int = 3) -> Dict:
     """
     Microsoft Graph API에 GET 요청을 보냅니다.
+    429 Rate Limit 발생 시 Retry-After 헤더에 따라 재시도합니다.
 
     Args:
         endpoint: API 엔드포인트 URL
         access_token: 액세스 토큰
+        max_retries: 최대 재시도 횟수
 
     Returns:
         API 응답 (JSON)
@@ -57,9 +60,19 @@ def call_graph_api(endpoint: str, access_token: str) -> Dict:
         'Authorization': f'Bearer {access_token}',
         'Content-Type': 'application/json'
     }
-    response = requests.get(endpoint, headers=headers)
-    response.raise_for_status()
-    return response.json()
+    for attempt in range(max_retries):
+        response = requests.get(endpoint, headers=headers)
+
+        if response.status_code == 429:
+            retry_after = max(int(response.headers.get('Retry-After', 10)), 10)
+            logger.warning(f"Rate limited. Retrying after {retry_after}s (attempt {attempt + 1}/{max_retries})...")
+            time.sleep(retry_after)
+            continue
+
+        response.raise_for_status()
+        return response.json()
+
+    raise Exception(f"Max retries exceeded for endpoint: {endpoint}")
 
 def get_all_teams(access_token: str) -> List[Dict]:
     """
@@ -116,6 +129,50 @@ def get_channels_for_team(team_id: str, access_token: str) -> List[Dict]:
         all_channels.extend(channels)
         endpoint = response_data.get('@odata.nextLink')
     return all_channels
+
+def get_chat_info(chat_id: str, access_token: str) -> Dict:
+    """
+    채팅방 기본 정보(제목, 타입 등)를 가져옵니다.
+
+    Args:
+        chat_id: 채팅방 ID
+        access_token: 액세스 토큰
+
+    Returns:
+        채팅방 정보
+    """
+    endpoint = f"https://graph.microsoft.com/v1.0/chats/{chat_id}?$select=id,chatType,topic,lastUpdatedDateTime"
+    return call_graph_api(endpoint, access_token)
+
+
+def get_direct_chat_messages(chat_id: str, access_token: str) -> List[Dict]:
+    """
+    채팅방 메시지를 직접 가져옵니다. (Chat.Read.All Application 권한 사용)
+    LOOKBACK_DAYS가 설정된 경우 날짜로 필터링합니다.
+
+    Args:
+        chat_id: 채팅방 ID
+        access_token: 액세스 토큰
+
+    Returns:
+        메시지 리스트
+    """
+    all_messages = []
+    endpoint = f"https://graph.microsoft.com/v1.0/chats/{chat_id}/messages"
+
+    if settings.LOOKBACK_DAYS:
+        lookback_date = (datetime.now(timezone.utc) - timedelta(days=settings.LOOKBACK_DAYS)).isoformat()
+        endpoint += f"?$filter=lastModifiedDateTime ge {lookback_date}"
+
+    while endpoint:
+        response_data = call_graph_api(endpoint, access_token)
+        all_messages.extend(response_data.get('value', []))
+        endpoint = response_data.get('@odata.nextLink')
+        if endpoint:
+            time.sleep(0.5)  # 페이지 간 딜레이로 Rate Limit 방지
+
+    return all_messages
+
 
 def get_channel_messages(team_id: str, channel_id: str, access_token: str) -> List[Dict]:
     """
@@ -232,6 +289,54 @@ def main():
                         print(json.dumps(extracted_data_schema, ensure_ascii=False))
             except Exception as e:
                 logger.error(f"Error processing Teams group '{group_name}': {e}", exc_info=True)
+
+        # --- 일반 채팅 수집 ---
+        if settings.TEAMS_CHAT_IDS:
+            logger.info(f"Processing {len(settings.TEAMS_CHAT_IDS)} group chat(s)...")
+            for i, chat_id in enumerate(settings.TEAMS_CHAT_IDS):
+                try:
+                    chat_info = get_chat_info(chat_id, access_token)
+                    chat_topic = chat_info.get('topic') or f"Chat {chat_id[:8]}..."
+                    logger.info(f"[{i+1}/{len(settings.TEAMS_CHAT_IDS)}] Processing chat: {chat_topic}")
+
+                    messages = get_direct_chat_messages(chat_id, access_token)
+                    logger.info(f"  - Found {len(messages)} messages.")
+
+                    for message in messages:
+                        # 시스템 메시지 제외 (이벤트, 멤버 추가 등)
+                        if message.get('messageType') != 'message':
+                            continue
+
+                        author_info = message.get('from') or {}
+                        if author_info.get('user'):
+                            author_name = author_info['user'].get('displayName', 'Unknown User')
+                        elif author_info.get('application'):
+                            author_name = author_info['application'].get('displayName', 'Unknown Application')
+                        else:
+                            author_name = 'Unknown'
+
+                        extracted_data_schema = {
+                            "id": f"teams-chat-{message.get('id')}",
+                            "source": "teams",
+                            "source_id": message.get('id'),
+                            "url": None,
+                            "title": f"[{chat_topic}] {author_name}의 메시지",
+                            "content": message.get('body', {}).get('content'),
+                            "content_type": "chat_message",
+                            "created_at": message.get('createdDateTime'),
+                            "updated_at": message.get('lastModifiedDateTime'),
+                            "author": author_name,
+                            "metadata": {
+                                "teams_chat_id": chat_id,
+                                "teams_chat_topic": chat_topic,
+                                "teams_chat_type": chat_info.get('chatType'),
+                                "message_type": message.get('messageType'),
+                            }
+                        }
+                        print(json.dumps(extracted_data_schema, ensure_ascii=False))
+
+                except Exception as e:
+                    logger.error(f"Error processing chat '{chat_id}': {e}", exc_info=True)
 
     except requests.exceptions.RequestException as e:
         logger.error(f"Error calling Microsoft Graph API: {e}")

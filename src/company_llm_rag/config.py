@@ -47,6 +47,9 @@ class Settings:
     CLIENT_SECRET: str = os.getenv("CLIENT_SECRET", "")
     SHAREPOINT_SITE_NAME: str = os.getenv("SHAREPOINT_SITE_NAME", "")
     TEAMS_GROUP_NAME: str = os.getenv("TEAMS_GROUP_NAME", "")
+    TEAMS_CHAT_IDS: List[str] = [
+        c.strip() for c in os.getenv("TEAMS_CHAT_IDS", "").split(",") if c.strip()
+    ]
 
     # 데이터 수집 설정
     LOOKBACK_DAYS: Optional[int] = (
