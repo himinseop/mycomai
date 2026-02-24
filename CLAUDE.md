@@ -59,8 +59,7 @@ src/company_llm_rag/
 
 ### 다음 할 일 (다른 머신에서 수행)
 - [ ] `git pull` 로 최신 코드 반영
-- [ ] `pip3 install -r src/requirements.txt` 로 의존성 설치
-- [ ] 데이터 재수집 및 ChromaDB 적재 (아래 명령어 참고)
+- [ ] 데이터 재수집 및 ChromaDB 적재: `docker-compose -f docker/docker-compose.yml up data-loader`
 - [ ] Phase 2 작업: 재시도 로직, 타입 힌트, 테스트 커버리지
 
 ## 필수 환경변수 (.env)
@@ -104,23 +103,17 @@ LOOKBACK_DAYS=  # 비워두면 전체 수집
 
 ## 주요 명령어
 ```bash
-# 로컬 테스트
-PYTHONPATH=src python3 -c "from company_llm_rag.config import settings; print(settings.COLLECTION_NAME)"
-
-# 데이터 수집 (개별)
-PYTHONPATH=src python3 src/company_llm_rag/data_extraction/jira/jira_extractor.py > data/jira_data.jsonl
-PYTHONPATH=src python3 src/company_llm_rag/data_extraction/confluence/confluence_extractor.py > data/confluence_data.jsonl
-PYTHONPATH=src python3 src/company_llm_rag/data_extraction/m365/teams_extractor.py > data/teams_data.jsonl
-
-# ChromaDB 적재
-PYTHONPATH=src python3 src/company_llm_rag/data_loader.py < data/jira_data.jsonl
-
-# Docker
+# 데이터 수집 + 임베딩 + ChromaDB 적재 (한 번에)
 docker-compose -f docker/docker-compose.yml up data-loader
+
+# RAG 질의응답 실행
 docker-compose -f docker/docker-compose.yml run --rm rag-system
 
-# DB 상태 확인
+# DB 문서 수 확인
 PYTHONPATH=src python3 -c "from company_llm_rag.database import db_manager; print(db_manager.get_collection_stats())"
+
+# 설정 확인 (로컬)
+PYTHONPATH=src python3 -c "from company_llm_rag.config import settings; print(settings.COLLECTION_NAME)"
 ```
 
 ## 참고 문서
