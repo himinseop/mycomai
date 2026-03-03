@@ -61,6 +61,7 @@ src/company_llm_rag/
 - [ ] `git pull` 로 최신 코드 반영
 - [ ] 데이터 재수집 및 ChromaDB 적재: `docker-compose -f docker/docker-compose.yml up data-loader`
 - [ ] Phase 2 작업: 재시도 로직, 타입 힌트, 테스트 커버리지
+- [ ] 청크 설정 최적화: `config.py`에서 `CHUNK_SIZE=150`, `CHUNK_OVERLAP=15` 로 변경 (현재 100/50 → 임베딩 비용 ~60% 절감, 재수집 필요)
 
 ## 필수 환경변수 (.env)
 ```bash
