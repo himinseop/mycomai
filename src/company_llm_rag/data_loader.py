@@ -3,11 +3,39 @@ import json
 import hashlib
 from typing import List
 
+try:
+    import tiktoken
+    _TIKTOKEN_AVAILABLE = True
+except ImportError:
+    _TIKTOKEN_AVAILABLE = False
+
 from company_llm_rag.config import settings
 from company_llm_rag.database import db_manager
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
+
+# tiktoken 인코더 싱글톤 컨테이너 (중복 로드 방지)
+_encoder = None
+
+def _get_encoder():
+    """
+    tiktoken 인코더 반환 (Lazy initialization)
+
+    Returns:
+        tiktoken Encoding 객체, 또는 None (tiktoken 미설치 시)
+    """
+    global _encoder
+    if not _TIKTOKEN_AVAILABLE:
+        return None
+    if _encoder is None:
+        try:
+            _encoder = tiktoken.get_encoding(settings.TIKTOKEN_ENCODING)
+        except Exception as e:
+            logger.warning(f"Failed to load tiktoken encoding '{settings.TIKTOKEN_ENCODING}': {e}. Falling back to word-based chunking.")
+            return None
+    return _encoder
+
 
 def _extract_text_from_adf_node(node):
     text_content = ""
@@ -29,12 +57,16 @@ def convert_adf_to_plain_text(adf_json):
 
 def chunk_content(content: str, chunk_size: int = None, chunk_overlap: int = None) -> List[str]:
     """
-    텍스트 콘텐츠를 작은 청크로 분할합니다.
+    텍스트 콘텐츠를 토큰 수 기준으로 청크로 분할합니다.
+
+    tiktoken이 설치되어 있으면 토큰 수 기준으로 청크합니다.
+    한국어 등 비영어권에서도 이모지/턼스트 토큰이 정확히 카운트됩니다.
+    tiktoken이 없으면 공백(space) 기준 단어 분리로 fallback합니다.
 
     Args:
         content: 분할할 텍스트
-        chunk_size: 청크 크기 (단어 수, 기본값: settings.CHUNK_SIZE)
-        chunk_overlap: 청크 중복 (단어 수, 기본값: settings.CHUNK_OVERLAP)
+        chunk_size: 청크 크기 (토큰 수, 기본값: settings.CHUNK_SIZE)
+        chunk_overlap: 청크 중복 (토큰 수, 기본값: settings.CHUNK_OVERLAP)
 
     Returns:
         청크 리스트
@@ -44,18 +76,57 @@ def chunk_content(content: str, chunk_size: int = None, chunk_overlap: int = Non
     if chunk_overlap is None:
         chunk_overlap = settings.CHUNK_OVERLAP
 
-    chunks = []
     if not content:
-        return chunks
+        return []
 
+    encoder = _get_encoder()
+
+    if encoder is not None:
+        return _chunk_by_tokens(content, encoder, chunk_size, chunk_overlap)
+    else:
+        return _chunk_by_words(content, chunk_size, chunk_overlap)
+
+
+def _chunk_by_tokens(content: str, encoder, chunk_size: int, chunk_overlap: int) -> List[str]:
+    """
+    tiktoken 토큰 ID 배열로 청크를 분할합니다.
+    """
+    token_ids = encoder.encode(content)
+    total_tokens = len(token_ids)
+
+    if total_tokens <= chunk_size:
+        return [content]
+
+    chunks = []
+    step = max(chunk_size - chunk_overlap, 1)  # step이 0 이하가 되지 않도록
+    for start in range(0, total_tokens, step):
+        end = min(start + chunk_size, total_tokens)
+        chunk_token_ids = token_ids[start:end]
+        chunk_text = encoder.decode(chunk_token_ids)
+        if chunk_text.strip():
+            chunks.append(chunk_text)
+        if end >= total_tokens:
+            break
+    return chunks
+
+
+def _chunk_by_words(content: str, chunk_size: int, chunk_overlap: int) -> List[str]:
+    """
+    공백 기준 단어로 청크를 분할합니다. (tiktoken fallback)
+    """
+    logger.debug("Using word-based chunking (tiktoken not available).")
     words = content.split()
     if len(words) <= chunk_size:
         return [" ".join(words)]
 
-    for i in range(0, len(words), chunk_size - chunk_overlap):
+    chunks = []
+    step = max(chunk_size - chunk_overlap, 1)
+    for i in range(0, len(words), step):
         chunk = " ".join(words[i:i + chunk_size])
-        chunks.append(chunk)
+        if chunk.strip():
+            chunks.append(chunk)
     return chunks
+
 
 def _upsert_with_fallback(collection, chunk: str, metadata: dict, chunk_id: str, stats: dict, is_existing: bool):
     """

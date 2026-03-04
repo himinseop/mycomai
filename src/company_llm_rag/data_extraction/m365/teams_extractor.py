@@ -9,8 +9,10 @@ import requests
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
+from company_llm_rag.data_extraction.html_utils import parse_teams_html
 
 logger = get_logger(__name__)
+
 
 def get_msal_app() -> msal.ConfidentialClientApplication:
     """MSAL 애플리케이션 인스턴스를 생성합니다."""
@@ -253,7 +255,9 @@ def main():
                             "source_id": message.get('id'),
                             "url": None, # Teams messages don't have a direct public URL like Jira/Confluence/SharePoint files
                             "title": message.get('subject') or f"Teams Message in {channel_display_name}",
-                            "content": message.get('body', {}).get('content'),
+                            "content": parse_teams_html(
+                                message.get('body', {}).get('content', "")
+                            ),
                             "content_type": "message",
                             "created_at": message.get('createdDateTime'),
                             "updated_at": message.get('lastModifiedDateTime'),
@@ -283,7 +287,9 @@ def main():
                                 "id": reply.get('id'),
                                 "author": reply_author_name,
                                 "created_at": reply.get('createdDateTime'),
-                                "content": reply.get('body', {}).get('content')
+                                "content": parse_teams_html(
+                                    reply.get('body', {}).get('content', "")
+                                )
                             })
                         
                         print(json.dumps(extracted_data_schema, ensure_ascii=False))
@@ -321,7 +327,9 @@ def main():
                             "source_id": message.get('id'),
                             "url": None,
                             "title": f"[{chat_topic}] {author_name}의 메시지",
-                            "content": message.get('body', {}).get('content'),
+                            "content": parse_teams_html(
+                                message.get('body', {}).get('content', "")
+                            ),
                             "content_type": "chat_message",
                             "created_at": message.get('createdDateTime'),
                             "updated_at": message.get('lastModifiedDateTime'),

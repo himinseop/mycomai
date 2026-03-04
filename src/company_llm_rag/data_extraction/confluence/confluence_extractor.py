@@ -4,8 +4,10 @@ import sys
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
+from company_llm_rag.data_extraction.html_utils import parse_confluence_storage_format
 
 logger = get_logger(__name__)
+
 
 def get_all_spaces():
     """사용자가 접근 가능한 모든 스페이스를 가져옵니다."""
@@ -156,7 +158,9 @@ def main():
                         "source_id": page.get('id'),
                         "url": f"{settings.CONFLUENCE_BASE_URL}{page.get('_links', {}).get('webui')}",
                         "title": page.get('title'),
-                        "content": page.get('body', {}).get('storage', {}).get('value'),
+                        "content": parse_confluence_storage_format(
+                            page.get('body', {}).get('storage', {}).get('value', "")
+                        ),
                         "content_type": "page",
                         "created_at": page.get('history', {}).get('createdDate'),
                         "updated_at": page.get('version', {}).get('when'),
@@ -176,7 +180,9 @@ def main():
                             "id": comment.get('id'),
                             "author": comment.get('author', {}).get('displayName'),
                             "created_at": comment.get('history', {}).get('createdDate'),
-                            "content": comment.get('body', {}).get('storage', {}).get('value')
+                            "content": parse_confluence_storage_format(
+                                comment.get('body', {}).get('storage', {}).get('value', "")
+                            )
                         })
                     
                     print(json.dumps(extracted_data_schema, ensure_ascii=False))

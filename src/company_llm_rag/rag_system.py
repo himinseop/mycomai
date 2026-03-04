@@ -1,3 +1,4 @@
+import json
 from typing import List, Dict
 
 import openai
@@ -7,6 +8,31 @@ from company_llm_rag.retrieval_module import retrieve_documents
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _ensure_list(value) -> list:
+    """
+    값이 list이면 그대로 반환하고, str(직렬화된 JSON)이면 파싱합니다.
+    ChromaDB는 모든 메타데이터 값을 기본형(str/int/float/bool)로만
+    저장하므로, 코멘트/답글 구조체는 JSON으로 직렬화되어 저장됩니다.
+    retrieval_module의 JSON 파싱이 실패한 경우에도 안전하게 병 통과합니다.
+
+    Args:
+        value: 변환할 값 (list, str, 또는 None)
+
+    Returns:
+        list (파싱 실패 또는 None이면 빈 리스트)
+    """
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            logger.debug(f"Failed to parse metadata value as JSON list: {value[:80]}...")
+    return []
 
 def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
     """
@@ -20,13 +46,22 @@ def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
         url = doc['metadata'].get('url', 'No URL')
         
         # Include comments/replies if available
+        # _ensure_list()로 감싸서 str(JSON 직렬화)로 남아있는 경우도 안전하게 처리
         comments_or_replies = []
-        if source == "jira" and doc['metadata'].get('comments'):
-            comments_or_replies = [f"Comment by {c.get('author')} on {c.get('created_at')}: {c.get('content')}" for c in doc['metadata']['comments']]
-        elif source == "confluence" and doc['metadata'].get('comments'):
-            comments_or_replies = [f"Comment by {c.get('author')} on {c.get('created_at')}: {c.get('content')}" for c in doc['metadata']['comments']]
-        elif source == "teams" and doc['metadata'].get('replies'):
-            comments_or_replies = [f"Reply by {r.get('sender')} on {r.get('created_at')}: {r.get('content')}" for r in doc['metadata']['replies']]
+        if source in ("jira", "confluence"):
+            for c in _ensure_list(doc['metadata'].get('comments')):
+                if not isinstance(c, dict):
+                    continue
+                comments_or_replies.append(
+                    f"Comment by {c.get('author')} on {c.get('created_at')}: {c.get('content')}"
+                )
+        elif source == "teams":
+            for r in _ensure_list(doc['metadata'].get('replies')):
+                if not isinstance(r, dict):
+                    continue
+                comments_or_replies.append(
+                    f"Reply by {r.get('sender') or r.get('author')} on {r.get('created_at')}: {r.get('content')}"
+                )
 
         comments_or_replies_str = "\n".join(comments_or_replies) if comments_or_replies else ""
 

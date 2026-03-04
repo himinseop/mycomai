@@ -56,10 +56,14 @@ class Settings:
         int(os.getenv("LOOKBACK_DAYS")) if os.getenv("LOOKBACK_DAYS") else None
     )
 
-    # RAG 설정
-    CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "100"))
-    CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "50"))
+    # RAG 설정 (토큰 기준 — tiktoken 사용)
+    # text-embedding-3-small 최대 컨텍스트: 8191 토큰
+    # 권장: CHUNK_SIZE 256~512, CHUNK_OVERLAP 32~64
+    CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "512"))
+    CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "64"))
     RETRIEVAL_TOP_K: int = int(os.getenv("RETRIEVAL_TOP_K", "3"))
+    # 청킹에 사용할 tiktoken 인코딩 (임베딩 모델에 맞게 cl100k_base 사용)
+    TIKTOKEN_ENCODING: str = os.getenv("TIKTOKEN_ENCODING", "cl100k_base")
 
     # 페이지네이션 설정
     JIRA_MAX_RESULTS: int = int(os.getenv("JIRA_MAX_RESULTS", "50"))
