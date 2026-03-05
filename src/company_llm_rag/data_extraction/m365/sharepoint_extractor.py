@@ -1,8 +1,9 @@
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 import msal
@@ -10,6 +11,7 @@ import requests
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
+from company_llm_rag.data_extraction.m365.file_parser import extract_pdf_text, extract_pptx_text
 
 logger = get_logger(__name__)
 
@@ -178,7 +180,7 @@ def get_files_in_folder(drive_id: str, folder_path: str, access_token: str) -> L
 
 def download_file_content(download_url: str, access_token: str) -> str:
     """
-    주어진 다운로드 URL에서 파일 콘텐츠를 다운로드합니다.
+    주어진 다운로드 URL에서 텍스트 파일 콘텐츠를 다운로드합니다.
 
     Args:
         download_url: 파일 다운로드 URL
@@ -187,12 +189,68 @@ def download_file_content(download_url: str, access_token: str) -> str:
     Returns:
         파일 콘텐츠 (텍스트)
     """
-    headers = {
-        'Authorization': f'Bearer {access_token}'
-    }
+    headers = {'Authorization': f'Bearer {access_token}'}
     response = requests.get(download_url, headers=headers)
     response.raise_for_status()
     return response.text
+
+
+def download_file_bytes(download_url: str, access_token: str) -> bytes:
+    """
+    주어진 다운로드 URL에서 바이너리 파일을 다운로드합니다. (PDF, PPTX 등)
+
+    Args:
+        download_url: 파일 다운로드 URL
+        access_token: 액세스 토큰
+
+    Returns:
+        파일 바이너리 데이터
+    """
+    headers = {'Authorization': f'Bearer {access_token}'}
+    response = requests.get(download_url, headers=headers)
+    response.raise_for_status()
+    return response.content
+
+
+def _get_pptx_base_and_version(filename: str) -> Tuple[str, int]:
+    """
+    PPTX 파일명에서 기본명과 버전 번호를 추출합니다.
+
+    Examples:
+        '기획서_v3.pptx' → ('기획서', 3)
+        'report_V2.pptx' → ('report', 2)
+        '보고서.pptx'    → ('보고서', 0)
+    """
+    name = os.path.splitext(filename)[0]
+    m = re.search(r'_v(\d+)$', name, re.IGNORECASE)
+    if m:
+        return name[:m.start()], int(m.group(1))
+    return name, 0
+
+
+def deduplicate_pptx_versions(files: List[Dict]) -> List[Dict]:
+    """
+    PPTX 파일 중 같은 폴더 + 같은 기본 파일명인 경우 최신 버전(_v숫자 가장 높은 것)만 유지합니다.
+    버전 패턴이 없는 PPTX나 다른 형식 파일은 그대로 통과합니다.
+    """
+    pptx_mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    pptx_files = [f for f in files if f.get('file', {}).get('mimeType') == pptx_mime]
+    other_files = [f for f in files if f.get('file', {}).get('mimeType') != pptx_mime]
+
+    groups: Dict[Tuple[str, str], Tuple[Dict, int]] = {}
+    for f in pptx_files:
+        folder = f.get('parentReference', {}).get('path', '')
+        base, version = _get_pptx_base_and_version(f['name'])
+        key = (folder, base)
+        if key not in groups or version > groups[key][1]:
+            groups[key] = (f, version)
+
+    latest_pptx = [item for item, _ in groups.values()]
+    skipped = len(pptx_files) - len(latest_pptx)
+    if skipped > 0:
+        logger.info(f"PPTX 버전 중복 제거: {skipped}개 스킵, {len(latest_pptx)}개 유지")
+
+    return other_files + latest_pptx
 
 def main():
     try:
@@ -225,34 +283,49 @@ def main():
 
                 files_metadata = get_files_in_folder(drive_id, "", access_token)
                 if files_metadata:
+                    files_metadata = deduplicate_pptx_versions(files_metadata)
                     logger.info(f"  - Found {len(files_metadata)} files. Downloading content...")
+
+                    TEXT_MIME_TYPES = {
+                        "text/plain",
+                        "text/markdown",
+                        "application/json",
+                        "application/xml",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    }
+                    BINARY_PARSERS = {
+                        "application/pdf": extract_pdf_text,
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation": extract_pptx_text,
+                    }
+
                     for file_meta in files_metadata:
                         file_name = file_meta.get('name')
                         file_id = file_meta.get('id')
                         file_web_url = file_meta.get('webUrl')
                         file_download_url = file_meta.get('@microsoft.graph.downloadUrl')
                         file_path = file_meta.get('parentReference', {}).get('path')
-                        
+
                         content_to_store = None
                         mime_type = file_meta.get('file', {}).get('mimeType')
                         file_size = file_meta.get('size')
 
-                        # Attempt to download content only for supported text-based files
-                        if file_download_url and mime_type in [
-                            "text/plain", "text/markdown", "application/json", "application/xml",
-                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document", # .docx
-                            "application/pdf" # For PDF
-                        ]:
+                        if not file_download_url:
+                            content_to_store = "[Content not available for download]"
+                        elif mime_type in BINARY_PARSERS:
                             try:
-                                file_content = download_file_content(file_download_url, access_token)
-                                content_to_store = file_content
+                                file_bytes = download_file_bytes(file_download_url, access_token)
+                                content_to_store = BINARY_PARSERS[mime_type](file_bytes)
                             except Exception as e:
                                 content_to_store = f"[Error downloading or parsing content: {e}]"
                                 logger.warning(f"Could not download/parse content for {file_name}: {e}")
-                        elif file_download_url:
-                            content_to_store = f"[Content not extracted: Unsupported MIME type {mime_type}]"
+                        elif mime_type in TEXT_MIME_TYPES:
+                            try:
+                                content_to_store = download_file_content(file_download_url, access_token)
+                            except Exception as e:
+                                content_to_store = f"[Error downloading content: {e}]"
+                                logger.warning(f"Could not download content for {file_name}: {e}")
                         else:
-                            content_to_store = "[Content not available for download]"
+                            content_to_store = f"[Content not extracted: Unsupported MIME type {mime_type}]"
 
 
                         extracted_data_schema = {
