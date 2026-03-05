@@ -22,3 +22,7 @@ lxml==5.3.1
 
 # Token-based chunking
 tiktoken==0.9.0
+
+# File parsing (SharePoint PDF/PPTX 텍스트 추출)
+pypdf==5.3.1
+python-pptx==1.0.2
