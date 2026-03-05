@@ -168,9 +168,12 @@ def get_files_in_folder(drive_id: str, folder_path: str, access_token: str) -> L
         items = response_data.get('value', [])
         
         for item in items:
-            if 'file' in item: 
+            if 'file' in item:
                 all_files_metadata.append(item)
-            elif 'folder' in item: 
+            elif 'folder' in item:
+                if item['name'].lower() == 'old':
+                    logger.info(f"  - Skipping 'old' folder: {os.path.join(folder_path, item['name'])}")
+                    continue
                 new_folder_path = os.path.join(folder_path, item['name'])
                 all_files_metadata.extend(get_files_in_folder(drive_id, new_folder_path, access_token))
         
