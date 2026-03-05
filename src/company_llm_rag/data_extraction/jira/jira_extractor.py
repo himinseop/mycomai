@@ -7,6 +7,18 @@ from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
 
+
+def _adf_to_text(node) -> str:
+    """ADF(Atlassian Document Format) 노드를 평문 텍스트로 변환합니다."""
+    if isinstance(node, dict):
+        if node.get('type') == 'text':
+            return node.get('text', '')
+        return '\n'.join(filter(None, (_adf_to_text(c) for c in node.get('content', []))))
+    if isinstance(node, list):
+        return '\n'.join(filter(None, (_adf_to_text(item) for item in node)))
+    return ''
+
+
 def get_all_projects():
     """사용자가 접근 가능한 모든 프로젝트를 가져옵니다."""
     url = f"{settings.JIRA_BASE_URL}/rest/api/3/project"
@@ -99,18 +111,38 @@ def main():
                             logger.warning(f"  - Skipping issue {issue.get('key')} due to missing fields.")
                             continue
 
-                        # Extract relevant fields and format as a flat structure for RAG
-                        description = fields.get('description')
-                        if description is None:
-                            description = ""
-                        
+                        # description: ADF → 평문 변환
+                        description = fields.get('description') or ''
+                        if isinstance(description, dict):
+                            description = _adf_to_text(description)
+
+                        # comments: ADF → 평문 변환 후 content에 합치기
+                        comment_obj = fields.get('comment', {})
+                        comments = comment_obj.get('comments', []) if comment_obj else []
+                        comment_blocks = []
+                        for comment in comments:
+                            if not comment:
+                                continue
+                            body = comment.get('body') or ''
+                            if isinstance(body, dict):
+                                body = _adf_to_text(body)
+                            if not body.strip():
+                                continue
+                            author = comment.get('author', {}).get('displayName', 'Unknown') if comment.get('author') else 'Unknown'
+                            date = (comment.get('created') or '')[:10]
+                            comment_blocks.append(f"[Comment by {author} on {date}]\n{body.strip()}")
+
+                        content = description
+                        if comment_blocks:
+                            content = description + '\n\n' + '\n\n'.join(comment_blocks)
+
                         extracted_data_schema = {
                             "id": f"jira-{issue.get('id')}",
                             "source": "jira",
                             "source_id": issue.get('id'),
                             "url": f"{settings.JIRA_BASE_URL}/browse/{issue.get('key')}",
                             "title": fields.get('summary', 'No Summary'),
-                            "content": description,
+                            "content": content,
                             "content_type": "issue",
                             "created_at": fields.get('created'),
                             "updated_at": fields.get('updated'),
@@ -122,20 +154,9 @@ def main():
                                 "status": fields.get('status', {}).get('name') if fields.get('status') else "Unknown",
                                 "priority": fields.get('priority', {}).get('name') if fields.get('priority') else "None",
                                 "assignee": fields.get('assignee', {}).get('displayName') if fields.get('assignee') else "Unassigned",
-                                "comments": []
+                                "comment_count": len(comment_blocks),
                             }
                         }
-                        # Process comments
-                        comment_obj = fields.get('comment', {})
-                        comments = comment_obj.get('comments', []) if comment_obj else []
-                        for comment in comments:
-                            if not comment: continue
-                            extracted_data_schema["metadata"]["comments"].append({
-                                "id": comment.get('id'),
-                                "author": comment.get('author', {}).get('displayName') if comment.get('author') else "Unknown",
-                                "created_at": comment.get('created'),
-                                "content": comment.get('body')
-                            })
                         
                         print(json.dumps(extracted_data_schema, ensure_ascii=False))
                     except Exception as inner_e:
