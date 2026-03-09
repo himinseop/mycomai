@@ -1,6 +1,8 @@
 import sys
 import json
 import hashlib
+import time
+from datetime import timedelta
 from typing import List
 
 try:
@@ -169,6 +171,13 @@ def _upsert_with_fallback(collection, chunk: str, metadata: dict, chunk_id: str,
             raise
 
 
+_PROGRESS_EVERY = 50  # 몇 문서마다 진행 현황을 출력할지
+
+
+def _fmt_elapsed(seconds: float) -> str:
+    return str(timedelta(seconds=int(seconds)))
+
+
 def load_data_to_chromadb(data_stream):
     """
     JSONL 데이터를 읽고, 청크로 분할하고, 임베딩을 생성하여 ChromaDB에 로드합니다.
@@ -179,7 +188,16 @@ def load_data_to_chromadb(data_stream):
     collection = db_manager.get_collection()
     stats = {"new": 0, "updated": 0, "skipped": 0}
 
-    for line in data_stream:
+    # 전체 라인 수 확인 (진행률 표시용)
+    lines = [l for l in data_stream if l.strip()]
+    total_docs = len(lines)
+    logger.info(f"총 {total_docs}개 문서 로드 시작.")
+
+    start_time = time.time()
+    doc_count = 0
+    chunk_count = 0
+
+    for line in lines:
         try:
             document = json.loads(line)
             doc_id = document.get("id")
@@ -202,7 +220,19 @@ def load_data_to_chromadb(data_stream):
                 continue
 
             chunks = chunk_content(content)
-            
+            doc_count += 1
+            chunk_count += len(chunks)
+
+            if doc_count % _PROGRESS_EVERY == 0:
+                elapsed = time.time() - start_time
+                total_chunks_done = stats["new"] + stats["updated"] + stats["skipped"]
+                logger.info(
+                    f"[{doc_count}/{total_docs}] "
+                    f"청크: {total_chunks_done:,} "
+                    f"(new {stats['new']:,} | updated {stats['updated']:,} | skipped {stats['skipped']:,}) "
+                    f"| 경과: {_fmt_elapsed(elapsed)}"
+                )
+
             for i, chunk in enumerate(chunks):
                 chunk_id = f"{doc_id}-chunk-{i}"
                 
@@ -257,10 +287,12 @@ def load_data_to_chromadb(data_stream):
         except Exception as e:
             logger.error(f"An unexpected error occurred while processing line: {line.strip()[:100]}... - Error: {e}", exc_info=True)
 
+    elapsed = time.time() - start_time
     failed = stats.get("failed", 0)
     logger.info(
-        f"Load complete — new: {stats['new']}, updated: {stats['updated']}, "
-        f"skipped (unchanged): {stats['skipped']}, failed: {failed}"
+        f"완료 | 문서: {doc_count:,}/{total_docs:,} | 청크: {chunk_count:,} "
+        f"(new {stats['new']:,} | updated {stats['updated']:,} | skipped {stats['skipped']:,} | failed {failed:,}) "
+        f"| 총 소요: {_fmt_elapsed(elapsed)}"
     )
 
 
