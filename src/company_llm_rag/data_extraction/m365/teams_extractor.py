@@ -241,6 +241,9 @@ def main():
                     if messages:
                         logger.info(f"      - Found {len(messages)} message threads.")
                     for message in messages:
+                        if message.get('messageType') != 'message':
+                            continue
+
                         author_info = message.get('from', {})
                         author_name = "Unknown"
                         if author_info:
@@ -248,16 +251,39 @@ def main():
                                 author_name = author_info['user'].get('displayName', "Unknown User")
                             elif author_info.get('application'):
                                 author_name = author_info['application'].get('displayName', "Unknown Application")
-                        
+
+                        # 본문
+                        body_text = parse_teams_html(message.get('body', {}).get('content', ""))
+
+                        # replies: content에 합치기
+                        reply_blocks = []
+                        for reply in message.get('replies', []):
+                            if reply.get('messageType') != 'message':
+                                continue
+                            reply_body = parse_teams_html(reply.get('body', {}).get('content', ""))
+                            if not reply_body.strip():
+                                continue
+                            reply_author_info = reply.get('from', {})
+                            if reply_author_info.get('user'):
+                                reply_author = reply_author_info['user'].get('displayName', 'Unknown')
+                            elif reply_author_info.get('application'):
+                                reply_author = reply_author_info['application'].get('displayName', 'Unknown')
+                            else:
+                                reply_author = 'Unknown'
+                            reply_date = (reply.get('createdDateTime') or '')[:10]
+                            reply_blocks.append(f"[Reply by {reply_author} on {reply_date}]\n{reply_body.strip()}")
+
+                        content = body_text
+                        if reply_blocks:
+                            content = body_text + '\n\n' + '\n\n'.join(reply_blocks)
+
                         extracted_data_schema = {
                             "id": f"teams-{message.get('id')}",
                             "source": "teams",
                             "source_id": message.get('id'),
-                            "url": None, # Teams messages don't have a direct public URL like Jira/Confluence/SharePoint files
+                            "url": None,
                             "title": message.get('subject') or f"Teams Message in {channel_display_name}",
-                            "content": parse_teams_html(
-                                message.get('body', {}).get('content', "")
-                            ),
+                            "content": content,
                             "content_type": "message",
                             "created_at": message.get('createdDateTime'),
                             "updated_at": message.get('lastModifiedDateTime'),
@@ -268,30 +294,10 @@ def main():
                                 "teams_channel_name": channel_display_name,
                                 "teams_channel_id": channel_id,
                                 "message_type": message.get('messageType'),
-                                "replies": []
+                                "reply_count": len(reply_blocks),
                             }
                         }
 
-                        # Process replies
-                        replies = message.get('replies', [])
-                        for reply in replies:
-                            reply_author_info = reply.get('from', {})
-                            reply_author_name = "Unknown"
-                            if reply_author_info:
-                                if reply_author_info.get('user'):
-                                    reply_author_name = reply_author_info['user'].get('displayName', "Unknown User")
-                                elif reply_author_info.get('application'):
-                                    reply_author_name = reply_author_info['application'].get('displayName', "Unknown Application")
-                            
-                            extracted_data_schema["metadata"]["replies"].append({
-                                "id": reply.get('id'),
-                                "author": reply_author_name,
-                                "created_at": reply.get('createdDateTime'),
-                                "content": parse_teams_html(
-                                    reply.get('body', {}).get('content', "")
-                                )
-                            })
-                        
                         print(json.dumps(extracted_data_schema, ensure_ascii=False))
             except Exception as e:
                 logger.error(f"Error processing Teams group '{group_name}': {e}", exc_info=True)
