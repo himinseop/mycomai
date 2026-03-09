@@ -11,7 +11,7 @@ import requests
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
-from company_llm_rag.data_extraction.m365.file_parser import extract_pdf_text, extract_pptx_text
+from company_llm_rag.data_extraction.m365.file_parser import extract_pdf_text, extract_pptx_text, extract_docx_text
 
 logger = get_logger(__name__)
 
@@ -294,11 +294,11 @@ def main():
                         "text/markdown",
                         "application/json",
                         "application/xml",
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     }
                     BINARY_PARSERS = {
                         "application/pdf": extract_pdf_text,
                         "application/vnd.openxmlformats-officedocument.presentationml.presentation": extract_pptx_text,
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": extract_docx_text,
                     }
 
                     for file_meta in files_metadata:
@@ -329,6 +329,10 @@ def main():
                                 logger.warning(f"Could not download content for {file_name}: {e}")
                         else:
                             content_to_store = f"[Content not extracted: Unsupported MIME type {mime_type}]"
+                            logger.warning(
+                                f"미지원 MIME 타입 — 파일: {file_name} | "
+                                f"경로: {file_path} | MIME: {mime_type} | URL: {file_web_url}"
+                            )
 
 
                         extracted_data_schema = {

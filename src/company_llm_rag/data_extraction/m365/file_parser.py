@@ -68,3 +68,28 @@ def extract_pptx_text(file_bytes: bytes) -> str:
     except Exception as e:
         logger.warning(f"PPTX 텍스트 추출 실패: {e}")
         return ""
+
+
+def extract_docx_text(file_bytes: bytes) -> str:
+    """
+    DOCX 바이너리에서 텍스트를 추출합니다.
+
+    Args:
+        file_bytes: DOCX 파일의 바이너리 데이터
+
+    Returns:
+        추출된 텍스트 (단락별 구분)
+    """
+    try:
+        from docx import Document
+    except ImportError:
+        logger.warning("python-docx가 설치되어 있지 않습니다. DOCX 파싱을 건너뜁니다.")
+        return ""
+
+    try:
+        doc = Document(io.BytesIO(file_bytes))
+        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        return "\n\n".join(paragraphs)
+    except Exception as e:
+        logger.warning(f"DOCX 텍스트 추출 실패: {e}")
+        return ""
