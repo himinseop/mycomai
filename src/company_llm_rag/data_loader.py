@@ -219,7 +219,8 @@ def load_data_to_chromadb(data_stream):
                 logger.warning(f"Skipping document due to missing ID or content: {document.get('id')}")
                 continue
 
-            chunks = chunk_content(content)
+            embed_text = f"{title}\n\n{content}" if title else content
+            chunks = chunk_content(embed_text)
             doc_count += 1
             chunk_count += len(chunks)
 
