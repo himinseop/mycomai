@@ -76,7 +76,8 @@ def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
         "You are an AI assistant for a company. Your task is to answer questions based on the provided company knowledge base. "
         "Use only the information from the documents provided below to answer the question. "
         "If the answer cannot be found in the documents, state that you don't have enough information. "
-        "Do not make up any information.\n\n"
+        "Do not make up any information. "
+        "Always respond in Korean.\n\n"
         "Company Knowledge Base:\n"
         f"{context}\n\n"
         f"User Query: {user_query}\n\n"
@@ -106,7 +107,7 @@ def get_llm_response(prompt: str, model: str = None, temperature: float = None) 
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "system", "content": "You are a helpful assistant. Always respond in Korean."},
                 {"role": "user", "content": prompt}
             ],
             temperature=temperature
