@@ -20,10 +20,10 @@ services:
     command: >
       bash -c "
         echo 'Starting data extraction...' &&
-        python3 company_llm_rag/data_extraction/jira/jira_extractor.py 2> data/jira_errors.log > data/jira_data.jsonl &&
-        python3 company_llm_rag/data_extraction/confluence/confluence_extractor.py 2> data/confluence_errors.log > data/confluence_data.jsonl &&
-        python3 company_llm_rag/data_extraction/m365/sharepoint_extractor.py 2> data/sharepoint_errors.log > data/sharepoint_data.jsonl &&
-        python3 company_llm_rag/data_extraction/m365/teams_extractor.py 2> data/teams_errors.log > data/teams_data.jsonl &&
+        python3 company_llm_rag/data_extraction/jira/jira_extractor.py > data/jira_data.jsonl 2> >(tee data/jira_errors.log >&2) &&
+        python3 company_llm_rag/data_extraction/confluence/confluence_extractor.py > data/confluence_data.jsonl 2> >(tee data/confluence_errors.log >&2) &&
+        python3 company_llm_rag/data_extraction/m365/sharepoint_extractor.py > data/sharepoint_data.jsonl 2> >(tee data/sharepoint_errors.log >&2) &&
+        python3 company_llm_rag/data_extraction/m365/teams_extractor.py > data/teams_data.jsonl 2> >(tee data/teams_errors.log >&2) &&
         echo 'Data extraction complete. Starting data loading...' &&
         cat data/jira_data.jsonl data/confluence_data.jsonl data/sharepoint_data.jsonl data/teams_data.jsonl | python3 company_llm_rag/data_loader.py &&
         echo 'Data loading complete!'

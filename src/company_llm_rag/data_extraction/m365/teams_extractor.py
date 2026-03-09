@@ -13,6 +13,11 @@ from company_llm_rag.data_extraction.html_utils import parse_teams_html
 
 logger = get_logger(__name__)
 
+_PROGRESS_EVERY = 50
+
+def _fmt_elapsed(seconds: float) -> str:
+    return str(timedelta(seconds=int(seconds)))
+
 
 def get_msal_app() -> msal.ConfidentialClientApplication:
     """MSAL 애플리케이션 인스턴스를 생성합니다."""
@@ -238,8 +243,11 @@ def main():
                     logger.info(f"    - Fetching messages from channel: {channel_display_name}")
 
                     messages = get_channel_messages(team_id, channel_id, access_token)
-                    if messages:
-                        logger.info(f"      - Found {len(messages)} message threads.")
+                    total_msgs = len(messages)
+                    if total_msgs:
+                        logger.info(f"[Teams][{group_name}][{channel_display_name}] {total_msgs}개 메시지 발견. 수집 시작...")
+                    ch_start = time.time()
+                    ch_count = 0
                     for message in messages:
                         if message.get('messageType') != 'message':
                             continue
@@ -299,6 +307,13 @@ def main():
                         }
 
                         print(json.dumps(extracted_data_schema, ensure_ascii=False))
+                        ch_count += 1
+                        if ch_count % _PROGRESS_EVERY == 0:
+                            pct = int(ch_count / total_msgs * 100) if total_msgs else 0
+                            elapsed = _fmt_elapsed(time.time() - ch_start)
+                            logger.info(f"[Teams][{group_name}][{channel_display_name}] {ch_count}/{total_msgs} ({pct}%) | 경과: {elapsed}")
+                    if total_msgs:
+                        logger.info(f"[Teams][{group_name}][{channel_display_name}] 완료: {ch_count}개 | 소요: {_fmt_elapsed(time.time() - ch_start)}")
             except Exception as e:
                 logger.error(f"Error processing Teams group '{group_name}': {e}", exc_info=True)
 
@@ -312,7 +327,10 @@ def main():
                     logger.info(f"[{i+1}/{len(settings.TEAMS_CHAT_IDS)}] Processing chat: {chat_topic}")
 
                     messages = get_direct_chat_messages(chat_id, access_token)
-                    logger.info(f"  - Found {len(messages)} messages.")
+                    total_msgs = len(messages)
+                    logger.info(f"[Teams][{chat_topic}] {total_msgs}개 메시지 발견. 수집 시작...")
+                    chat_start = time.time()
+                    chat_count = 0
 
                     for message in messages:
                         # 시스템 메시지 제외 (이벤트, 멤버 추가 등)
@@ -348,6 +366,12 @@ def main():
                             }
                         }
                         print(json.dumps(extracted_data_schema, ensure_ascii=False))
+                        chat_count += 1
+                        if chat_count % _PROGRESS_EVERY == 0:
+                            pct = int(chat_count / total_msgs * 100) if total_msgs else 0
+                            elapsed = _fmt_elapsed(time.time() - chat_start)
+                            logger.info(f"[Teams][{chat_topic}] {chat_count}/{total_msgs} ({pct}%) | 경과: {elapsed}")
+                    logger.info(f"[Teams][{chat_topic}] 완료: {chat_count}개 | 소요: {_fmt_elapsed(time.time() - chat_start)}")
 
                 except Exception as e:
                     logger.error(f"Error processing chat '{chat_id}': {e}", exc_info=True)

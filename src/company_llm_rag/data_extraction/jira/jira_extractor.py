@@ -1,11 +1,18 @@
 import json
 import requests
 import sys
+import time
+from datetime import timedelta
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
+
+_PROGRESS_EVERY = 100
+
+def _fmt_elapsed(seconds: float) -> str:
+    return str(timedelta(seconds=int(seconds)))
 
 
 def _adf_to_text(node) -> str:
@@ -102,9 +109,10 @@ def main():
         try:
             issues_data = get_issues_for_project(project_key)
             if issues_data:
-                logger.info(f"  - Found {len(issues_data)} issues.")
-                # Output in JSON Lines format
-                for issue in issues_data:
+                total = len(issues_data)
+                logger.info(f"[Jira][{project_key}] {total}개 이슈 발견. 수집 시작...")
+                start_time = time.time()
+                for j, issue in enumerate(issues_data, 1):
                     try:
                         fields = issue.get('fields')
                         if not fields:
@@ -159,9 +167,14 @@ def main():
                         }
                         
                         print(json.dumps(extracted_data_schema, ensure_ascii=False))
+                        if j % _PROGRESS_EVERY == 0 or j == total:
+                            pct = int(j / total * 100)
+                            elapsed = _fmt_elapsed(time.time() - start_time)
+                            logger.info(f"[Jira][{project_key}] {j}/{total} ({pct}%) | 경과: {elapsed}")
                     except Exception as inner_e:
                         logger.error(f"  - Error processing issue {issue.get('key', 'unknown')}: {inner_e}", exc_info=True)
                         continue
+                logger.info(f"[Jira][{project_key}] 완료: {total}개 | 소요: {_fmt_elapsed(time.time() - start_time)}")
             else:
                 logger.warning(f"No issues found for project {project_key} or unexpected response format.")
         except requests.exceptions.RequestException as e:

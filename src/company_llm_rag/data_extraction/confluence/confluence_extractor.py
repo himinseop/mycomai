@@ -1,12 +1,19 @@
 import requests
 import json
 import sys
+import time
+from datetime import timedelta
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
 from company_llm_rag.data_extraction.html_utils import parse_confluence_storage_format
 
 logger = get_logger(__name__)
+
+_PROGRESS_EVERY = 50
+
+def _fmt_elapsed(seconds: float) -> str:
+    return str(timedelta(seconds=int(seconds)))
 
 
 def get_all_spaces():
@@ -150,8 +157,10 @@ def main():
         try:
             pages_data = get_confluence_pages_in_space(space_key)
             if pages_data:
-                logger.info(f"  - Found {len(pages_data)} pages.")
-                for page in pages_data:
+                total = len(pages_data)
+                logger.info(f"[Confluence][{space_key}] {total}개 페이지 발견. 수집 시작...")
+                start_time = time.time()
+                for j, page in enumerate(pages_data, 1):
                     extracted_data_schema = {
                         "id": f"confluence-{page.get('id')}",
                         "source": "confluence",
@@ -186,6 +195,11 @@ def main():
                         })
                     
                     print(json.dumps(extracted_data_schema, ensure_ascii=False))
+                    if j % _PROGRESS_EVERY == 0 or j == total:
+                        pct = int(j / total * 100)
+                        elapsed = _fmt_elapsed(time.time() - start_time)
+                        logger.info(f"[Confluence][{space_key}] {j}/{total} ({pct}%) | 경과: {elapsed}")
+                logger.info(f"[Confluence][{space_key}] 완료: {total}개 | 소요: {_fmt_elapsed(time.time() - start_time)}")
             else:
                 logger.warning(f"No pages found for Confluence space {space_key}.")
         except requests.exceptions.RequestException as e:

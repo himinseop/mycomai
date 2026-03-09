@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional, Tuple
 from urllib.parse import urlparse
@@ -14,6 +15,11 @@ from company_llm_rag.logger import get_logger
 from company_llm_rag.data_extraction.m365.file_parser import extract_pdf_text, extract_pptx_text, extract_docx_text
 
 logger = get_logger(__name__)
+
+_PROGRESS_EVERY = 10
+
+def _fmt_elapsed(seconds: float) -> str:
+    return str(timedelta(seconds=int(seconds)))
 
 def get_msal_app() -> msal.ConfidentialClientApplication:
     """MSAL 애플리케이션 인스턴스를 생성합니다."""
@@ -287,7 +293,9 @@ def main():
                 files_metadata = get_files_in_folder(drive_id, "", access_token)
                 if files_metadata:
                     files_metadata = deduplicate_pptx_versions(files_metadata)
-                    logger.info(f"  - Found {len(files_metadata)} files. Downloading content...")
+                    total = len(files_metadata)
+                    logger.info(f"[SharePoint][{site_name}] {total}개 파일 발견. 수집 시작...")
+                    start_time = time.time()
 
                     TEXT_MIME_TYPES = {
                         "text/plain",
@@ -301,7 +309,7 @@ def main():
                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": extract_docx_text,
                     }
 
-                    for file_meta in files_metadata:
+                    for k, file_meta in enumerate(files_metadata, 1):
                         file_name = file_meta.get('name')
                         file_id = file_meta.get('id')
                         file_web_url = file_meta.get('webUrl')
@@ -355,6 +363,11 @@ def main():
                         }
                         
                         print(json.dumps(extracted_data_schema, ensure_ascii=False))
+                        if k % _PROGRESS_EVERY == 0 or k == total:
+                            pct = int(k / total * 100)
+                            elapsed = _fmt_elapsed(time.time() - start_time)
+                            logger.info(f"[SharePoint][{site_name}] {k}/{total} ({pct}%) | 현재: {file_name} | 경과: {elapsed}")
+                    logger.info(f"[SharePoint][{site_name}] 완료: {total}개 | 소요: {_fmt_elapsed(time.time() - start_time)}")
                 else:
                     logger.warning(f"No files found in SharePoint site '{site_name}'.")
             except Exception as e:
