@@ -1,5 +1,5 @@
 import json
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import openai
 
@@ -85,12 +85,21 @@ def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
     )
     return prompt
 
-def get_llm_response(prompt: str, model: str = None, temperature: float = None) -> str:
+_MAX_HISTORY_TURNS = 10  # 최대 유지할 대화 턴 수 (초과 시 오래된 것부터 제거)
+
+
+def get_llm_response(
+    prompt: str,
+    conversation_history: Optional[List[Dict]] = None,
+    model: Optional[str] = None,
+    temperature: Optional[float] = None,
+) -> str:
     """
     LLM으로부터 응답을 가져옵니다.
 
     Args:
-        prompt: LLM에 전달할 프롬프트
+        prompt: 현재 턴의 RAG 컨텍스트 포함 프롬프트
+        conversation_history: 이전 대화 히스토리 (role/content 딕셔너리 리스트)
         model: 사용할 모델 (기본값: settings.OPENAI_CHAT_MODEL)
         temperature: 생성 온도 (기본값: settings.OPENAI_TEMPERATURE)
 
@@ -102,14 +111,16 @@ def get_llm_response(prompt: str, model: str = None, temperature: float = None) 
     if temperature is None:
         temperature = settings.OPENAI_TEMPERATURE
 
+    messages = [{"role": "system", "content": "You are a helpful assistant. Always respond in Korean."}]
+    if conversation_history:
+        messages.extend(conversation_history)
+    messages.append({"role": "user", "content": prompt})
+
     try:
         client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
         response = client.chat.completions.create(
             model=model,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant. Always respond in Korean."},
-                {"role": "user", "content": prompt}
-            ],
+            messages=messages,
             temperature=temperature
         )
         return response.choices[0].message.content
@@ -117,12 +128,18 @@ def get_llm_response(prompt: str, model: str = None, temperature: float = None) 
         logger.error(f"Error getting response from LLM: {e}", exc_info=True)
         return f"Error getting response from LLM: {e}"
 
-def rag_query(user_query: str, n_results: int = None) -> str:
+
+def rag_query(
+    user_query: str,
+    conversation_history: Optional[List[Dict]] = None,
+    n_results: Optional[int] = None,
+) -> str:
     """
     RAG 쿼리 실행: 문서를 검색하고 LLM 응답을 생성합니다.
 
     Args:
         user_query: 사용자 질문
+        conversation_history: 이전 대화 히스토리
         n_results: 검색할 문서 개수 (기본값: settings.RETRIEVAL_TOP_K)
 
     Returns:
@@ -131,15 +148,18 @@ def rag_query(user_query: str, n_results: int = None) -> str:
     retrieved_docs = retrieve_documents(user_query, n_results=n_results)
 
     if not retrieved_docs:
-        return "I could not find any relevant information in the company knowledge base for your query."
+        return "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
 
     prompt = build_rag_prompt(user_query, retrieved_docs)
-    llm_response = get_llm_response(prompt)
+    llm_response = get_llm_response(prompt, conversation_history=conversation_history)
 
     return llm_response
 
+
 if __name__ == "__main__":
     logger.info("Company LLM RAG System ready. Type 'exit' to quit.")
+    conversation_history: List[Dict] = []
+
     while True:
         try:
             query = input("\nEnter your query: ")
@@ -147,9 +167,19 @@ if __name__ == "__main__":
                 break
 
             logger.debug(f"Processing query: {query}")
-            response = rag_query(query)
+            response = rag_query(query, conversation_history=conversation_history)
             print("\nLLM Response:")
             print(response)
+
+            # 히스토리에 현재 턴 추가 (RAG 컨텍스트 문서 제외, 순수 Q&A만 저장)
+            conversation_history.append({"role": "user", "content": query})
+            conversation_history.append({"role": "assistant", "content": response})
+
+            # 오래된 히스토리 제거 (턴 단위: user+assistant = 1턴)
+            max_messages = _MAX_HISTORY_TURNS * 2
+            if len(conversation_history) > max_messages:
+                conversation_history = conversation_history[-max_messages:]
+
         except EOFError:
             break
         except Exception as e:
