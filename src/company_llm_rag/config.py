@@ -51,6 +51,10 @@ class Settings:
         c.strip() for c in os.getenv("TEAMS_CHAT_IDS", "").split(",") if c.strip()
     ]
 
+    # Teams 문의 채널 설정 (답변 부족 시 메시지 전송)
+    TEAMS_INQUIRY_TEAM_ID: str = os.getenv("TEAMS_INQUIRY_TEAM_ID", "")
+    TEAMS_INQUIRY_CHANNEL_ID: str = os.getenv("TEAMS_INQUIRY_CHANNEL_ID", "")
+
     # 데이터 수집 설정
     LOOKBACK_DAYS: Optional[int] = (
         int(os.getenv("LOOKBACK_DAYS")) if os.getenv("LOOKBACK_DAYS") else None

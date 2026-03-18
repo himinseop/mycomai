@@ -18,7 +18,6 @@
       flex-shrink: 0;
     }
     header h1 { font-size: 18px; font-weight: 600; }
-    header span { font-size: 12px; opacity: 0.6; }
     #clear-btn {
       background: rgba(255,255,255,0.1);
       border: 1px solid rgba(255,255,255,0.2);
@@ -51,6 +50,8 @@
     .msg.user .avatar { background: #4f46e5; color: white; }
     .msg.assistant .avatar { background: #1a1a2e; color: white; }
 
+    .msg-body { display: flex; flex-direction: column; gap: 6px; }
+
     .bubble {
       padding: 12px 16px;
       border-radius: 12px;
@@ -61,8 +62,31 @@
     }
     .msg.user .bubble { background: #4f46e5; color: white; border-bottom-right-radius: 4px; }
     .msg.assistant .bubble { background: white; color: #1a1a2e; border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-
     .typing .bubble { color: #888; font-style: italic; }
+
+    .inquiry-area { display: flex; align-items: center; gap: 8px; padding-left: 4px; }
+    .inquiry-btn {
+      background: none;
+      border: 1px solid #6264a7;
+      color: #6264a7;
+      padding: 4px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .inquiry-btn:hover { background: #f0f0fb; }
+    .inquiry-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .inquiry-sent { font-size: 12px; color: #6264a7; }
+    .auto-sent-badge {
+      font-size: 11px;
+      color: #6264a7;
+      background: #f0f0fb;
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
 
     #input-area {
       padding: 16px 24px;
@@ -116,10 +140,7 @@
 
 <header>
   <h1>🔍 슈퍼커넥트 AI 검색</h1>
-  <div style="display:flex;align-items:center;gap:16px;">
-    <span id="session-label"></span>
-    <button id="clear-btn" onclick="clearSession()">대화 초기화</button>
-  </div>
+  <button id="clear-btn" onclick="clearSession()">대화 초기화</button>
 </header>
 
 <div id="chat-window">
@@ -136,40 +157,57 @@
 
 <script>
   const sessionId = 'session-' + Math.random().toString(36).slice(2, 9);
-  document.getElementById('session-label').textContent = sessionId;
-
   const chatWindow = document.getElementById('chat-window');
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send-btn');
   const emptyState = document.getElementById('empty-state');
 
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   });
-
   input.addEventListener('input', () => {
     input.style.height = '48px';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
   });
 
-  function appendMessage(role, text) {
+  function escapeHtml(text) {
+    return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function appendUserMessage(text) {
     emptyState.style.display = 'none';
     const div = document.createElement('div');
-    div.className = `msg ${role}`;
+    div.className = 'msg user';
+    div.innerHTML = `<div class="avatar">U</div><div class="msg-body"><div class="bubble">${escapeHtml(text)}</div></div>`;
+    chatWindow.appendChild(div);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+  }
+
+  function appendAssistantMessage(text, data) {
+    const div = document.createElement('div');
+    div.className = 'msg assistant';
+
+    let inquiryHtml = '';
+    if (data.auto_inquiry_sent) {
+      inquiryHtml = `<div class="inquiry-area"><span class="auto-sent-badge">✅ Teams에 자동으로 문의가 전송됐습니다</span></div>`;
+    } else if (data.inquiry_available) {
+      inquiryHtml = `
+        <div class="inquiry-area">
+          <button class="inquiry-btn" onclick="sendInquiry(this, ${JSON.stringify(escapeHtml(data.question))}, ${JSON.stringify(escapeHtml(text))})">
+            💬 Teams에 문의하기
+          </button>
+        </div>`;
+    }
+
     div.innerHTML = `
-      <div class="avatar">${role === 'user' ? 'U' : 'AI'}</div>
-      <div class="bubble">${escapeHtml(text)}</div>
-    `;
+      <div class="avatar">AI</div>
+      <div class="msg-body">
+        <div class="bubble">${escapeHtml(text)}</div>
+        ${inquiryHtml}
+      </div>`;
     chatWindow.appendChild(div);
     chatWindow.scrollTop = chatWindow.scrollHeight;
     return div;
-  }
-
-  function escapeHtml(text) {
-    return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
   async function sendMessage() {
@@ -180,10 +218,14 @@
     input.style.height = '48px';
     sendBtn.disabled = true;
 
-    appendMessage('user', text);
+    appendUserMessage(text);
 
-    const typingDiv = appendMessage('assistant', '답변을 생성 중입니다...');
-    typingDiv.classList.add('typing');
+    // 로딩 표시
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'msg assistant typing';
+    loadingDiv.innerHTML = `<div class="avatar">AI</div><div class="msg-body"><div class="bubble">답변을 생성 중입니다...</div></div>`;
+    chatWindow.appendChild(loadingDiv);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
 
     try {
       const res = await fetch('/chat', {
@@ -192,16 +234,33 @@
         body: JSON.stringify({ message: text, session_id: sessionId }),
       });
       const data = await res.json();
-      typingDiv.classList.remove('typing');
-      typingDiv.querySelector('.bubble').textContent = data.answer;
+      loadingDiv.remove();
+      appendAssistantMessage(data.answer, { ...data, question: text });
     } catch (err) {
-      typingDiv.classList.remove('typing');
-      typingDiv.querySelector('.bubble').textContent = '오류가 발생했습니다. 다시 시도해주세요.';
+      loadingDiv.remove();
+      appendAssistantMessage('오류가 발생했습니다. 다시 시도해주세요.', { inquiry_available: false });
     }
 
-    chatWindow.scrollTop = chatWindow.scrollHeight;
     sendBtn.disabled = false;
     input.focus();
+  }
+
+  async function sendInquiry(btn, question, answer) {
+    btn.disabled = true;
+    btn.textContent = '전송 중...';
+    try {
+      const res = await fetch('/inquiry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, rag_answer: answer, session_id: sessionId }),
+      });
+      const data = await res.json();
+      const area = btn.closest('.inquiry-area');
+      area.innerHTML = `<span class="inquiry-sent">${data.success ? '✅ Teams에 문의가 전송됐습니다.' : '❌ ' + data.message}</span>`;
+    } catch {
+      btn.disabled = false;
+      btn.textContent = '💬 Teams에 문의하기';
+    }
   }
 
   async function clearSession() {
