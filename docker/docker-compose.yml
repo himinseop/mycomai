@@ -36,6 +36,14 @@ services:
     stdin_open: true
     tty: true
 
+  web:
+    extends:
+      service: base
+    command: uvicorn company_llm_rag.web_app:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
   cron-scheduler:
     extends:
       service: base
