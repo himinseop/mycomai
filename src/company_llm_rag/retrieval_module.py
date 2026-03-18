@@ -7,6 +7,31 @@ from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
 
+_DOCUMENT_MIME_TYPES = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+def _source_boost(metadata: Dict) -> float:
+    """
+    소스 타입에 따라 distance에 곱할 부스트 가중치를 반환합니다.
+    값이 낮을수록 순위가 높아집니다 (distance 기반).
+    """
+    source = metadata.get("source", "")
+    mime_type = metadata.get("mime_type", "")
+
+    if source == "local":
+        return 0.7
+    if source == "sharepoint" and mime_type in _DOCUMENT_MIME_TYPES:
+        return 0.7
+    if source == "confluence":
+        return 0.85
+    if source == "jira":
+        return 0.95
+    return 1.0  # teams 등 채팅 소스
+
+
 def retrieve_documents(query: str, n_results: int = None) -> List[Dict]:
     """
     ChromaDB에서 사용자 쿼리와 관련된 문서 청크를 검색합니다.
@@ -23,17 +48,20 @@ def retrieve_documents(query: str, n_results: int = None) -> List[Dict]:
 
     try:
         collection = db_manager.get_collection()
+        # 재정렬을 위해 더 많은 후보를 가져옴
+        fetch_n = n_results * 3
         results = collection.query(
             query_texts=[query],
-            n_results=n_results,
-            include=['documents', 'metadatas']
+            n_results=fetch_n,
+            include=['documents', 'metadatas', 'distances']
         )
 
-        retrieved_docs = []
+        candidates = []
         if results and results['documents'] and len(results['documents']) > 0:
             for i in range(len(results['documents'][0])):
                 doc_content = results['documents'][0][i]
                 metadata = results['metadatas'][0][i]
+                distance = results['distances'][0][i]
 
                 # Reconstruct comments/replies if they were stringified in metadata
                 if "comments" in metadata and isinstance(metadata["comments"], str):
@@ -47,10 +75,22 @@ def retrieve_documents(query: str, n_results: int = None) -> List[Dict]:
                     except json.JSONDecodeError:
                         pass
 
-                retrieved_docs.append({
+                boosted_distance = distance * _source_boost(metadata)
+                candidates.append({
                     "content": doc_content,
-                    "metadata": metadata
+                    "metadata": metadata,
+                    "_distance": distance,
+                    "_boosted_distance": boosted_distance,
                 })
+
+        # 부스트 적용 후 재정렬하여 상위 n_results 반환
+        candidates.sort(key=lambda x: x["_boosted_distance"])
+        retrieved_docs = []
+        for c in candidates[:n_results]:
+            retrieved_docs.append({
+                "content": c["content"],
+                "metadata": c["metadata"],
+            })
         return retrieved_docs
     except Exception as e:
         logger.error(f"Error during document retrieval: {e}", exc_info=True)
