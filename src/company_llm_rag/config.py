@@ -78,6 +78,17 @@ class Settings:
     JIRA_MAX_RESULTS: int = int(os.getenv("JIRA_MAX_RESULTS", "50"))
     CONFLUENCE_PAGE_LIMIT: int = int(os.getenv("CONFLUENCE_PAGE_LIMIT", "25"))
 
+    # 페르소나 설정
+    AI_NAME: str = os.getenv("AI_NAME", "")
+    COMPANY_NAME: str = os.getenv("COMPANY_NAME", "")
+    COMPANY_DESCRIPTION: str = os.getenv("COMPANY_DESCRIPTION", "")
+
+    # 프롬프트 파일 경로 (비워두면 패키지 내 기본 파일 사용)
+    # system_prompt.txt: LLM system 메시지 (페르소나/보안 규칙)
+    # rag_instructions.txt: RAG 답변 규칙 (출처 형식, 슬라이드 번호 등)
+    SYSTEM_PROMPT_FILE: str = os.getenv("SYSTEM_PROMPT_FILE", "")
+    RAG_INSTRUCTIONS_FILE: str = os.getenv("RAG_INSTRUCTIONS_FILE", "")
+
     # 로깅 설정
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 

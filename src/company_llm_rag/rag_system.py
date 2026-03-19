@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import List, Dict, Optional
 from urllib.parse import quote
 
@@ -9,6 +10,28 @@ from company_llm_rag.retrieval_module import retrieve_documents
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
+
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+
+def _load_prompt(env_path: str, default_filename: str) -> str:
+    """
+    프롬프트 파일을 로드합니다.
+    env_path가 설정되어 있으면 해당 경로를 사용하고,
+    없으면 패키지 내 기본 파일(prompts/)을 사용합니다.
+    {AI_NAME}, {COMPANY_NAME}, {COMPANY_DESCRIPTION} 치환을 지원합니다.
+    """
+    path = Path(env_path) if env_path else _PROMPTS_DIR / default_filename
+    try:
+        content = path.read_text(encoding="utf-8")
+        return content.format(
+            AI_NAME=settings.AI_NAME,
+            COMPANY_NAME=settings.COMPANY_NAME,
+            COMPANY_DESCRIPTION=settings.COMPANY_DESCRIPTION,
+        )
+    except FileNotFoundError:
+        logger.warning(f"Prompt file not found: {path}. Using empty string.")
+        return ""
 
 
 def _ensure_list(value) -> list:
@@ -136,25 +159,9 @@ def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
 
     context = "\n\n".join(context_parts)
 
+    instructions = _load_prompt(settings.RAG_INSTRUCTIONS_FILE, "rag_instructions.txt")
     prompt = (
-        "너는 '오사장'이야. 슈퍼커넥트 직원들의 업무 궁금증을 해결해주는 역할을 하고 있어.\n"
-        "아래 회사 지식베이스 문서를 바탕으로 질문에 답변해줘.\n\n"
-        "답변 규칙:\n"
-        "- 반드시 아래 제공된 문서 내용만 활용해서 답변해.\n"
-        "- 출처를 구체적으로 밝혀줘:\n"
-        "  · Jira: 'Jira [이슈키 제목](URL) 이슈에서 확인됩니다.'\n"
-        "  · Confluence: 'Confluence [페이지 제목](URL) 문서에 따르면'\n"
-        "  · SharePoint: 'SharePoint [문서 제목](URL)에서 확인됩니다.'\n"
-        "  · Teams: '팀즈 [채널명] 채널에서 작성자님이 날짜에 언급했습니다.' URL이 있으면 채널명에 링크를 걸어줘.\n"
-        "- 문서를 찾아달라는 요청('찾아줘', '있어?')이면 문서가 있음을 알리고 핵심 내용을 요약하고 URL을 제공해줘.\n"
-        "- PPT/PPTX 파일 내용에는 [Slide N] 형식으로 슬라이드 번호가 표시되어 있어. 해당 내용을 인용할 때는 '(N번 슬라이드)'와 같이 슬라이드 번호를 함께 언급해줘.\n"
-        "- '목록', '현황', '진행중', '최근' 등 목록성 질문이면 아래 문서들의 제목·상태·담당자를 항목별로 나열해줘. 제공된 문서가 전체 목록이 아닐 수 있으므로 '검색된 항목 기준' 임을 명시해줘.\n"
-        "- 로컬 파일이어서 URL이 없으면 '로컬 파일로 저장되어 있으며 URL이 없습니다'라고 해줘.\n"
-        "- 회사 자금, 비밀번호, 계정 정보 등 보안에 민감한 데이터는 문서에 있더라도 절대 답변하지 마.\n"
-        "- 업무와 관련 없는 사적인 질문은 정중하게 거절해.\n"
-        "- 문서에서 답을 찾을 수 없으면 정확히 이렇게만 답변해: '관련 정보를 회사 지식베이스에서 찾을 수 없습니다.'\n"
-        "- 정보를 지어내지 마.\n"
-        "- 항상 한국어로 답변해.\n\n"
+        f"{instructions}\n\n"
         "Company Knowledge Base:\n"
         f"{context}\n\n"
         f"User Query: {user_query}\n\n"
@@ -231,14 +238,8 @@ def get_llm_response(
     if temperature is None:
         temperature = settings.OPENAI_TEMPERATURE
 
-    messages = [{"role": "system", "content": (
-        "너의 이름은 '오사장'이야. "
-        "슈퍼커넥트는 배달앱을 만드는 회사이고, 넌 이 회사의 직원이야. "
-        "회사의 업무효율을 높이기 위해 다른 직원들의 궁금증을 해결해주는 업무를 수행하고 있어. "
-        "회사 업무에 충실하기 때문에 업무 외의 사적인 질문에는 정중하게 답변을 거절해. "
-        "특히 회사 자금, 비밀번호, 계정 정보 등 보안에 민감한 데이터는 절대 누설하지 마. "
-        "항상 한국어로 답변해."
-    )}]
+    system_prompt = _load_prompt(settings.SYSTEM_PROMPT_FILE, "system_prompt.txt")
+    messages = [{"role": "system", "content": system_prompt}]
     if conversation_history:
         messages.extend(conversation_history)
     messages.append({"role": "user", "content": prompt})
