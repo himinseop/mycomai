@@ -221,7 +221,8 @@
   const emptyState = document.getElementById('empty-state');
   const teamsFloatBtn = document.getElementById('teams-float-btn');
 
-  let firstQuestion = '';   // 세션 첫 번째 질문
+  let firstQuestion = '';        // 세션 첫 번째 질문
+  let clientHistory = [];        // 프론트엔드 대화 히스토리 (서버 재시작 대비)
 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
@@ -349,6 +350,10 @@
       loadingDiv.remove();
       appendAssistantMessage(data.answer, data.references);
 
+      // 프론트엔드 히스토리 누적
+      clientHistory.push({ role: 'user', content: text });
+      clientHistory.push({ role: 'assistant', content: data.answer });
+
       // 첫 응답 이후 Teams 버튼 표시
       if (data.inquiry_available) {
         teamsFloatBtn.classList.add('visible');
@@ -371,7 +376,7 @@
       const res = await fetch('/inquiry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, session_id: sessionId }),
+        body: JSON.stringify({ question, session_id: sessionId, conversation_history: clientHistory }),
       });
       const data = await res.json();
       if (data.success) {
@@ -399,6 +404,7 @@
     chatWindow.appendChild(emptyState);
     emptyState.style.display = 'flex';
     firstQuestion = '';
+    clientHistory = [];
     teamsFloatBtn.classList.remove('visible');
   }
 </script>

@@ -36,6 +36,7 @@ class ChatResponse(BaseModel):
 class InquiryRequest(BaseModel):
     question: str
     session_id: str = "default"
+    conversation_history: List[Dict] = []  # 프론트엔드에서 직접 전달 (서버 재시작 대비)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -76,7 +77,8 @@ async def inquiry(req: InquiryRequest):
     if not is_inquiry_configured():
         return {"success": False, "message": "Teams 문의 채널이 설정되지 않았습니다."}
 
-    history = _sessions.get(req.session_id, [])
+    # 프론트엔드 히스토리 우선 사용 (서버 재시작으로 세션이 초기화된 경우 대비)
+    history = req.conversation_history or _sessions.get(req.session_id, [])
     success = send_inquiry_to_teams(req.question, history)
     return {
         "success": success,
