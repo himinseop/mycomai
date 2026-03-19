@@ -6,19 +6,22 @@
   <title>슈퍼커넥트 AI 검색</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; height: 100vh; display: flex; flex-direction: column; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
+    /* ── 헤더 ── */
     header {
       background: #1a1a2e;
       color: white;
-      padding: 16px 24px;
+      padding: 0 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-shrink: 0;
+      height: 56px;
+      z-index: 200;
     }
-    header h1 { font-size: 18px; font-weight: 600; }
-    .header-btns { display: flex; gap: 8px; align-items: center; }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    header h1 { font-size: 17px; font-weight: 600; }
     .header-btn {
       background: rgba(255,255,255,0.1);
       border: 1px solid rgba(255,255,255,0.2);
@@ -27,16 +30,97 @@
       border-radius: 6px;
       cursor: pointer;
       font-size: 13px;
+      line-height: 1;
     }
     .header-btn:hover { background: rgba(255,255,255,0.2); }
-    #session-expired-banner {
+    #sidebar-toggle {
+      background: none;
+      border: none;
+      color: white;
+      cursor: pointer;
+      padding: 6px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+    }
+    #sidebar-toggle:hover { background: rgba(255,255,255,0.1); }
+
+    /* ── 사이드바 ── */
+    #sidebar-overlay {
       display: none;
-      background: #fff3cd;
-      color: #856404;
-      padding: 10px 24px;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.35);
+      z-index: 299;
+    }
+    #sidebar-overlay.open { display: block; }
+
+    #sidebar {
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      width: 300px;
+      background: #1e1e2e;
+      color: #e0e0e0;
+      z-index: 300;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+      box-shadow: 4px 0 20px rgba(0,0,0,0.3);
+    }
+    #sidebar.open { transform: translateX(0); }
+
+    #sidebar-header {
+      padding: 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    #sidebar-header span { font-size: 14px; font-weight: 600; color: #a0a0b0; letter-spacing: 0.5px; }
+    #sidebar-close {
+      background: none; border: none; color: #888; cursor: pointer;
+      font-size: 18px; padding: 2px 6px; border-radius: 4px;
+    }
+    #sidebar-close:hover { background: rgba(255,255,255,0.08); color: #ccc; }
+
+    #session-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+    #session-list::-webkit-scrollbar { width: 4px; }
+    #session-list::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
+
+    .session-item {
+      padding: 12px 16px;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: background 0.1s;
+    }
+    .session-item:hover { background: rgba(255,255,255,0.06); border-left-color: #4f46e5; }
+    .session-item .s-date { font-size: 11px; color: #666; margin-bottom: 4px; }
+    .session-item .s-preview {
       font-size: 13px;
-      border-bottom: 1px solid #ffc107;
+      color: #c0c0d0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .session-empty {
+      padding: 32px 16px;
       text-align: center;
+      color: #555;
+      font-size: 13px;
+    }
+
+    /* ── 메인 콘텐츠 ── */
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
 
     #chat-window {
@@ -78,39 +162,18 @@
     .typing .bubble { color: #888; font-style: italic; }
 
     /* 참고 링크 */
-    .refs {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      padding: 0 2px;
-    }
+    .refs { display: flex; flex-direction: column; gap: 4px; padding: 0 2px; }
     .refs-label { font-size: 11px; color: #999; margin-bottom: 2px; }
-    .ref-item {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-    }
+    .ref-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
     .ref-item a {
-      color: #4f46e5;
-      text-decoration: none;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 400px;
+      color: #4f46e5; text-decoration: none;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 400px;
     }
     .ref-item a:hover { text-decoration: underline; }
     .src-badge {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 20px; height: 20px;
-      border-radius: 4px;
-      font-size: 10px;
-      font-weight: 700;
-      color: white;
-      flex-shrink: 0;
-      letter-spacing: -0.5px;
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; border-radius: 4px;
+      font-size: 10px; font-weight: 700; color: white; flex-shrink: 0; letter-spacing: -0.5px;
     }
     .src-badge.jira       { background: #0052CC; }
     .src-badge.confluence { background: #0065FF; }
@@ -119,6 +182,7 @@
     .src-badge.teams      { background: #6264A7; }
     .src-badge.local      { background: #6B7280; }
 
+    /* 입력창 */
     #input-area {
       padding: 16px 24px;
       background: white;
@@ -128,95 +192,159 @@
       flex-shrink: 0;
     }
     #input {
-      flex: 1;
-      padding: 12px 16px;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      font-size: 14px;
-      resize: none;
-      height: 48px;
-      max-height: 120px;
-      outline: none;
-      font-family: inherit;
+      flex: 1; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px;
+      font-size: 14px; resize: none; height: 48px; max-height: 120px;
+      outline: none; font-family: inherit;
     }
     #input:focus { border-color: #4f46e5; }
     #send-btn {
-      background: #4f46e5;
-      color: white;
-      border: none;
-      padding: 0 20px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 500;
-      height: 48px;
+      background: #4f46e5; color: white; border: none;
+      padding: 0 20px; border-radius: 8px; cursor: pointer;
+      font-size: 14px; font-weight: 500; height: 48px;
     }
     #send-btn:hover { background: #4338ca; }
     #send-btn:disabled { background: #a5a5a5; cursor: not-allowed; }
 
     /* 플로팅 Teams 문의 버튼 */
     #teams-float-btn {
-      position: fixed;
-      bottom: 90px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: #6264A7;
-      color: white;
-      border: none;
-      border-radius: 24px;
-      padding: 10px 20px;
-      display: none;
-      align-items: center;
-      gap: 8px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 500;
-      box-shadow: 0 4px 16px rgba(98, 100, 167, 0.45);
-      z-index: 100;
-      white-space: nowrap;
-      transition: background 0.15s, box-shadow 0.15s;
+      position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
+      background: #6264A7; color: white; border: none; border-radius: 24px;
+      padding: 10px 20px; display: none; align-items: center; gap: 8px;
+      cursor: pointer; font-size: 13px; font-weight: 500;
+      box-shadow: 0 4px 16px rgba(98,100,167,0.45); z-index: 100;
+      white-space: nowrap; transition: background 0.15s, box-shadow 0.15s;
     }
-    #teams-float-btn:hover { background: #4f5196; box-shadow: 0 6px 20px rgba(98, 100, 167, 0.55); }
+    #teams-float-btn:hover { background: #4f5196; box-shadow: 0 6px 20px rgba(98,100,167,0.55); }
     #teams-float-btn:disabled { opacity: 0.6; cursor: not-allowed; }
     #teams-float-btn.visible { display: flex; }
 
     .empty-state {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      color: #888;
-      gap: 8px;
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; color: #888; gap: 8px;
     }
     .empty-state h2 { font-size: 20px; color: #333; }
     .empty-state p { font-size: 14px; }
+
+    /* ── 대화 조회 모달 ── */
+    #history-modal {
+      display: none;
+      position: fixed; inset: 0; z-index: 400;
+      background: rgba(0,0,0,0.5);
+      align-items: center;
+      justify-content: center;
+    }
+    #history-modal.open { display: flex; }
+    #history-modal-box {
+      background: white;
+      border-radius: 12px;
+      width: 720px;
+      max-width: 95vw;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    }
+    #history-modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    #history-modal-title { font-size: 15px; font-weight: 600; color: #1a1a2e; }
+    #history-modal-close {
+      background: none; border: none; cursor: pointer;
+      font-size: 20px; color: #888; padding: 2px 6px; border-radius: 4px;
+    }
+    #history-modal-close:hover { background: #f0f0f0; color: #333; }
+    #history-modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .history-qa { border: 1px solid #eee; border-radius: 8px; overflow: hidden; }
+    .history-q {
+      background: #f8f8ff;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #1a1a2e;
+      border-bottom: 1px solid #eee;
+    }
+    .history-q .q-time { font-size: 11px; color: #999; font-weight: 400; margin-left: 8px; }
+    .history-a {
+      padding: 10px 14px;
+      font-size: 13px;
+      color: #333;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .history-a a { color: #4f46e5; text-decoration: none; }
+    .history-a a:hover { text-decoration: underline; }
+    #history-modal-loading { padding: 40px; text-align: center; color: #888; font-size: 14px; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>🔍 슈퍼커넥트 AI 검색</h1>
-  <div class="header-btns">
-    <button class="header-btn" id="new-session-btn" onclick="newSession()" style="display:none">새 대화 시작</button>
-    <button class="header-btn" id="clear-btn" onclick="clearSession()">대화 초기화</button>
+  <div class="header-left">
+    <button id="sidebar-toggle" onclick="toggleSidebar()" title="대화 이력">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <line x1="3" y1="6" x2="21" y2="6"/>
+        <line x1="3" y1="12" x2="21" y2="12"/>
+        <line x1="3" y1="18" x2="21" y2="18"/>
+      </svg>
+    </button>
+    <h1>🔍 슈퍼커넥트 AI 검색</h1>
   </div>
+  <button class="header-btn" onclick="clearSession()">새 대화 시작</button>
 </header>
 
-<div id="session-expired-banner">
-  이 대화는 만료된 세션입니다 (7일 초과). 읽기 전용 모드입니다. 새 대화를 시작하려면 위 버튼을 클릭하세요.
+<!-- 사이드바 오버레이 -->
+<div id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+<!-- 사이드바 -->
+<div id="sidebar">
+  <div id="sidebar-header">
+    <span>대화 이력</span>
+    <button id="sidebar-close" onclick="closeSidebar()">✕</button>
+  </div>
+  <div id="session-list"></div>
 </div>
 
-<div id="chat-window">
-  <div class="empty-state" id="empty-state">
-    <h2>무엇이든 물어보세요</h2>
-    <p>슈퍼커넥트의 Jira, Confluence, SharePoint, Teams 데이터를 기반으로 답변합니다.</p>
+<!-- 대화 조회 모달 -->
+<div id="history-modal">
+  <div id="history-modal-box">
+    <div id="history-modal-header">
+      <span id="history-modal-title">이전 대화</span>
+      <button id="history-modal-close" onclick="closeHistoryModal()">✕</button>
+    </div>
+    <div id="history-modal-body"></div>
+  </div>
+</div>
+
+<div id="main">
+  <div id="chat-window">
+    <div class="empty-state" id="empty-state">
+      <h2>무엇이든 물어보세요</h2>
+      <p>슈퍼커넥트의 Jira, Confluence, SharePoint, Teams 데이터를 기반으로 답변합니다.</p>
+    </div>
+  </div>
+
+  <div id="input-area">
+    <textarea id="input" placeholder="질문을 입력하세요... (Shift+Enter로 줄바꿈, Enter로 전송)" rows="1"></textarea>
+    <button id="send-btn" onclick="sendMessage()">전송</button>
   </div>
 </div>
 
 <!-- 플로팅 Teams 문의 버튼 -->
 <button id="teams-float-btn" title="Teams 채널에 문의 남기기">
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
     <circle cx="16.5" cy="5.5" r="3"/>
     <path d="M14 10h5a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-1v-5a3 3 0 0 0-3-3h-1z"/>
     <circle cx="8" cy="6" r="3.5"/>
@@ -225,133 +353,151 @@
   Teams에 문의하기
 </button>
 
-<div id="input-area">
-  <textarea id="input" placeholder="질문을 입력하세요... (Shift+Enter로 줄바꿈, Enter로 전송)" rows="1"></textarea>
-  <button id="send-btn" onclick="sendMessage()">전송</button>
-</div>
-
 <script>
-  // ── 세션 관리 (localStorage) ──────────────────────────────────────
-  const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7일
+  // ── 세션 목록 (localStorage) ─────────────────────────────────────
+  const LS_KEY = 'chat_session_list';
+  const SESSION_KEEP_DAYS = 14;
 
+  function _loadSessionList() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return [];
+      const list = JSON.parse(raw);
+      // 14일 지난 세션 제거
+      const cutoff = Date.now() - SESSION_KEEP_DAYS * 86400000;
+      return list.filter(s => new Date(s.created_at).getTime() > cutoff);
+    } catch (_) { return []; }
+  }
+
+  function _saveSessionList(list) {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(list.slice(0, 50))); } catch (_) {}
+  }
+
+  function _addToSessionList(id, preview, created_at) {
+    const list = _loadSessionList();
+    // 중복 제거
+    const filtered = list.filter(s => s.id !== id);
+    filtered.unshift({ id, preview: preview.slice(0, 60), created_at });
+    _saveSessionList(filtered);
+  }
+
+  // ── 현재 세션 (페이지 접속마다 새로 생성) ─────────────────────────
   function _generateSessionId() {
     return 'session-' + Math.random().toString(36).slice(2, 9);
   }
+  const sessionId = _generateSessionId();
 
-  function _loadSession() {
-    try {
-      const id = localStorage.getItem('session_id');
-      const ts = localStorage.getItem('session_created_at');
-      if (id && ts) return { id, createdAt: new Date(ts) };
-    } catch (_) {}
-    return null;
-  }
-
-  function _saveSession(id) {
-    try {
-      localStorage.setItem('session_id', id);
-      localStorage.setItem('session_created_at', new Date().toISOString());
-    } catch (_) {}
-  }
-
-  function _clearSession() {
-    try {
-      localStorage.removeItem('session_id');
-      localStorage.removeItem('session_created_at');
-    } catch (_) {}
-  }
-
-  // 세션 초기화
-  let sessionId;
-  let sessionExpired = false;
-
-  const _saved = _loadSession();
-  if (_saved) {
-    const age = Date.now() - _saved.createdAt.getTime();
-    sessionId = _saved.id;
-    if (age > SESSION_TTL_MS) {
-      sessionExpired = true;
-    }
-  } else {
-    sessionId = _generateSessionId();
-    _saveSession(sessionId);
-  }
-
-  // ── DOM 참조 ─────────────────────────────────────────────────────
+  // ── DOM 참조 ──────────────────────────────────────────────────────
   const chatWindow = document.getElementById('chat-window');
-  const input = document.getElementById('input');
-  const sendBtn = document.getElementById('send-btn');
+  const input      = document.getElementById('input');
+  const sendBtn    = document.getElementById('send-btn');
   const emptyState = document.getElementById('empty-state');
   const teamsFloatBtn = document.getElementById('teams-float-btn');
-  const expiredBanner = document.getElementById('session-expired-banner');
-  const newSessionBtn = document.getElementById('new-session-btn');
 
-  let firstQuestion = '';        // 세션 첫 번째 질문
-  let clientHistory = [];        // 프론트엔드 대화 히스토리 (서버 재시작 대비)
+  let firstQuestion = '';
+  let clientHistory = [];
+  let sessionSaved  = false; // 세션 목록에 저장됐는지 여부
 
-  // 만료 세션 처리
-  if (sessionExpired) {
-    expiredBanner.style.display = 'block';
-    newSessionBtn.style.display = 'inline-block';
-    input.disabled = true;
-    sendBtn.disabled = true;
-    input.placeholder = '만료된 세션입니다. 새 대화를 시작하세요.';
-  }
-
-  // 이전 세션 이력 복원
-  async function _restoreHistory() {
-    try {
-      const res = await fetch(`/history/${sessionId}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      if (!data.records || data.records.length === 0) return;
-
-      emptyState.style.display = 'none';
-      data.records.forEach(rec => {
-        appendUserMessage(rec.question, true);
-        const msgDiv = appendAssistantMessage(rec.answer, rec.references, true);
-        clientHistory.push({ role: 'user', content: rec.question });
-        clientHistory.push({ role: 'assistant', content: rec.answer });
-        if (!firstQuestion) firstQuestion = rec.question;
-      });
-    } catch (_) {}
-  }
-
-  // 페이지 로드 시 이력 복원
-  _restoreHistory();
-
-  input.addEventListener('keydown', (e) => {
+  // ── 이벤트 리스너 ────────────────────────────────────────────────
+  input.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   });
   input.addEventListener('input', () => {
     input.style.height = '48px';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
   });
-
   teamsFloatBtn.addEventListener('click', () => sendInquiry(teamsFloatBtn, firstQuestion));
 
-  function escapeHtml(text) {
-    return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // ── 사이드바 ─────────────────────────────────────────────────────
+  function toggleSidebar() {
+    const open = document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('sidebar-overlay').classList.toggle('open', open);
+    if (open) renderSessionList();
+  }
+  function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebar-overlay').classList.remove('open');
   }
 
-  // URL을 하이퍼링크로 변환
-  // 마크다운 [텍스트](url) 형식과 날 URL(https://...) 모두 처리
+  function renderSessionList() {
+    const list = _loadSessionList();
+    const container = document.getElementById('session-list');
+    if (list.length === 0) {
+      container.innerHTML = '<div class="session-empty">저장된 대화 이력이 없습니다.</div>';
+      return;
+    }
+    container.innerHTML = '';
+    list.forEach(s => {
+      const item = document.createElement('div');
+      item.className = 'session-item';
+      const d = new Date(s.created_at);
+      const dateStr = `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+      item.innerHTML = `<div class="s-date">${dateStr}</div><div class="s-preview">${escapeHtml(s.preview)}</div>`;
+      item.addEventListener('click', () => { closeSidebar(); viewSession(s.id, dateStr, s.preview); });
+      container.appendChild(item);
+    });
+  }
+
+  // ── 이전 대화 조회 모달 ──────────────────────────────────────────
+  async function viewSession(sid, dateStr, preview) {
+    const modal = document.getElementById('history-modal');
+    const body  = document.getElementById('history-modal-body');
+    document.getElementById('history-modal-title').textContent = `${dateStr} — ${preview}`;
+    body.innerHTML = '<div id="history-modal-loading">불러오는 중...</div>';
+    modal.classList.add('open');
+
+    try {
+      const res = await fetch(`/history/${sid}`);
+      const data = await res.json();
+      body.innerHTML = '';
+      if (!data.records || data.records.length === 0) {
+        body.innerHTML = '<div style="padding:20px;text-align:center;color:#888">대화 기록이 없습니다.</div>';
+        return;
+      }
+      data.records.forEach(rec => {
+        const qa = document.createElement('div');
+        qa.className = 'history-qa';
+        const t = new Date(rec.created_at);
+        const timeStr = `${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;
+        const qDiv = document.createElement('div');
+        qDiv.className = 'history-q';
+        qDiv.innerHTML = `${escapeHtml(rec.question)}<span class="q-time">${timeStr}</span>`;
+        const aDiv = document.createElement('div');
+        aDiv.className = 'history-a';
+        aDiv.innerHTML = renderText(rec.answer);
+        qa.appendChild(qDiv);
+        qa.appendChild(aDiv);
+        body.appendChild(qa);
+      });
+    } catch (_) {
+      body.innerHTML = '<div style="padding:20px;text-align:center;color:#c00">불러오기 실패</div>';
+    }
+  }
+
+  function closeHistoryModal() {
+    document.getElementById('history-modal').classList.remove('open');
+  }
+  document.getElementById('history-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('history-modal')) closeHistoryModal();
+  });
+
+  // ── 유틸 ──────────────────────────────────────────────────────────
+  function escapeHtml(text) {
+    return String(text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
   function renderText(text) {
-    // 그룹1,2: 마크다운 [text](url) / 그룹3: 날 URL
     const pattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"')\[]+)/g;
     const parts = [];
-    let lastIndex = 0;
-    let match;
+    let lastIndex = 0, match;
     while ((match = pattern.exec(text)) !== null) {
       parts.push(escapeHtml(text.slice(lastIndex, match.index)));
       if (match[1] !== undefined) {
-        // 마크다운 링크 — 텍스트에 링크 + 🔗 아이콘
         parts.push(`<a href="${escapeHtml(match[2])}" target="_blank" rel="noopener noreferrer">${escapeHtml(match[1])} 🔗</a>`);
       } else {
-        // 날 URL — URL 텍스트 대신 🔗 아이콘만 표시, 끝의 문장부호 제거
         let url = match[3];
-        const trailingMatch = url.match(/[.,;:!?)\]]+$/);
-        const trailing = trailingMatch ? trailingMatch[0] : '';
+        const tr = url.match(/[.,;:!?)\]]+$/);
+        const trailing = tr ? tr[0] : '';
         if (trailing) url = url.slice(0, -trailing.length);
         parts.push(`<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">🔗</a>`);
         if (trailing) parts.push(escapeHtml(trailing));
@@ -362,7 +508,6 @@
     return parts.join('');
   }
 
-  // 소스별 배지
   function getSourceBadge(source, url) {
     if (source === 'jira')       return '<span class="src-badge jira">J</span>';
     if (source === 'confluence') return '<span class="src-badge confluence">C</span>';
@@ -374,28 +519,26 @@
     return '<span class="src-badge local">F</span>';
   }
 
-  function appendUserMessage(text, noScroll = false) {
+  // ── 메시지 렌더링 ────────────────────────────────────────────────
+  function appendUserMessage(text) {
     emptyState.style.display = 'none';
     const div = document.createElement('div');
     div.className = 'msg user';
     div.innerHTML = `<div class="avatar">U</div><div class="msg-body"><div class="bubble">${escapeHtml(text)}</div></div>`;
     chatWindow.appendChild(div);
-    if (!noScroll) chatWindow.scrollTop = chatWindow.scrollHeight;
+    chatWindow.scrollTop = chatWindow.scrollHeight;
   }
 
-  function appendAssistantMessage(text, references, noScroll = false) {
+  function appendAssistantMessage(text, references) {
     const div = document.createElement('div');
     div.className = 'msg assistant';
-
     const msgBody = document.createElement('div');
     msgBody.className = 'msg-body';
-
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
     bubble.innerHTML = renderText(text);
     msgBody.appendChild(bubble);
 
-    // 참고 링크
     if (references && references.length > 0) {
       const refsDiv = document.createElement('div');
       refsDiv.className = 'refs';
@@ -414,15 +557,21 @@
     div.innerHTML = `<div class="avatar">AI</div>`;
     div.appendChild(msgBody);
     chatWindow.appendChild(div);
-    if (!noScroll) chatWindow.scrollTop = chatWindow.scrollHeight;
+    chatWindow.scrollTop = chatWindow.scrollHeight;
     return div;
   }
 
+  // ── 메시지 전송 ──────────────────────────────────────────────────
   async function sendMessage() {
     const text = input.value.trim();
     if (!text) return;
 
-    if (!firstQuestion) firstQuestion = text;
+    if (!firstQuestion) {
+      firstQuestion = text;
+      // 첫 질문 시 세션 목록에 등록
+      _addToSessionList(sessionId, text, new Date().toISOString());
+      sessionSaved = true;
+    }
 
     input.value = '';
     input.style.height = '48px';
@@ -446,15 +595,11 @@
       loadingDiv.remove();
       appendAssistantMessage(data.answer, data.references);
 
-      // 프론트엔드 히스토리 누적
       clientHistory.push({ role: 'user', content: text });
       clientHistory.push({ role: 'assistant', content: data.answer });
 
-      // 첫 응답 이후 Teams 버튼 표시
-      if (data.inquiry_available) {
-        teamsFloatBtn.classList.add('visible');
-      }
-    } catch (err) {
+      if (data.inquiry_available) teamsFloatBtn.classList.add('visible');
+    } catch (_) {
       loadingDiv.remove();
       appendAssistantMessage('오류가 발생했습니다. 다시 시도해주세요.', []);
     }
@@ -463,6 +608,19 @@
     input.focus();
   }
 
+  // ── 대화 초기화 ──────────────────────────────────────────────────
+  async function clearSession() {
+    await fetch(`/chat/${sessionId}`, { method: 'DELETE' });
+    chatWindow.innerHTML = '';
+    chatWindow.appendChild(emptyState);
+    emptyState.style.display = 'flex';
+    firstQuestion = '';
+    clientHistory = [];
+    sessionSaved  = false;
+    teamsFloatBtn.classList.remove('visible');
+  }
+
+  // ── Teams 문의 ───────────────────────────────────────────────────
   async function sendInquiry(btn, question) {
     if (!question) return;
     const originalHtml = btn.innerHTML;
@@ -477,53 +635,15 @@
       const data = await res.json();
       if (data.success) {
         btn.textContent = '✅ 전송됐습니다';
-        setTimeout(() => {
-          btn.innerHTML = originalHtml;
-          btn.disabled = false;
-        }, 3000);
+        setTimeout(() => { btn.innerHTML = originalHtml; btn.disabled = false; }, 3000);
       } else {
         btn.textContent = '❌ 전송 실패';
-        setTimeout(() => {
-          btn.innerHTML = originalHtml;
-          btn.disabled = false;
-        }, 3000);
+        setTimeout(() => { btn.innerHTML = originalHtml; btn.disabled = false; }, 3000);
       }
     } catch {
       btn.innerHTML = originalHtml;
       btn.disabled = false;
     }
-  }
-
-  async function clearSession() {
-    await fetch(`/chat/${sessionId}`, { method: 'DELETE' });
-    chatWindow.innerHTML = '';
-    chatWindow.appendChild(emptyState);
-    emptyState.style.display = 'flex';
-    firstQuestion = '';
-    clientHistory = [];
-    teamsFloatBtn.classList.remove('visible');
-    // 새 세션 ID 발급
-    sessionId = _generateSessionId();
-    _saveSession(sessionId);
-  }
-
-  function newSession() {
-    _clearSession();
-    sessionId = _generateSessionId();
-    _saveSession(sessionId);
-    sessionExpired = false;
-    // UI 리셋
-    expiredBanner.style.display = 'none';
-    newSessionBtn.style.display = 'none';
-    input.disabled = false;
-    sendBtn.disabled = false;
-    input.placeholder = '질문을 입력하세요... (Shift+Enter로 줄바꿈, Enter로 전송)';
-    chatWindow.innerHTML = '';
-    chatWindow.appendChild(emptyState);
-    emptyState.style.display = 'flex';
-    firstQuestion = '';
-    clientHistory = [];
-    teamsFloatBtn.classList.remove('visible');
   }
 </script>
 </body>

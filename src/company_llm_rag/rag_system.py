@@ -1,5 +1,6 @@
 import json
 from typing import List, Dict, Optional
+from urllib.parse import quote
 
 import openai
 
@@ -34,41 +35,93 @@ def _ensure_list(value) -> list:
             logger.debug(f"Failed to parse metadata value as JSON list: {value[:80]}...")
     return []
 
+def _build_teams_url(meta: dict) -> str:
+    """Teams 채널/채팅 메시지 딥링크 URL을 생성합니다."""
+    tenant_id = settings.TENANT_ID
+    if not tenant_id:
+        return ""
+
+    # source_id: teams_extractor에서 message.get('id')로 저장
+    source_id = meta.get('source_id', '')
+    if not source_id:
+        # original_doc_id 에서 추출 (예: "teams-1a2b3c")
+        orig = meta.get('original_doc_id', '')
+        if orig.startswith('teams-chat-'):
+            source_id = orig[len('teams-chat-'):]
+        elif orig.startswith('teams-'):
+            source_id = orig[len('teams-'):]
+
+    team_id = meta.get('teams_team_id', '')
+    channel_id = meta.get('teams_channel_id', '')
+    chat_id = meta.get('teams_chat_id', '')
+
+    if team_id and channel_id and source_id:
+        team_name = quote(meta.get('teams_team_name', ''), safe='')
+        channel_name = quote(meta.get('teams_channel_name', ''), safe='')
+        return (
+            f"https://teams.microsoft.com/l/message/{channel_id}/{source_id}"
+            f"?tenantId={tenant_id}&groupId={team_id}"
+            f"&parentMessageId={source_id}&teamName={team_name}&channelName={channel_name}"
+        )
+    if chat_id and source_id:
+        return f"https://teams.microsoft.com/l/message/{chat_id}/{source_id}?tenantId={tenant_id}"
+    return ""
+
+
+def _doc_source_label(meta: dict) -> str:
+    """프롬프트용 출처 한 줄 레이블을 생성합니다."""
+    source = meta.get('source', 'unknown')
+    title = meta.get('title', '')
+    url = meta.get('url') or _build_teams_url(meta) or ''
+    author = meta.get('author', '')
+    date = (meta.get('created_at') or meta.get('updated_at') or '')[:10]
+
+    if source == 'jira':
+        return f"[Jira] 제목: {title} | URL: {url} | 담당자: {author} | 날짜: {date}"
+    if source == 'confluence':
+        return f"[Confluence] 제목: {title} | URL: {url} | 작성자: {author} | 날짜: {date}"
+    if source == 'sharepoint':
+        return f"[SharePoint] 제목: {title} | URL: {url} | 작성자: {author} | 날짜: {date}"
+    if source == 'teams':
+        channel = meta.get('teams_channel_name') or meta.get('teams_chat_topic', '')
+        return f"[Teams] 채널/채팅: {channel} | 작성자: {author} | 날짜: {date} | URL: {url}"
+    return f"[{source}] 제목: {title} | URL: {url}"
+
+
 def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
     """
     Constructs a prompt for the LLM using the user's query and retrieved documents.
     """
     context_parts = []
     for i, doc in enumerate(retrieved_docs):
-        # Extract metadata for better context
-        source = doc['metadata'].get('source', 'unknown')
-        title = doc['metadata'].get('title', 'Untitled')
-        url = doc['metadata'].get('url', 'No URL')
-        
-        # Include comments/replies if available
-        # _ensure_list()로 감싸서 str(JSON 직렬화)로 남아있는 경우도 안전하게 처리
+        meta = doc['metadata']
+        source = meta.get('source', 'unknown')
+        source_label = _doc_source_label(meta)
+
+        # 댓글/답글 포함
         comments_or_replies = []
         if source in ("jira", "confluence"):
-            for c in _ensure_list(doc['metadata'].get('comments')):
+            for c in _ensure_list(meta.get('comments')):
                 if not isinstance(c, dict):
                     continue
                 comments_or_replies.append(
                     f"Comment by {c.get('author')} on {c.get('created_at')}: {c.get('content')}"
                 )
         elif source == "teams":
-            for r in _ensure_list(doc['metadata'].get('replies')):
+            for r in _ensure_list(meta.get('replies')):
                 if not isinstance(r, dict):
                     continue
                 comments_or_replies.append(
                     f"Reply by {r.get('sender') or r.get('author')} on {r.get('created_at')}: {r.get('content')}"
                 )
 
-        comments_or_replies_str = "\n".join(comments_or_replies) if comments_or_replies else ""
-
-        context_parts.append(f"--- Document {i+1} (Source: {source}, Title: {title}, URL: {url}) ---\n"
-                             f"{doc['content']}\n"
-                             f"{comments_or_replies_str}\n"
-                             f"----------------------------------------------------------")
+        comments_str = "\n".join(comments_or_replies)
+        context_parts.append(
+            f"--- 문서 {i+1} | {source_label} ---\n"
+            f"{doc['content']}\n"
+            f"{comments_str}\n"
+            f"----------------------------------------------------------"
+        )
 
     context = "\n\n".join(context_parts)
 
@@ -76,6 +129,11 @@ def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
         "You are an AI assistant for a company. Your task is to answer questions based on the provided company knowledge base.\n"
         "Guidelines:\n"
         "- Use only the information from the documents provided below.\n"
+        "- When citing information, always mention the specific source explicitly in Korean:\n"
+        "  · Jira: 'Jira [이슈키 제목](URL)에서 확인됩니다.' (예: 'Jira [WMPO-123 결제 오류 수정](https://...) 이슈에서 언급됩니다.')\n"
+        "  · Confluence: 'Confluence [페이지 제목](URL) 문서에 따르면'\n"
+        "  · SharePoint: 'SharePoint [문서 제목](URL)에서 확인됩니다.'\n"
+        "  · Teams: '팀즈 [채널명] 채널에서 작성자님이 날짜에 언급했습니다.' URL이 있으면 채널명에 링크를 걸어주세요.\n"
         "- If the user is looking for a document (e.g. '찾아줘', '있어?'), tell them the document exists, summarize its key contents, and provide the URL if available.\n"
         "- If no URL is available for a local file, say '로컬 파일로 저장되어 있으며 URL이 없습니다'.\n"
         "- If the answer truly cannot be found in the documents, respond with exactly: '관련 정보를 회사 지식베이스에서 찾을 수 없습니다.'\n"
@@ -162,13 +220,15 @@ def rag_query(
     if not return_refs:
         return llm_response
 
-    # URL이 있는 문서만 중복 제거하여 참고 링크 구성
+    # URL이 있는 문서만 중복 제거하여 참고 링크 구성 (Teams는 딥링크 생성)
     seen = set()
     references = []
     for doc in retrieved_docs:
         meta = doc["metadata"]
         url = meta.get("url", "") or ""
         if not url or url == "None":
+            url = _build_teams_url(meta)
+        if not url:
             continue
         if url in seen:
             continue
