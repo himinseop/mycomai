@@ -1,5 +1,6 @@
 import sys
 import json
+import re
 import hashlib
 import time
 from datetime import timedelta
@@ -17,6 +18,72 @@ from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# SQL 제거
+# ---------------------------------------------------------------------------
+# SQL 코드 블록: ```sql ... ``` 또는 ```SQL ... ```
+_RE_SQL_FENCE = re.compile(r'```\s*sql\b.*?```', re.IGNORECASE | re.DOTALL)
+# 일반 코드 블록: ``` ... ```
+_RE_CODE_FENCE = re.compile(r'```[^\n]*\n(.*?)```', re.DOTALL)
+# SQL 구문 시작 키워드 (줄 단위)
+_RE_SQL_LINE = re.compile(
+    r'^\s*(SELECT\b|INSERT\s+INTO\b|UPDATE\s+\w+\s+SET\b|DELETE\s+FROM\b'
+    r'|CREATE\s+(TABLE|INDEX|VIEW|DATABASE)\b|DROP\s+(TABLE|INDEX|VIEW)\b'
+    r'|ALTER\s+TABLE\b|TRUNCATE\b|EXPLAIN\s+SELECT\b|WITH\s+\w+\s+AS\s*\()',
+    re.IGNORECASE,
+)
+# SQL 연속 줄 (FROM / WHERE / JOIN 등 SQL 절)
+_RE_SQL_CONTINUATION = re.compile(
+    r'^\s*(FROM|WHERE|JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|INNER\s+JOIN'
+    r'|OUTER\s+JOIN|ON\b|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET'
+    r'|AND\b|OR\b|SET\b|VALUES\b|INTO\b|UNION\b|EXCEPT\b|INTERSECT\b)\b',
+    re.IGNORECASE,
+)
+
+
+def strip_sql(text: str) -> tuple:
+    """
+    텍스트에서 SQL 쿼리를 제거합니다.
+    반환값: 제거된 SQL 블록 수
+
+    제거 대상:
+      1) ```sql ... ``` 명시적 SQL 코드 블록
+      2) 일반 코드 블록(``` ```) 중 SQL 키워드를 포함한 것
+      3) SELECT / INSERT / UPDATE / DELETE 등 SQL 구문으로 시작하는 연속 줄 블록
+    """
+    removed = 0
+
+    # 1. 명시적 SQL 펜스 제거
+    new_text, n = _RE_SQL_FENCE.subn('', text)
+    removed += n
+
+    # 2. 일반 코드 블록 중 SQL 포함된 것 제거
+    def _drop_sql_fence(m):
+        nonlocal removed
+        if _RE_SQL_LINE.search(m.group(0)):
+            removed += 1
+            return ''
+        return m.group(0)
+    new_text = _RE_CODE_FENCE.sub(_drop_sql_fence, new_text)
+
+    # 3. 인라인 SQL 구문 블록 제거 (연속된 SQL 줄)
+    lines = new_text.split('\n')
+    cleaned = []
+    in_sql = False
+    for line in lines:
+        if _RE_SQL_LINE.match(line):
+            in_sql = True
+            removed += 1
+            continue
+        if in_sql and (not line.strip() or _RE_SQL_CONTINUATION.match(line) or line.strip().startswith('--')):
+            continue
+        in_sql = False
+        cleaned.append(line)
+
+    return '\n'.join(cleaned), removed
+
+
+# ---------------------------------------------------------------------------
 # tiktoken 인코더 싱글톤 컨테이너 (중복 로드 방지)
 _encoder = None
 
@@ -220,6 +287,9 @@ def load_data_to_chromadb(data_stream):
                 continue
 
             embed_text = f"{title}\n\n{content}" if title else content
+            embed_text, sql_removed = strip_sql(embed_text)
+            if sql_removed:
+                logger.debug(f"[{doc_id}] SQL {sql_removed}개 블록 제거됨")
             chunks = chunk_content(embed_text)
             doc_count += 1
             chunk_count += len(chunks)
