@@ -136,7 +136,8 @@ def rag_query(
     user_query: str,
     conversation_history: Optional[List[Dict]] = None,
     n_results: Optional[int] = None,
-) -> str:
+    return_refs: bool = False,
+):
     """
     RAG 쿼리 실행: 문서를 검색하고 LLM 응답을 생성합니다.
 
@@ -144,19 +145,42 @@ def rag_query(
         user_query: 사용자 질문
         conversation_history: 이전 대화 히스토리
         n_results: 검색할 문서 개수 (기본값: settings.RETRIEVAL_TOP_K)
+        return_refs: True이면 (answer, references) 튜플 반환
 
     Returns:
-        LLM 응답
+        str 또는 (str, List[Dict]) — return_refs=True일 때 참고 링크 포함
     """
     retrieved_docs = retrieve_documents(user_query, n_results=n_results)
 
     if not retrieved_docs:
-        return "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
+        answer = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
+        return (answer, []) if return_refs else answer
 
     prompt = build_rag_prompt(user_query, retrieved_docs)
     llm_response = get_llm_response(prompt, conversation_history=conversation_history)
 
-    return llm_response
+    if not return_refs:
+        return llm_response
+
+    # URL이 있는 문서만 중복 제거하여 참고 링크 구성
+    seen = set()
+    references = []
+    for doc in retrieved_docs:
+        meta = doc["metadata"]
+        url = meta.get("url", "") or ""
+        if not url or url == "None":
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+        references.append({
+            "title": meta.get("title", ""),
+            "url": url,
+            "source": meta.get("source", ""),
+            "content_type": meta.get("content_type", ""),
+        })
+
+    return llm_response, references
 
 
 if __name__ == "__main__":

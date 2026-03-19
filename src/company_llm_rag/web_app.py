@@ -18,6 +18,7 @@ _MAX_HISTORY_TURNS = 10
 
 # RAG가 답변을 찾지 못했을 때 반환하는 문구
 _NO_ANSWER_PHRASE = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
+_TEAMS_GUIDE = "\n\n아래 'Teams에 문의하기' 버튼을 통해 동료에게 직접 질문해보세요."
 
 
 class ChatRequest(BaseModel):
@@ -28,8 +29,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     session_id: str
-    auto_inquiry_sent: bool = False  # 자동 Teams 문의 전송 여부
-    inquiry_available: bool = False  # 수동 문의 버튼 노출 여부
+    inquiry_available: bool = False
+    references: List[Dict] = []
 
 
 class InquiryRequest(BaseModel):
@@ -48,7 +49,11 @@ async def chat(req: ChatRequest):
     history = _sessions.setdefault(req.session_id, [])
 
     logger.info(f"[{req.session_id}] Query: {req.message}")
-    answer = rag_query(req.message, conversation_history=history)
+    answer, references = rag_query(req.message, conversation_history=history, return_refs=True)
+
+    # 답변을 찾지 못한 경우 Teams 문의 가이드 안내 (자동 전송 없음)
+    if _NO_ANSWER_PHRASE in answer and is_inquiry_configured():
+        answer = answer + _TEAMS_GUIDE
 
     history.append({"role": "user", "content": req.message})
     history.append({"role": "assistant", "content": answer})
@@ -57,18 +62,11 @@ async def chat(req: ChatRequest):
     if len(history) > max_messages:
         _sessions[req.session_id] = history[-max_messages:]
 
-    # 답변을 찾지 못한 경우 자동으로 Teams 문의 전송
-    auto_sent = False
-    if _NO_ANSWER_PHRASE in answer and is_inquiry_configured():
-        auto_sent = send_inquiry_to_teams(req.message, history)
-        if auto_sent:
-            logger.info(f"[{req.session_id}] 답변 없음 → Teams 자동 문의 전송")
-
     return ChatResponse(
         answer=answer,
         session_id=req.session_id,
-        auto_inquiry_sent=auto_sent,
         inquiry_available=is_inquiry_configured(),
+        references=references,
     )
 
 

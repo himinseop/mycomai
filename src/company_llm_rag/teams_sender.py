@@ -61,7 +61,7 @@ def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bo
     지정된 Teams 채널에 문의 메시지를 전송합니다.
 
     Args:
-        question: 사용자의 최초(현재) 질문
+        question: 사용자의 현재 질문 (히스토리가 없을 때 fallback)
         conversation_history: 세션 대화 히스토리 (현재 Q&A 포함)
 
     Returns:
@@ -71,12 +71,18 @@ def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bo
         logger.warning("TEAMS_INQUIRY_WEBHOOK_URL이 설정되지 않았습니다.")
         return False
 
-    summary = _summarize_conversation(question, conversation_history)
+    # 대화의 가장 첫 번째 질문을 사용
+    first_question = next(
+        (m["content"] for m in conversation_history if m["role"] == "user"),
+        question,
+    )
+
+    summary = _summarize_conversation(first_question, conversation_history)
 
     body_blocks = [
         {
             "type": "TextBlock",
-            "text": f"❓ Q : {question}",
+            "text": f"❓ Q : {first_question}",
             "weight": "Bolder",
             "wrap": True,
         },
