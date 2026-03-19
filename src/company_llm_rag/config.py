@@ -40,6 +40,9 @@ class Settings:
     CONFLUENCE_SPACE_KEYS: List[str] = [
         k.strip() for k in os.getenv("CONFLUENCE_SPACE_KEY", "").split(",") if k.strip()
     ]
+    CONFLUENCE_SPACE_LABELS: List[str] = [
+        k.strip() for k in os.getenv("CONFLUENCE_SPACE_LABELS", "").split(",") if k.strip()
+    ]
 
     # Microsoft 365 설정
     TENANT_ID: str = os.getenv("TENANT_ID", "")

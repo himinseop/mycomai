@@ -38,6 +38,46 @@ def get_all_spaces():
             break
     return all_spaces
 
+
+def get_spaces_by_label(label: str) -> list:
+    """
+    특정 레이블이 붙은 스페이스 키 목록을 반환합니다.
+    Confluence v2 API의 커서 기반 페이지네이션을 사용합니다.
+
+    Args:
+        label: 검색할 스페이스 레이블
+
+    Returns:
+        스페이스 키 리스트
+    """
+    space_keys = []
+    headers = settings.get_auth_header("confluence")
+    # v2 API base URL: CONFLUENCE_BASE_URL에서 /wiki 이후 경로 처리
+    base = settings.CONFLUENCE_BASE_URL.rstrip("/")
+    url = f"{base}/api/v2/spaces"
+    params = {"label": label, "limit": 50}
+
+    while url:
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        for space in data.get("results", []):
+            key = space.get("key")
+            if key:
+                space_keys.append(key)
+
+        next_link = data.get("_links", {}).get("next")
+        if next_link:
+            # next_link는 /wiki/api/v2/spaces?... 형태의 절대 경로
+            base_domain = base.split("/wiki")[0]
+            url = base_domain + next_link
+            params = {}  # cursor가 next_link에 포함되어 있음
+        else:
+            url = None
+
+    return space_keys
+
 def get_confluence_pages_in_space(space_key):
     """
     스페이스의 페이지를 가져옵니다.
@@ -140,10 +180,24 @@ def get_confluence_comments_for_page(page_id):
     return all_comments
 
 def main():
-    target_spaces = settings.CONFLUENCE_SPACE_KEYS
+    target_spaces = list(settings.CONFLUENCE_SPACE_KEYS)  # 명시적 스페이스 키
+
+    # 레이블 기반 스페이스 추가
+    if settings.CONFLUENCE_SPACE_LABELS:
+        seen = set(target_spaces)
+        for label in settings.CONFLUENCE_SPACE_LABELS:
+            logger.info(f"레이블 '{label}'로 스페이스 조회 중...")
+            try:
+                label_spaces = get_spaces_by_label(label)
+                added = [k for k in label_spaces if k not in seen]
+                target_spaces.extend(added)
+                seen.update(added)
+                logger.info(f"레이블 '{label}': {len(label_spaces)}개 발견, {len(added)}개 신규 추가")
+            except Exception as e:
+                logger.error(f"레이블 '{label}' 스페이스 조회 실패: {e}", exc_info=True)
 
     if not target_spaces:
-        logger.info("No CONFLUENCE_SPACE_KEY specified. Discovering all accessible spaces...")
+        logger.info("No CONFLUENCE_SPACE_KEY or CONFLUENCE_SPACE_LABELS specified. Discovering all accessible spaces...")
         try:
             spaces = get_all_spaces()
             target_spaces = [s['key'] for s in spaces]
