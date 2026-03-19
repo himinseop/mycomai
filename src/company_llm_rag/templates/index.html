@@ -248,15 +248,15 @@
     while ((match = pattern.exec(text)) !== null) {
       parts.push(escapeHtml(text.slice(lastIndex, match.index)));
       if (match[1] !== undefined) {
-        // 마크다운 링크
-        parts.push(`<a href="${escapeHtml(match[2])}" target="_blank" rel="noopener noreferrer">${escapeHtml(match[1])}</a>`);
+        // 마크다운 링크 — 텍스트에 링크 + 🔗 아이콘
+        parts.push(`<a href="${escapeHtml(match[2])}" target="_blank" rel="noopener noreferrer">${escapeHtml(match[1])} 🔗</a>`);
       } else {
-        // 날 URL — 끝의 문장부호 제거
+        // 날 URL — URL 텍스트 대신 🔗 아이콘만 표시, 끝의 문장부호 제거
         let url = match[3];
         const trailingMatch = url.match(/[.,;:!?)\]]+$/);
         const trailing = trailingMatch ? trailingMatch[0] : '';
         if (trailing) url = url.slice(0, -trailing.length);
-        parts.push(`<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`);
+        parts.push(`<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">🔗</a>`);
         if (trailing) parts.push(escapeHtml(trailing));
       }
       lastIndex = match.index + match[0].length;
