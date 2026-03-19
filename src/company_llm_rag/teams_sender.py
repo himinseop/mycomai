@@ -13,24 +13,47 @@ Incoming Webhook 방식 사용 (Azure AD Application 권한 불필요)
 from typing import Dict, List
 
 import requests
+from openai import OpenAI
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
 
+_openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
-def _format_conversation(conversation_history: List[Dict]) -> str:
-    """대화 히스토리를 텍스트로 포맷합니다."""
-    lines = []
-    for msg in conversation_history:
-        role = msg.get("role", "")
-        content = msg.get("content", "").strip()
-        if role == "user":
-            lines.append(f"User: {content}")
-        elif role == "assistant":
-            lines.append(f"AI: {content}")
-    return "\n\n".join(lines)
+
+def _summarize_conversation(question: str, conversation_history: List[Dict]) -> str:
+    """대화 내용을 3줄 이내로 요약합니다."""
+    if not conversation_history:
+        return ""
+
+    history_text = "\n".join(
+        f"{'사용자' if m['role'] == 'user' else 'AI'}: {m['content']}"
+        for m in conversation_history
+    )
+
+    try:
+        response = _openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "아래 대화를 보고, 사용자가 무엇을 궁금해했는지 핵심만 3줄 이내로 요약하세요. "
+                        "개인 정보나 민감한 내용은 제외하고, 질문의 맥락과 추가로 궁금해했던 내용을 중심으로 작성하세요. "
+                        "번호나 불릿 없이 자연스러운 문장으로 작성하세요."
+                    ),
+                },
+                {"role": "user", "content": history_text},
+            ],
+            max_tokens=300,
+            temperature=0.3,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.warning(f"대화 요약 실패, 생략: {e}")
+        return ""
 
 
 def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bool:
@@ -48,7 +71,32 @@ def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bo
         logger.warning("TEAMS_INQUIRY_WEBHOOK_URL이 설정되지 않았습니다.")
         return False
 
-    conversation_text = _format_conversation(conversation_history)
+    summary = _summarize_conversation(question, conversation_history)
+
+    body_blocks = [
+        {
+            "type": "TextBlock",
+            "text": f"❓ Q : {question}",
+            "weight": "Bolder",
+            "wrap": True,
+        },
+    ]
+
+    if summary:
+        body_blocks.append({
+            "type": "TextBlock",
+            "text": f"📝 {summary}",
+            "wrap": True,
+            "spacing": "Medium",
+        })
+
+    body_blocks.append({
+        "type": "TextBlock",
+        "text": "💬 위 질문에 대한 내용이나 보충설명은 답변 부탁드립니다. 이 채널의 대화는 AI 학습에 활용됩니다.",
+        "wrap": True,
+        "isSubtle": True,
+        "spacing": "Medium",
+    })
 
     payload = {
         "type": "message",
@@ -59,27 +107,7 @@ def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bo
                     "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                     "type": "AdaptiveCard",
                     "version": "1.2",
-                    "body": [
-                        {
-                            "type": "TextBlock",
-                            "text": f"Q : {question}",
-                            "weight": "Bolder",
-                            "wrap": True,
-                        },
-                        {
-                            "type": "TextBlock",
-                            "text": conversation_text,
-                            "wrap": True,
-                            "spacing": "Medium",
-                        },
-                        {
-                            "type": "TextBlock",
-                            "text": "위 질문에 대한 내용이나 보충설명은 답변 부탁드립니다. 이 채널의 대화는 AI 학습에 활용됩니다.",
-                            "wrap": True,
-                            "isSubtle": True,
-                            "spacing": "Medium",
-                        },
-                    ],
+                    "body": body_blocks,
                 },
             }
         ],
