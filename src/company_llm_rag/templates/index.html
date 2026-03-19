@@ -187,24 +187,30 @@
     const div = document.createElement('div');
     div.className = 'msg assistant';
 
-    let inquiryHtml = '';
-    if (data.auto_inquiry_sent) {
-      inquiryHtml = `<div class="inquiry-area"><span class="auto-sent-badge">✅ Teams에 자동으로 문의가 전송됐습니다</span></div>`;
-    } else if (data.inquiry_available) {
-      inquiryHtml = `
-        <div class="inquiry-area">
-          <button class="inquiry-btn" onclick="sendInquiry(this, ${JSON.stringify(escapeHtml(data.question))})">
-            💬 Teams에 문의하기
-          </button>
-        </div>`;
-    }
-
     div.innerHTML = `
       <div class="avatar">AI</div>
       <div class="msg-body">
         <div class="bubble">${escapeHtml(text)}</div>
-        ${inquiryHtml}
       </div>`;
+
+    const msgBody = div.querySelector('.msg-body');
+
+    if (data.auto_inquiry_sent) {
+      const area = document.createElement('div');
+      area.className = 'inquiry-area';
+      area.innerHTML = `<span class="auto-sent-badge">✅ Teams에 자동으로 문의가 전송됐습니다</span>`;
+      msgBody.appendChild(area);
+    } else if (data.inquiry_available) {
+      const area = document.createElement('div');
+      area.className = 'inquiry-area';
+      const btn = document.createElement('button');
+      btn.className = 'inquiry-btn';
+      btn.textContent = '💬 Teams에 문의하기';
+      btn.addEventListener('click', () => sendInquiry(btn, data.question));
+      area.appendChild(btn);
+      msgBody.appendChild(area);
+    }
+
     chatWindow.appendChild(div);
     chatWindow.scrollTop = chatWindow.scrollHeight;
     return div;
@@ -245,7 +251,7 @@
     input.focus();
   }
 
-  async function sendInquiry(btn, question) {
+  async function sendInquiry(btn, question = '') {
     btn.disabled = true;
     btn.textContent = '전송 중...';
     try {
