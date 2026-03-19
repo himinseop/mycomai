@@ -29,16 +29,25 @@ def _source_boost(metadata: Dict) -> float:
         return 0.85
     if source == "jira":
         return 0.95
-    return 1.0  # teams 등 채팅 소스
+    if source == "teams":
+        return 0.9
+    return 1.0
 
 
-def retrieve_documents(query: str, n_results: int = None) -> List[Dict]:
+def retrieve_documents(
+    query: str,
+    n_results: int = None,
+    source_filter: List[str] = None,
+    url_extensions: List[str] = None,
+) -> List[Dict]:
     """
     ChromaDB에서 사용자 쿼리와 관련된 문서 청크를 검색합니다.
 
     Args:
         query: 검색 쿼리
         n_results: 반환할 결과 개수 (기본값: settings.RETRIEVAL_TOP_K)
+        source_filter: 검색할 소스 목록 (예: ['jira', 'confluence'])
+        url_extensions: URL 확장자 필터 (예: ['.xlsx', '.pptx'])
 
     Returns:
         검색된 문서 리스트
@@ -50,11 +59,23 @@ def retrieve_documents(query: str, n_results: int = None) -> List[Dict]:
         collection = db_manager.get_collection()
         # 재정렬을 위해 더 많은 후보를 가져옴
         fetch_n = n_results * 3
-        results = collection.query(
+
+        # ChromaDB where 절 구성 (소스 필터)
+        where = None
+        if source_filter and len(source_filter) == 1:
+            where = {"source": source_filter[0]}
+        elif source_filter and len(source_filter) > 1:
+            where = {"$or": [{"source": s} for s in source_filter]}
+
+        query_kwargs = dict(
             query_texts=[query],
             n_results=fetch_n,
-            include=['documents', 'metadatas', 'distances']
+            include=['documents', 'metadatas', 'distances'],
         )
+        if where:
+            query_kwargs["where"] = where
+
+        results = collection.query(**query_kwargs)
 
         candidates = []
         if results and results['documents'] and len(results['documents']) > 0:
@@ -84,12 +105,21 @@ def retrieve_documents(query: str, n_results: int = None) -> List[Dict]:
                 })
 
         # 부스트 적용 후 재정렬하여 상위 n_results 반환
+        # URL 확장자 후처리 필터
+        if url_extensions:
+            candidates = [
+                c for c in candidates
+                if any((c["metadata"].get("url") or "").lower().split("?")[0].endswith(ext)
+                       for ext in url_extensions)
+            ]
+
         candidates.sort(key=lambda x: x["_boosted_distance"])
         retrieved_docs = []
         for c in candidates[:n_results]:
             retrieved_docs.append({
                 "content": c["content"],
                 "metadata": c["metadata"],
+                "_distance": c["_boosted_distance"],
             })
         return retrieved_docs
     except Exception as e:

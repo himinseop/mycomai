@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>슈퍼커넥트 AI 검색</title>
+  <title>오사장 - 슈퍼커넥트 AI</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -170,6 +170,7 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 400px;
     }
     .ref-item a:hover { text-decoration: underline; }
+    .ref-time { font-size: 11px; color: #999; margin-left: 4px; white-space: nowrap; flex-shrink: 0; }
     .src-badge {
       display: inline-flex; align-items: center; justify-content: center;
       width: 20px; height: 20px; border-radius: 4px;
@@ -300,7 +301,7 @@
         <line x1="3" y1="18" x2="21" y2="18"/>
       </svg>
     </button>
-    <h1>🔍 슈퍼커넥트 AI 검색</h1>
+    <h1><img src="/static/osajang-header.jpg" alt="오사장" style="width:28px;height:28px;object-fit:contain;border-radius:50%;vertical-align:middle;margin-right:8px;">오사장</h1>
   </div>
   <button class="header-btn" onclick="clearSession()">새 대화 시작</button>
 </header>
@@ -331,8 +332,9 @@
 <div id="main">
   <div id="chat-window">
     <div class="empty-state" id="empty-state">
-      <h2>무엇이든 물어보세요</h2>
-      <p>슈퍼커넥트의 Jira, Confluence, SharePoint, Teams 데이터를 기반으로 답변합니다.</p>
+      <img src="/static/osajang.png" alt="오사장" style="width:120px;height:120px;object-fit:contain;margin-bottom:8px;">
+      <h2>안녕하세요, 오사장입니다 👋</h2>
+      <p>슈퍼커넥트 업무에 관한 궁금한 점을 물어보세요.</p>
     </div>
   </div>
 
@@ -519,6 +521,55 @@
     return '<span class="src-badge local">F</span>';
   }
 
+  // 참고 문서 링크 텍스트: 소스별 포맷
+  function getRefLabel(ref) {
+    if (ref.source === 'jira') {
+      // [WMPO-123] 이슈 제목
+      return ref.issue_key ? `[${ref.issue_key}] ${ref.title}` : ref.title;
+    }
+    if (ref.source === 'confluence') {
+      // 스페이스명 / 폴더1 / 폴더2 / 문서제목
+      const parts = [];
+      if (ref.space_name) parts.push(ref.space_name);
+      if (ref.ancestors) ref.ancestors.split(' / ').forEach(a => parts.push(a));
+      parts.push(ref.title);
+      return parts.join(' / ');
+    }
+    if (ref.source === 'sharepoint') {
+      // 파일명 (확장자 포함) — URL 마지막 세그먼트
+      try {
+        const parts = decodeURIComponent(ref.url).split('/');
+        const filename = parts[parts.length - 1].split('?')[0];
+        return filename || ref.title;
+      } catch (_) { return ref.title; }
+    }
+    if (ref.source === 'teams') {
+      // 채널: [팀명/채널명]  일반채팅: [대화방명]
+      let prefix = '';
+      if (ref.team_name && ref.channel_name) {
+        prefix = `[${ref.team_name}/${ref.channel_name}] `;
+      } else if (ref.chat_topic) {
+        prefix = `[${ref.chat_topic}] `;
+      }
+      const author = ref.author ? `${ref.author} : ` : '';
+      const text = ref.snippet ? ref.snippet.replace(/\s+/g, ' ').slice(0, 60) + '…' : '';
+      return prefix + author + text;
+    }
+    return ref.title || ref.url;
+  }
+
+  // 날짜/시간 (Teams만 — 링크 뒤에 표시)
+  function getRefMeta(ref) {
+    if (ref.source === 'teams' && ref.created_at) {
+      try {
+        const d = new Date(ref.created_at);
+        const str = `${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+        return `<span class="ref-time">${str}</span>`;
+      } catch (_) {}
+    }
+    return '';
+  }
+
   // ── 메시지 렌더링 ────────────────────────────────────────────────
   function appendUserMessage(text) {
     emptyState.style.display = 'none';
@@ -547,8 +598,9 @@
         const item = document.createElement('div');
         item.className = 'ref-item';
         const badge = getSourceBadge(ref.source, ref.url);
-        const title = escapeHtml(ref.title || ref.url);
-        item.innerHTML = `${badge}<a href="${escapeHtml(ref.url)}" target="_blank" rel="noopener noreferrer" title="${title}">${title}</a>`;
+        const label = getRefLabel(ref);
+        const meta  = getRefMeta(ref);
+        item.innerHTML = `${badge}<a href="${escapeHtml(ref.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(ref.title || ref.url)}">${escapeHtml(label)}</a>${meta}`;
         refsDiv.appendChild(item);
       });
       msgBody.appendChild(refsDiv);

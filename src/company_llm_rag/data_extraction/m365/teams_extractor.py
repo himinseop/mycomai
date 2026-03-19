@@ -262,6 +262,8 @@ def main():
 
                         # 본문
                         body_text = parse_teams_html(message.get('body', {}).get('content', ""))
+                        if len(body_text.strip()) < 50:
+                            continue
 
                         # replies: content에 합치기
                         reply_blocks = []
@@ -345,15 +347,17 @@ def main():
                         else:
                             author_name = 'Unknown'
 
+                        chat_body_text = parse_teams_html(message.get('body', {}).get('content', ""))
+                        if len(chat_body_text.strip()) < 50:
+                            continue
+
                         extracted_data_schema = {
                             "id": f"teams-chat-{message.get('id')}",
                             "source": "teams",
                             "source_id": message.get('id'),
                             "url": None,
                             "title": f"[{chat_topic}] {author_name}의 메시지",
-                            "content": parse_teams_html(
-                                message.get('body', {}).get('content', "")
-                            ),
+                            "content": chat_body_text,
                             "content_type": "chat_message",
                             "created_at": message.get('createdDateTime'),
                             "updated_at": message.get('lastModifiedDateTime'),

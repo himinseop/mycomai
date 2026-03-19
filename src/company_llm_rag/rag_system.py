@@ -116,8 +116,19 @@ def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
                 )
 
         comments_str = "\n".join(comments_or_replies)
+        # 소스별 추가 메타데이터 (LLM이 상태/담당자 등을 판단할 수 있도록)
+        extra = ""
+        if source == "jira":
+            status   = meta.get("status", "")
+            assignee = meta.get("assignee", "")
+            issue_type = meta.get("jira_issue_type", "")
+            if status:   extra += f"상태: {status} | "
+            if assignee: extra += f"담당자: {assignee} | "
+            if issue_type: extra += f"유형: {issue_type}"
+            extra = extra.rstrip(" |")
+
         context_parts.append(
-            f"--- 문서 {i+1} | {source_label} ---\n"
+            f"--- 문서 {i+1} | {source_label}{(' | ' + extra) if extra else ''} ---\n"
             f"{doc['content']}\n"
             f"{comments_str}\n"
             f"----------------------------------------------------------"
@@ -126,19 +137,24 @@ def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
     context = "\n\n".join(context_parts)
 
     prompt = (
-        "You are an AI assistant for a company. Your task is to answer questions based on the provided company knowledge base.\n"
-        "Guidelines:\n"
-        "- Use only the information from the documents provided below.\n"
-        "- When citing information, always mention the specific source explicitly in Korean:\n"
-        "  · Jira: 'Jira [이슈키 제목](URL)에서 확인됩니다.' (예: 'Jira [WMPO-123 결제 오류 수정](https://...) 이슈에서 언급됩니다.')\n"
+        "너는 '오사장'이야. 슈퍼커넥트 직원들의 업무 궁금증을 해결해주는 역할을 하고 있어.\n"
+        "아래 회사 지식베이스 문서를 바탕으로 질문에 답변해줘.\n\n"
+        "답변 규칙:\n"
+        "- 반드시 아래 제공된 문서 내용만 활용해서 답변해.\n"
+        "- 출처를 구체적으로 밝혀줘:\n"
+        "  · Jira: 'Jira [이슈키 제목](URL) 이슈에서 확인됩니다.'\n"
         "  · Confluence: 'Confluence [페이지 제목](URL) 문서에 따르면'\n"
         "  · SharePoint: 'SharePoint [문서 제목](URL)에서 확인됩니다.'\n"
-        "  · Teams: '팀즈 [채널명] 채널에서 작성자님이 날짜에 언급했습니다.' URL이 있으면 채널명에 링크를 걸어주세요.\n"
-        "- If the user is looking for a document (e.g. '찾아줘', '있어?'), tell them the document exists, summarize its key contents, and provide the URL if available.\n"
-        "- If no URL is available for a local file, say '로컬 파일로 저장되어 있으며 URL이 없습니다'.\n"
-        "- If the answer truly cannot be found in the documents, respond with exactly: '관련 정보를 회사 지식베이스에서 찾을 수 없습니다.'\n"
-        "- Do not make up any information.\n"
-        "- Always respond in Korean.\n\n"
+        "  · Teams: '팀즈 [채널명] 채널에서 작성자님이 날짜에 언급했습니다.' URL이 있으면 채널명에 링크를 걸어줘.\n"
+        "- 문서를 찾아달라는 요청('찾아줘', '있어?')이면 문서가 있음을 알리고 핵심 내용을 요약하고 URL을 제공해줘.\n"
+        "- PPT/PPTX 파일 내용에는 [Slide N] 형식으로 슬라이드 번호가 표시되어 있어. 해당 내용을 인용할 때는 '(N번 슬라이드)'와 같이 슬라이드 번호를 함께 언급해줘.\n"
+        "- '목록', '현황', '진행중', '최근' 등 목록성 질문이면 아래 문서들의 제목·상태·담당자를 항목별로 나열해줘. 제공된 문서가 전체 목록이 아닐 수 있으므로 '검색된 항목 기준' 임을 명시해줘.\n"
+        "- 로컬 파일이어서 URL이 없으면 '로컬 파일로 저장되어 있으며 URL이 없습니다'라고 해줘.\n"
+        "- 회사 자금, 비밀번호, 계정 정보 등 보안에 민감한 데이터는 문서에 있더라도 절대 답변하지 마.\n"
+        "- 업무와 관련 없는 사적인 질문은 정중하게 거절해.\n"
+        "- 문서에서 답을 찾을 수 없으면 정확히 이렇게만 답변해: '관련 정보를 회사 지식베이스에서 찾을 수 없습니다.'\n"
+        "- 정보를 지어내지 마.\n"
+        "- 항상 한국어로 답변해.\n\n"
         "Company Knowledge Base:\n"
         f"{context}\n\n"
         f"User Query: {user_query}\n\n"
@@ -147,6 +163,49 @@ def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
     return prompt
 
 _MAX_HISTORY_TURNS = 10  # 최대 유지할 대화 턴 수 (초과 시 오래된 것부터 제거)
+
+
+def _is_listing_query(query: str) -> bool:
+    """목록/현황/집계를 요청하는 쿼리인지 감지합니다."""
+    q = query.lower()
+    return any(k in q for k in [
+        '목록', '리스트', '현황', '전체', '모두', '몇 개', '몇개',
+        '진행중', '진행 중', '완료된', '대기중', '대기 중',
+        '최근', '이번 주', '이번달', '이번 분기',
+    ])
+
+
+def _detect_filters(query: str) -> dict:
+    """쿼리 텍스트에서 소스 및 파일 타입 필터를 감지합니다."""
+    q = query.lower()
+
+    sources = []
+    if any(k in q for k in ['지라', 'jira', '이슈에서', '이슈로']):
+        sources.append('jira')
+    if any(k in q for k in ['컨플루언스', '컨플에서', '컨플루', 'confluence']):
+        sources.append('confluence')
+    if any(k in q for k in ['팀즈에서', '팀즈 대화', '팀즈에', 'teams', '대화에서', '채팅에서', '채널에서']):
+        sources.append('teams')
+    if any(k in q for k in ['쉐어포인트', 'sharepoint']):
+        sources.append('sharepoint')
+
+    extensions = []
+    if any(k in q for k in ['엑셀', 'excel', '.xlsx', '.xls']):
+        extensions.extend(['.xlsx', '.xls'])
+        if 'sharepoint' not in sources:
+            sources.append('sharepoint')
+    if any(k in q for k in ['ppt', '파워포인트', '기획서', '발표자료', '프레젠테이션']):
+        extensions.extend(['.pptx', '.ppt'])
+        if 'sharepoint' not in sources:
+            sources.append('sharepoint')
+    if any(k in q for k in ['.docx', '.doc', 'word 문서']):
+        extensions.extend(['.docx', '.doc'])
+    if '.pdf' in q or ' pdf ' in q:
+        extensions.append('.pdf')
+
+    return {'sources': sources, 'extensions': extensions}
+_NO_ANSWER_PHRASE = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
+_REFERENCE_DISTANCE_THRESHOLD = 0.5  # 이 값 미만인 문서만 참고 링크로 표시
 
 
 def get_llm_response(
@@ -172,7 +231,14 @@ def get_llm_response(
     if temperature is None:
         temperature = settings.OPENAI_TEMPERATURE
 
-    messages = [{"role": "system", "content": "You are a helpful assistant. Always respond in Korean."}]
+    messages = [{"role": "system", "content": (
+        "너의 이름은 '오사장'이야. "
+        "슈퍼커넥트는 배달앱을 만드는 회사이고, 넌 이 회사의 직원이야. "
+        "회사의 업무효율을 높이기 위해 다른 직원들의 궁금증을 해결해주는 업무를 수행하고 있어. "
+        "회사 업무에 충실하기 때문에 업무 외의 사적인 질문에는 정중하게 답변을 거절해. "
+        "특히 회사 자금, 비밀번호, 계정 정보 등 보안에 민감한 데이터는 절대 누설하지 마. "
+        "항상 한국어로 답변해."
+    )}]
     if conversation_history:
         messages.extend(conversation_history)
     messages.append({"role": "user", "content": prompt})
@@ -208,7 +274,15 @@ def rag_query(
     Returns:
         str 또는 (str, List[Dict]) — return_refs=True일 때 참고 링크 포함
     """
-    retrieved_docs = retrieve_documents(user_query, n_results=n_results)
+    filters = _detect_filters(user_query)
+    listing = _is_listing_query(user_query)
+    effective_n = (n_results or settings.RETRIEVAL_TOP_K) * (3 if listing else 1)
+    retrieved_docs = retrieve_documents(
+        user_query,
+        n_results=effective_n,
+        source_filter=filters['sources'] or None,
+        url_extensions=filters['extensions'] or None,
+    )
 
     if not retrieved_docs:
         answer = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
@@ -220,10 +294,19 @@ def rag_query(
     if not return_refs:
         return llm_response
 
+    # 답변에 정보 없음 문구가 포함된 경우 참고 링크 없음
+    if _NO_ANSWER_PHRASE in llm_response:
+        return llm_response, []
+
+    # 목록 쿼리는 임계값 완화, 일반 쿼리는 0.5
+    ref_threshold = 0.8 if listing else _REFERENCE_DISTANCE_THRESHOLD
+
     # URL이 있는 문서만 중복 제거하여 참고 링크 구성 (Teams는 딥링크 생성)
     seen = set()
     references = []
     for doc in retrieved_docs:
+        if doc.get("_distance", 1.0) >= ref_threshold:
+            continue
         meta = doc["metadata"]
         url = meta.get("url", "") or ""
         if not url or url == "None":
@@ -233,11 +316,53 @@ def rag_query(
         if url in seen:
             continue
         seen.add(url)
+        source = meta.get("source", "")
+        title = meta.get("title", "")
+        author = meta.get("author", "") or ""
+
+        # Jira: jira_issue_key 메타데이터 사용 (예: "WMPO-1234")
+        issue_key = ""
+        if source == "jira":
+            issue_key = meta.get("jira_issue_key", "")
+
+        # Confluence: 스페이스 표시 이름 + 조상 경로
+        space_name = ""
+        ancestors = ""
+        if source == "confluence":
+            space_name = meta.get("confluence_space_name") or meta.get("confluence_space_key") or ""
+            ancestors = meta.get("confluence_ancestors", "") or ""
+
+        # Teams: 팀명/채널명 또는 채팅방명, 날짜, 작성자, 스니펫
+        team_name = ""
+        channel_name = ""
+        chat_topic = ""
+        created_at = ""
+        snippet = ""
+        if source == "teams":
+            tn = meta.get("teams_team_name") or ""
+            cn = meta.get("teams_channel_name") or ""
+            team_name = "" if tn in ("", "None") else tn
+            channel_name = "" if cn in ("", "None") else cn
+            chat_topic = meta.get("teams_chat_topic") or ""
+            if chat_topic in ("None", "null"):
+                chat_topic = ""
+            created_at = meta.get("created_at", "") or ""
+            snippet = (doc.get("content") or "").strip()[:90]
+
         references.append({
-            "title": meta.get("title", ""),
+            "title": title,
             "url": url,
-            "source": meta.get("source", ""),
+            "source": source,
             "content_type": meta.get("content_type", ""),
+            "issue_key": issue_key,
+            "space_name": space_name,
+            "ancestors": ancestors,
+            "team_name": team_name,
+            "channel_name": channel_name,
+            "chat_topic": chat_topic,
+            "author": author,
+            "created_at": created_at,
+            "snippet": snippet,
         })
 
     return llm_response, references

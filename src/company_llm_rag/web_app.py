@@ -2,16 +2,18 @@ from typing import Dict, List
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from company_llm_rag.rag_system import rag_query
+from company_llm_rag.rag_system import rag_query, _NO_ANSWER_PHRASE
 from company_llm_rag.teams_sender import send_inquiry_to_teams, is_inquiry_configured
 from company_llm_rag.history_store import init_db, save as history_save, get_session_history, SESSION_TTL_DAYS
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
 
-app = FastAPI(title="슈퍼커넥트 AI 검색")
+app = FastAPI(title="오사장 - 슈퍼커넥트 AI")
+app.mount("/static", StaticFiles(directory="/app/company_llm_rag/static"), name="static")
 
 # DB 초기화 (앱 시작 시 만료 레코드 정리 포함)
 init_db()
@@ -20,7 +22,6 @@ init_db()
 _sessions: Dict[str, List[Dict]] = {}
 _MAX_HISTORY_TURNS = 10
 
-_NO_ANSWER_PHRASE = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
 _TEAMS_GUIDE = "\n\n아래 'Teams에 문의하기' 버튼을 통해 동료에게 직접 질문해보세요."
 
 

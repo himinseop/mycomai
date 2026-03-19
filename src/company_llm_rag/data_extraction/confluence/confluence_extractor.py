@@ -78,6 +78,17 @@ def get_spaces_by_label(label: str) -> list:
 
     return space_keys
 
+def get_space_display_name(space_key: str) -> str:
+    """스페이스 키로 표시 이름을 조회합니다."""
+    try:
+        url = f"{settings.CONFLUENCE_BASE_URL}/rest/api/space/{space_key}"
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return response.json().get("name", space_key)
+    except Exception:
+        return space_key
+
+
 def get_confluence_pages_in_space(space_key):
     """
     스페이스의 페이지를 가져옵니다.
@@ -209,28 +220,37 @@ def main():
     for i, space_key in enumerate(target_spaces):
         logger.info(f"[{i+1}/{len(target_spaces)}] Processing Confluence space: {space_key}...")
         try:
+            space_display_name = get_space_display_name(space_key)
             pages_data = get_confluence_pages_in_space(space_key)
             if pages_data:
                 total = len(pages_data)
                 logger.info(f"[Confluence][{space_key}] {total}개 페이지 발견. 수집 시작...")
                 start_time = time.time()
                 for j, page in enumerate(pages_data, 1):
+                    page_content = parse_confluence_storage_format(
+                        page.get('body', {}).get('storage', {}).get('value', "")
+                    )
+                    if len(page_content.strip()) < 50:
+                        logger.debug(f"[Confluence][{space_key}] 내용 부족 스킵: {page.get('title')}")
+                        continue
+
                     extracted_data_schema = {
                         "id": f"confluence-{page.get('id')}",
                         "source": "confluence",
                         "source_id": page.get('id'),
                         "url": f"{settings.CONFLUENCE_BASE_URL}{page.get('_links', {}).get('webui')}",
                         "title": page.get('title'),
-                        "content": parse_confluence_storage_format(
-                            page.get('body', {}).get('storage', {}).get('value', "")
-                        ),
+                        "content": page_content,
                         "content_type": "page",
                         "created_at": page.get('history', {}).get('createdDate'),
                         "updated_at": page.get('version', {}).get('when'),
                         "author": page.get('history', {}).get('createdBy', {}).get('displayName'),
                         "metadata": {
                             "confluence_space_key": space_key,
-                            "confluence_space_name": space_key, # Assuming space key is the name
+                            "confluence_space_name": space_display_name,
+                            "confluence_ancestors": " / ".join(
+                                a.get("title", "") for a in page.get("ancestors", []) if a.get("title")
+                            ),
                             "last_updated_author": page.get('version', {}).get('by', {}).get('displayName'),
                             "comments": []
                         }
