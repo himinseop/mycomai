@@ -34,7 +34,6 @@ class ChatResponse(BaseModel):
 
 class InquiryRequest(BaseModel):
     question: str
-    rag_answer: str
     session_id: str = "default"
 
 
@@ -61,7 +60,7 @@ async def chat(req: ChatRequest):
     # 답변을 찾지 못한 경우 자동으로 Teams 문의 전송
     auto_sent = False
     if _NO_ANSWER_PHRASE in answer and is_inquiry_configured():
-        auto_sent = send_inquiry_to_teams(req.message, answer)
+        auto_sent = send_inquiry_to_teams(req.message, history)
         if auto_sent:
             logger.info(f"[{req.session_id}] 답변 없음 → Teams 자동 문의 전송")
 
@@ -79,7 +78,8 @@ async def inquiry(req: InquiryRequest):
     if not is_inquiry_configured():
         return {"success": False, "message": "Teams 문의 채널이 설정되지 않았습니다."}
 
-    success = send_inquiry_to_teams(req.question, req.rag_answer)
+    history = _sessions.get(req.session_id, [])
+    success = send_inquiry_to_teams(req.question, history)
     return {
         "success": success,
         "message": "Teams 채널에 문의가 전송됐습니다." if success else "전송에 실패했습니다. 잠시 후 다시 시도해주세요.",

@@ -10,6 +10,8 @@ Incoming Webhook 방식 사용 (Azure AD Application 권한 불필요)
   → TEAMS_INQUIRY_WEBHOOK_URL 환경변수에 설정
 """
 
+from typing import Dict, List
+
 import requests
 
 from company_llm_rag.config import settings
@@ -18,13 +20,26 @@ from company_llm_rag.logger import get_logger
 logger = get_logger(__name__)
 
 
-def send_inquiry_to_teams(question: str, rag_answer: str) -> bool:
+def _format_conversation(conversation_history: List[Dict]) -> str:
+    """대화 히스토리를 텍스트로 포맷합니다."""
+    lines = []
+    for msg in conversation_history:
+        role = msg.get("role", "")
+        content = msg.get("content", "").strip()
+        if role == "user":
+            lines.append(f"User: {content}")
+        elif role == "assistant":
+            lines.append(f"AI: {content}")
+    return "\n\n".join(lines)
+
+
+def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bool:
     """
     지정된 Teams 채널에 문의 메시지를 전송합니다.
 
     Args:
-        question: 사용자 질문
-        rag_answer: RAG 시스템의 답변 (없으면 빈 문자열)
+        question: 사용자의 최초(현재) 질문
+        conversation_history: 세션 대화 히스토리 (현재 Q&A 포함)
 
     Returns:
         전송 성공 여부
@@ -33,13 +48,8 @@ def send_inquiry_to_teams(question: str, rag_answer: str) -> bool:
         logger.warning("TEAMS_INQUIRY_WEBHOOK_URL이 설정되지 않았습니다.")
         return False
 
-    has_answer = (
-        rag_answer
-        and rag_answer != "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
-    )
-    answer_text = rag_answer if has_answer else "관련 정보를 찾지 못했습니다."
+    conversation_text = _format_conversation(conversation_history)
 
-    # Adaptive Card 형식으로 메시지 구성
     payload = {
         "type": "message",
         "attachments": [
@@ -52,37 +62,19 @@ def send_inquiry_to_teams(question: str, rag_answer: str) -> bool:
                     "body": [
                         {
                             "type": "TextBlock",
-                            "text": "📌 AI 검색 문의가 접수되었습니다.",
+                            "text": f"Q : {question}",
                             "weight": "Bolder",
-                            "size": "Medium",
                             "wrap": True,
                         },
                         {
                             "type": "TextBlock",
-                            "text": "❓ 질문",
-                            "weight": "Bolder",
+                            "text": conversation_text,
+                            "wrap": True,
                             "spacing": "Medium",
                         },
                         {
                             "type": "TextBlock",
-                            "text": question,
-                            "wrap": True,
-                        },
-                        {
-                            "type": "TextBlock",
-                            "text": "🤖 AI 답변",
-                            "weight": "Bolder",
-                            "spacing": "Medium",
-                        },
-                        {
-                            "type": "TextBlock",
-                            "text": answer_text,
-                            "wrap": True,
-                            "color": "Default",
-                        },
-                        {
-                            "type": "TextBlock",
-                            "text": "위 질문에 대해 아시는 분은 답변 부탁드립니다. 이 채널의 대화는 AI 학습에 활용됩니다.",
+                            "text": "위 질문에 대한 내용이나 보충설명은 답변 부탁드립니다. 이 채널의 대화는 AI 학습에 활용됩니다.",
                             "wrap": True,
                             "isSubtle": True,
                             "spacing": "Medium",

@@ -193,7 +193,7 @@
     } else if (data.inquiry_available) {
       inquiryHtml = `
         <div class="inquiry-area">
-          <button class="inquiry-btn" onclick="sendInquiry(this, ${JSON.stringify(escapeHtml(data.question))}, ${JSON.stringify(escapeHtml(text))})">
+          <button class="inquiry-btn" onclick="sendInquiry(this, ${JSON.stringify(escapeHtml(data.question))})">
             💬 Teams에 문의하기
           </button>
         </div>`;
@@ -245,14 +245,14 @@
     input.focus();
   }
 
-  async function sendInquiry(btn, question, answer) {
+  async function sendInquiry(btn, question) {
     btn.disabled = true;
     btn.textContent = '전송 중...';
     try {
       const res = await fetch('/inquiry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, rag_answer: answer, session_id: sessionId }),
+        body: JSON.stringify({ question, session_id: sessionId }),
       });
       const data = await res.json();
       const area = btn.closest('.inquiry-area');
