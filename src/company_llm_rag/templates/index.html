@@ -237,17 +237,29 @@
     return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  // URL을 하이퍼링크로 변환 (HTML 이스케이프 처리 포함)
+  // URL을 하이퍼링크로 변환
+  // 마크다운 [텍스트](url) 형식과 날 URL(https://...) 모두 처리
   function renderText(text) {
-    const urlRegex = /https?:\/\/[^\s<>"]+/g;
+    // 그룹1,2: 마크다운 [text](url) / 그룹3: 날 URL
+    const pattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"')\[]+)/g;
     const parts = [];
     let lastIndex = 0;
     let match;
-    while ((match = urlRegex.exec(text)) !== null) {
+    while ((match = pattern.exec(text)) !== null) {
       parts.push(escapeHtml(text.slice(lastIndex, match.index)));
-      const url = match[0];
-      parts.push(`<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`);
-      lastIndex = match.index + url.length;
+      if (match[1] !== undefined) {
+        // 마크다운 링크
+        parts.push(`<a href="${escapeHtml(match[2])}" target="_blank" rel="noopener noreferrer">${escapeHtml(match[1])}</a>`);
+      } else {
+        // 날 URL — 끝의 문장부호 제거
+        let url = match[3];
+        const trailingMatch = url.match(/[.,;:!?)\]]+$/);
+        const trailing = trailingMatch ? trailingMatch[0] : '';
+        if (trailing) url = url.slice(0, -trailing.length);
+        parts.push(`<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`);
+        if (trailing) parts.push(escapeHtml(trailing));
+      }
+      lastIndex = match.index + match[0].length;
     }
     parts.push(escapeHtml(text.slice(lastIndex)));
     return parts.join('');
