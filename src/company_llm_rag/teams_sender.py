@@ -4,30 +4,18 @@ Teams 채널 메시지 전송 모듈
 RAG 답변이 부족할 때 지정된 Teams 채널에 문의 메시지를 남깁니다.
 해당 채널의 대화는 추후 임베딩을 통해 지식베이스에 재학습됩니다.
 
-필요한 Azure AD 권한:
-- ChannelMessage.Send (Application)
+Incoming Webhook 방식 사용 (Azure AD Application 권한 불필요)
+설정 방법:
+  Teams 채널 → ... → 커넥터 → Incoming Webhook → 구성 → URL 복사
+  → TEAMS_INQUIRY_WEBHOOK_URL 환경변수에 설정
 """
 
 import requests
-import msal
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
-
-
-def _get_access_token() -> str:
-    authority = f"https://login.microsoftonline.com/{settings.TENANT_ID}"
-    app = msal.ConfidentialClientApplication(
-        settings.CLIENT_ID,
-        authority=authority,
-        client_credential=settings.CLIENT_SECRET,
-    )
-    result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
-    if "access_token" not in result:
-        raise RuntimeError(f"토큰 획득 실패: {result.get('error_description')}")
-    return result["access_token"]
 
 
 def send_inquiry_to_teams(question: str, rag_answer: str) -> bool:
@@ -41,50 +29,78 @@ def send_inquiry_to_teams(question: str, rag_answer: str) -> bool:
     Returns:
         전송 성공 여부
     """
-    if not settings.TEAMS_INQUIRY_TEAM_ID or not settings.TEAMS_INQUIRY_CHANNEL_ID:
-        logger.warning("TEAMS_INQUIRY_TEAM_ID 또는 TEAMS_INQUIRY_CHANNEL_ID가 설정되지 않았습니다.")
+    if not settings.TEAMS_INQUIRY_WEBHOOK_URL:
+        logger.warning("TEAMS_INQUIRY_WEBHOOK_URL이 설정되지 않았습니다.")
         return False
 
-    try:
-        token = _get_access_token()
-    except Exception as e:
-        logger.error(f"Teams 토큰 획득 실패: {e}")
-        return False
-
-    answer_section = (
-        f"<br><b>🤖 AI 답변:</b><br>{rag_answer.replace(chr(10), '<br>')}"
-        if rag_answer and rag_answer != "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
-        else "<br><b>🤖 AI 답변:</b> 관련 정보를 찾지 못했습니다."
+    has_answer = (
+        rag_answer
+        and rag_answer != "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
     )
+    answer_text = rag_answer if has_answer else "관련 정보를 찾지 못했습니다."
 
-    body_content = (
-        f"<b>📌 AI 검색 문의가 접수되었습니다.</b><br><br>"
-        f"<b>❓ 질문:</b><br>{question.replace(chr(10), '<br>')}"
-        f"{answer_section}<br><br>"
-        f"<i>위 질문에 대해 아시는 분은 답변 부탁드립니다. "
-        f"이 채널의 대화는 AI 학습에 활용됩니다.</i>"
-    )
-
-    url = (
-        f"https://graph.microsoft.com/v1.0"
-        f"/teams/{settings.TEAMS_INQUIRY_TEAM_ID}"
-        f"/channels/{settings.TEAMS_INQUIRY_CHANNEL_ID}/messages"
-    )
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
+    # Adaptive Card 형식으로 메시지 구성
     payload = {
-        "body": {
-            "contentType": "html",
-            "content": body_content,
-        }
+        "type": "message",
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.2",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "text": "📌 AI 검색 문의가 접수되었습니다.",
+                            "weight": "Bolder",
+                            "size": "Medium",
+                            "wrap": True,
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": "❓ 질문",
+                            "weight": "Bolder",
+                            "spacing": "Medium",
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": question,
+                            "wrap": True,
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": "🤖 AI 답변",
+                            "weight": "Bolder",
+                            "spacing": "Medium",
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": answer_text,
+                            "wrap": True,
+                            "color": "Default",
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": "위 질문에 대해 아시는 분은 답변 부탁드립니다. 이 채널의 대화는 AI 학습에 활용됩니다.",
+                            "wrap": True,
+                            "isSubtle": True,
+                            "spacing": "Medium",
+                        },
+                    ],
+                },
+            }
+        ],
     }
 
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        response = requests.post(
+            settings.TEAMS_INQUIRY_WEBHOOK_URL,
+            json=payload,
+            timeout=10,
+        )
         response.raise_for_status()
-        logger.info(f"Teams 문의 전송 완료: {response.json().get('id')}")
+        logger.info("Teams 문의 전송 완료 (Incoming Webhook)")
         return True
     except Exception as e:
         logger.error(f"Teams 메시지 전송 실패: {e}")
@@ -93,4 +109,4 @@ def send_inquiry_to_teams(question: str, rag_answer: str) -> bool:
 
 def is_inquiry_configured() -> bool:
     """Teams 문의 채널이 설정되어 있는지 확인합니다."""
-    return bool(settings.TEAMS_INQUIRY_TEAM_ID and settings.TEAMS_INQUIRY_CHANNEL_ID)
+    return bool(settings.TEAMS_INQUIRY_WEBHOOK_URL)

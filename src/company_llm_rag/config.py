@@ -51,9 +51,9 @@ class Settings:
         c.strip() for c in os.getenv("TEAMS_CHAT_IDS", "").split(",") if c.strip()
     ]
 
-    # Teams 문의 채널 설정 (답변 부족 시 메시지 전송)
-    TEAMS_INQUIRY_TEAM_ID: str = os.getenv("TEAMS_INQUIRY_TEAM_ID", "")
-    TEAMS_INQUIRY_CHANNEL_ID: str = os.getenv("TEAMS_INQUIRY_CHANNEL_ID", "")
+    # Teams 문의 채널 설정 (답변 부족 시 메시지 전송) — Incoming Webhook 방식
+    # 설정: Teams 채널 → ... → 커넥터 → Incoming Webhook → 구성 → URL 복사
+    TEAMS_INQUIRY_WEBHOOK_URL: str = os.getenv("TEAMS_INQUIRY_WEBHOOK_URL", "")
 
     # 데이터 수집 설정
     LOOKBACK_DAYS: Optional[int] = (
