@@ -18,7 +18,8 @@
       flex-shrink: 0;
     }
     header h1 { font-size: 18px; font-weight: 600; }
-    #clear-btn {
+    .header-btns { display: flex; gap: 8px; align-items: center; }
+    .header-btn {
       background: rgba(255,255,255,0.1);
       border: 1px solid rgba(255,255,255,0.2);
       color: white;
@@ -27,7 +28,16 @@
       cursor: pointer;
       font-size: 13px;
     }
-    #clear-btn:hover { background: rgba(255,255,255,0.2); }
+    .header-btn:hover { background: rgba(255,255,255,0.2); }
+    #session-expired-banner {
+      display: none;
+      background: #fff3cd;
+      color: #856404;
+      padding: 10px 24px;
+      font-size: 13px;
+      border-bottom: 1px solid #ffc107;
+      text-align: center;
+    }
 
     #chat-window {
       flex: 1;
@@ -187,8 +197,15 @@
 
 <header>
   <h1>🔍 슈퍼커넥트 AI 검색</h1>
-  <button id="clear-btn" onclick="clearSession()">대화 초기화</button>
+  <div class="header-btns">
+    <button class="header-btn" id="new-session-btn" onclick="newSession()" style="display:none">새 대화 시작</button>
+    <button class="header-btn" id="clear-btn" onclick="clearSession()">대화 초기화</button>
+  </div>
 </header>
+
+<div id="session-expired-banner">
+  이 대화는 만료된 세션입니다 (7일 초과). 읽기 전용 모드입니다. 새 대화를 시작하려면 위 버튼을 클릭하세요.
+</div>
 
 <div id="chat-window">
   <div class="empty-state" id="empty-state">
@@ -214,15 +231,94 @@
 </div>
 
 <script>
-  const sessionId = 'session-' + Math.random().toString(36).slice(2, 9);
+  // ── 세션 관리 (localStorage) ──────────────────────────────────────
+  const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7일
+
+  function _generateSessionId() {
+    return 'session-' + Math.random().toString(36).slice(2, 9);
+  }
+
+  function _loadSession() {
+    try {
+      const id = localStorage.getItem('session_id');
+      const ts = localStorage.getItem('session_created_at');
+      if (id && ts) return { id, createdAt: new Date(ts) };
+    } catch (_) {}
+    return null;
+  }
+
+  function _saveSession(id) {
+    try {
+      localStorage.setItem('session_id', id);
+      localStorage.setItem('session_created_at', new Date().toISOString());
+    } catch (_) {}
+  }
+
+  function _clearSession() {
+    try {
+      localStorage.removeItem('session_id');
+      localStorage.removeItem('session_created_at');
+    } catch (_) {}
+  }
+
+  // 세션 초기화
+  let sessionId;
+  let sessionExpired = false;
+
+  const _saved = _loadSession();
+  if (_saved) {
+    const age = Date.now() - _saved.createdAt.getTime();
+    sessionId = _saved.id;
+    if (age > SESSION_TTL_MS) {
+      sessionExpired = true;
+    }
+  } else {
+    sessionId = _generateSessionId();
+    _saveSession(sessionId);
+  }
+
+  // ── DOM 참조 ─────────────────────────────────────────────────────
   const chatWindow = document.getElementById('chat-window');
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send-btn');
   const emptyState = document.getElementById('empty-state');
   const teamsFloatBtn = document.getElementById('teams-float-btn');
+  const expiredBanner = document.getElementById('session-expired-banner');
+  const newSessionBtn = document.getElementById('new-session-btn');
 
   let firstQuestion = '';        // 세션 첫 번째 질문
   let clientHistory = [];        // 프론트엔드 대화 히스토리 (서버 재시작 대비)
+
+  // 만료 세션 처리
+  if (sessionExpired) {
+    expiredBanner.style.display = 'block';
+    newSessionBtn.style.display = 'inline-block';
+    input.disabled = true;
+    sendBtn.disabled = true;
+    input.placeholder = '만료된 세션입니다. 새 대화를 시작하세요.';
+  }
+
+  // 이전 세션 이력 복원
+  async function _restoreHistory() {
+    try {
+      const res = await fetch(`/history/${sessionId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.records || data.records.length === 0) return;
+
+      emptyState.style.display = 'none';
+      data.records.forEach(rec => {
+        appendUserMessage(rec.question, true);
+        const msgDiv = appendAssistantMessage(rec.answer, rec.references, true);
+        clientHistory.push({ role: 'user', content: rec.question });
+        clientHistory.push({ role: 'assistant', content: rec.answer });
+        if (!firstQuestion) firstQuestion = rec.question;
+      });
+    } catch (_) {}
+  }
+
+  // 페이지 로드 시 이력 복원
+  _restoreHistory();
 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
@@ -278,16 +374,16 @@
     return '<span class="src-badge local">F</span>';
   }
 
-  function appendUserMessage(text) {
+  function appendUserMessage(text, noScroll = false) {
     emptyState.style.display = 'none';
     const div = document.createElement('div');
     div.className = 'msg user';
     div.innerHTML = `<div class="avatar">U</div><div class="msg-body"><div class="bubble">${escapeHtml(text)}</div></div>`;
     chatWindow.appendChild(div);
-    chatWindow.scrollTop = chatWindow.scrollHeight;
+    if (!noScroll) chatWindow.scrollTop = chatWindow.scrollHeight;
   }
 
-  function appendAssistantMessage(text, references) {
+  function appendAssistantMessage(text, references, noScroll = false) {
     const div = document.createElement('div');
     div.className = 'msg assistant';
 
@@ -318,7 +414,7 @@
     div.innerHTML = `<div class="avatar">AI</div>`;
     div.appendChild(msgBody);
     chatWindow.appendChild(div);
-    chatWindow.scrollTop = chatWindow.scrollHeight;
+    if (!noScroll) chatWindow.scrollTop = chatWindow.scrollHeight;
     return div;
   }
 
@@ -400,6 +496,28 @@
 
   async function clearSession() {
     await fetch(`/chat/${sessionId}`, { method: 'DELETE' });
+    chatWindow.innerHTML = '';
+    chatWindow.appendChild(emptyState);
+    emptyState.style.display = 'flex';
+    firstQuestion = '';
+    clientHistory = [];
+    teamsFloatBtn.classList.remove('visible');
+    // 새 세션 ID 발급
+    sessionId = _generateSessionId();
+    _saveSession(sessionId);
+  }
+
+  function newSession() {
+    _clearSession();
+    sessionId = _generateSessionId();
+    _saveSession(sessionId);
+    sessionExpired = false;
+    // UI 리셋
+    expiredBanner.style.display = 'none';
+    newSessionBtn.style.display = 'none';
+    input.disabled = false;
+    sendBtn.disabled = false;
+    input.placeholder = '질문을 입력하세요... (Shift+Enter로 줄바꿈, Enter로 전송)';
     chatWindow.innerHTML = '';
     chatWindow.appendChild(emptyState);
     emptyState.style.display = 'flex';

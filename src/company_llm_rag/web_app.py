@@ -6,17 +6,20 @@ from pydantic import BaseModel
 
 from company_llm_rag.rag_system import rag_query
 from company_llm_rag.teams_sender import send_inquiry_to_teams, is_inquiry_configured
+from company_llm_rag.history_store import init_db, save as history_save, get_session_history, SESSION_TTL_DAYS
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
 
 app = FastAPI(title="슈퍼커넥트 AI 검색")
 
-# 세션별 대화 히스토리 (session_id → messages)
+# DB 초기화 (앱 시작 시 만료 레코드 정리 포함)
+init_db()
+
+# 세션별 대화 히스토리 (session_id → messages)  — 서버 메모리 캐시
 _sessions: Dict[str, List[Dict]] = {}
 _MAX_HISTORY_TURNS = 10
 
-# RAG가 답변을 찾지 못했을 때 반환하는 문구
 _NO_ANSWER_PHRASE = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
 _TEAMS_GUIDE = "\n\n아래 'Teams에 문의하기' 버튼을 통해 동료에게 직접 질문해보세요."
 
@@ -36,7 +39,7 @@ class ChatResponse(BaseModel):
 class InquiryRequest(BaseModel):
     question: str
     session_id: str = "default"
-    conversation_history: List[Dict] = []  # 프론트엔드에서 직접 전달 (서버 재시작 대비)
+    conversation_history: List[Dict] = []
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -52,7 +55,6 @@ async def chat(req: ChatRequest):
     logger.info(f"[{req.session_id}] Query: {req.message}")
     answer, references = rag_query(req.message, conversation_history=history, return_refs=True)
 
-    # 답변을 찾지 못한 경우 Teams 문의 가이드 안내 (자동 전송 없음)
     if _NO_ANSWER_PHRASE in answer and is_inquiry_configured():
         answer = answer + _TEAMS_GUIDE
 
@@ -62,6 +64,9 @@ async def chat(req: ChatRequest):
     max_messages = _MAX_HISTORY_TURNS * 2
     if len(history) > max_messages:
         _sessions[req.session_id] = history[-max_messages:]
+
+    # 이력 저장 (SQLite)
+    history_save(req.session_id, req.message, answer, references)
 
     return ChatResponse(
         answer=answer,
@@ -73,16 +78,26 @@ async def chat(req: ChatRequest):
 
 @app.post("/inquiry")
 async def inquiry(req: InquiryRequest):
-    """사용자가 수동으로 Teams 채널에 문의를 전송합니다."""
     if not is_inquiry_configured():
         return {"success": False, "message": "Teams 문의 채널이 설정되지 않았습니다."}
 
-    # 프론트엔드 히스토리 우선 사용 (서버 재시작으로 세션이 초기화된 경우 대비)
     history = req.conversation_history or _sessions.get(req.session_id, [])
     success = send_inquiry_to_teams(req.question, history)
     return {
         "success": success,
         "message": "Teams 채널에 문의가 전송됐습니다." if success else "전송에 실패했습니다. 잠시 후 다시 시도해주세요.",
+    }
+
+
+@app.get("/history/{session_id}")
+async def get_history(session_id: str):
+    """세션의 질문 이력을 반환합니다."""
+    records = get_session_history(session_id)
+    return {
+        "session_id": session_id,
+        "session_ttl_days": SESSION_TTL_DAYS,
+        "count": len(records),
+        "records": records,
     }
 
 
