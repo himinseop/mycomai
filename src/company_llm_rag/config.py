@@ -37,9 +37,11 @@ class Settings:
     CONFLUENCE_BASE_URL: str = os.getenv("CONFLUENCE_BASE_URL", "")
     CONFLUENCE_API_TOKEN: str = os.getenv("CONFLUENCE_API_TOKEN", "")
     CONFLUENCE_EMAIL: str = os.getenv("CONFLUENCE_EMAIL", "")
+    # 환경변수명: CONFLUENCE_SPACE_KEY (콤마 구분 문자열 → 리스트로 변환)
     CONFLUENCE_SPACE_KEYS: List[str] = [
         k.strip() for k in os.getenv("CONFLUENCE_SPACE_KEY", "").split(",") if k.strip()
     ]
+    # 환경변수명: CONFLUENCE_SPACE_LABELS (콤마 구분 문자열 → 리스트로 변환)
     CONFLUENCE_SPACE_LABELS: List[str] = [
         k.strip() for k in os.getenv("CONFLUENCE_SPACE_LABELS", "").split(",") if k.strip()
     ]
