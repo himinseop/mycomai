@@ -142,7 +142,8 @@
       font-size: 14px; font-weight: bold; flex-shrink: 0;
     }
     .msg.user .avatar { background: #4f46e5; color: white; }
-    .msg.assistant .avatar { background: #1a1a2e; color: white; }
+    .msg.assistant .avatar { background: transparent; padding: 0; overflow: hidden; }
+    .msg.assistant .avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 
     .msg-body { display: flex; flex-direction: column; gap: 6px; }
 
@@ -646,7 +647,7 @@
       msgBody.appendChild(feedbackBar);
     }
 
-    div.innerHTML = `<div class="avatar">AI</div>`;
+    div.innerHTML = `<div class="avatar"><img src="/static/osajang-header.jpg" alt="오사장"></div>`;
     div.appendChild(msgBody);
     chatWindow.appendChild(div);
     chatWindow.scrollTop = chatWindow.scrollHeight;
