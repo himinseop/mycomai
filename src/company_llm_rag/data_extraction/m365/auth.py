@@ -10,6 +10,7 @@ from typing import Dict
 
 import msal
 import requests
+from requests.exceptions import Timeout, ConnectionError as RequestsConnectionError
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
@@ -75,7 +76,18 @@ def call_graph_api(endpoint: str, access_token: str, max_retries: int = 3) -> Di
         "Content-Type": "application/json",
     }
     for attempt in range(max_retries):
-        response = requests.get(endpoint, headers=headers, timeout=30)
+        try:
+            response = requests.get(endpoint, headers=headers, timeout=60)
+        except (Timeout, RequestsConnectionError) as e:
+            wait = 5 * (attempt + 1)
+            logger.warning(
+                f"네트워크 오류 ({type(e).__name__}), {wait}s 후 재시도 "
+                f"(attempt {attempt + 1}/{max_retries}): {endpoint}"
+            )
+            if attempt + 1 < max_retries:
+                time.sleep(wait)
+                continue
+            raise
 
         if response.status_code == 429:
             retry_after = max(int(response.headers.get("Retry-After", 10)), 10)

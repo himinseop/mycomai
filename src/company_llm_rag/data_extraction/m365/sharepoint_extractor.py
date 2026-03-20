@@ -184,7 +184,10 @@ def get_files_in_folder(drive_id: str, folder_path: str, access_token: str, _dep
                     logger.info(f"  - Skipping 'old' folder: {os.path.join(folder_path, item['name'])}")
                     continue
                 new_folder_path = os.path.join(folder_path, item['name'])
-                all_files_metadata.extend(get_files_in_folder(drive_id, new_folder_path, access_token, _depth + 1))
+                try:
+                    all_files_metadata.extend(get_files_in_folder(drive_id, new_folder_path, access_token, _depth + 1))
+                except Exception as e:
+                    logger.warning(f"  - 폴더 탐색 실패, 건너뜁니다: {new_folder_path} | {e}")
         
         endpoint = response_data.get('@odata.nextLink') 
 
