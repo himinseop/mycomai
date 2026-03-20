@@ -62,7 +62,12 @@ def get_issues_for_project(project_key):
         params = {
             "jql": jql,
             "maxResults": max_results,
-            "fields": "summary,description,comment,status,priority,reporter,assignee,issuetype,created,updated"
+            "fields": (
+                "summary,description,comment,status,priority,"
+                "reporter,assignee,issuetype,created,updated,"
+                "duedate,labels,issuelinks,attachment,"
+                "customfield_10015"  # start date (Jira Cloud 기본 커스텀 필드)
+            )
         }
 
         # Add nextPageToken if we have one (for subsequent pages)
@@ -140,9 +145,55 @@ def main():
                             date = (comment.get('created') or '')[:10]
                             comment_blocks.append(f"[Comment by {author} on {date}]\n{body.strip()}")
 
-                        content = description
+                        # 날짜 필드
+                        due_date    = fields.get('duedate') or ''
+                        start_date  = fields.get('customfield_10015') or ''
+
+                        # 담당자 / 보고자
+                        assignee = fields.get('assignee', {}).get('displayName') if fields.get('assignee') else ''
+                        reporter = fields.get('reporter', {}).get('displayName') if fields.get('reporter') else ''
+
+                        # 레이블
+                        labels = fields.get('labels') or []
+
+                        # 연결된 이슈
+                        link_lines = []
+                        for link in (fields.get('issuelinks') or []):
+                            link_type = link.get('type', {}).get('name', '')
+                            if 'outwardIssue' in link:
+                                li = link['outwardIssue']
+                                relation = link.get('type', {}).get('outward', link_type)
+                            elif 'inwardIssue' in link:
+                                li = link['inwardIssue']
+                                relation = link.get('type', {}).get('inward', link_type)
+                            else:
+                                continue
+                            li_key     = li.get('key', '')
+                            li_summary = li.get('fields', {}).get('summary', '')
+                            li_status  = li.get('fields', {}).get('status', {}).get('name', '')
+                            link_lines.append(f"{li_key} ({relation}): {li_summary} [{li_status}]")
+
+                        # 첨부파일 목록
+                        attachments = [
+                            a.get('filename', '') for a in (fields.get('attachment') or []) if a.get('filename')
+                        ]
+
+                        # content 조합
+                        extra_parts = []
+                        if assignee:   extra_parts.append(f"담당자: {assignee}")
+                        if reporter:   extra_parts.append(f"보고자: {reporter}")
+                        if labels:     extra_parts.append(f"레이블: {', '.join(labels)}")
+                        if start_date: extra_parts.append(f"시작일: {start_date[:10]}")
+                        if due_date:   extra_parts.append(f"기한: {due_date[:10]}")
+                        if link_lines:
+                            extra_parts.append("연결된 이슈:\n" + '\n'.join(f"  - {l}" for l in link_lines))
+                        if attachments:
+                            extra_parts.append("첨부파일:\n" + '\n'.join(f"  - {a}" for a in attachments))
+
+                        content_parts = [p for p in [description, '\n'.join(extra_parts)] if p]
                         if comment_blocks:
-                            content = description + '\n\n' + '\n\n'.join(comment_blocks)
+                            content_parts.append('\n\n'.join(comment_blocks))
+                        content = '\n\n'.join(content_parts)
 
                         extracted_data_schema = {
                             "id": f"jira-{issue.get('id')}",
@@ -154,14 +205,21 @@ def main():
                             "content_type": "issue",
                             "created_at": fields.get('created'),
                             "updated_at": fields.get('updated'),
-                            "author": fields.get('reporter', {}).get('displayName') if fields.get('reporter') else "Unknown",
+                            "author": reporter or "Unknown",
                             "metadata": {
                                 "jira_project_key": project_key,
                                 "jira_issue_key": issue.get('key'),
                                 "jira_issue_type": fields.get('issuetype', {}).get('name') if fields.get('issuetype') else "Unknown",
                                 "status": fields.get('status', {}).get('name') if fields.get('status') else "Unknown",
                                 "priority": fields.get('priority', {}).get('name') if fields.get('priority') else "None",
-                                "assignee": fields.get('assignee', {}).get('displayName') if fields.get('assignee') else "Unassigned",
+                                "assignee": assignee or "Unassigned",
+                                "reporter": reporter or "Unknown",
+                                "labels": ', '.join(labels),
+                                "start_date": start_date[:10] if start_date else '',
+                                "due_date": due_date[:10] if due_date else '',
+                                "linked_issues": ', '.join(l.split(':')[0] for l in link_lines),
+                                "attachment_count": len(attachments),
+                                "attachments": ', '.join(attachments),
                                 "comment_count": len(comment_blocks),
                             }
                         }
