@@ -21,7 +21,7 @@ from company_llm_rag.llm.openai_provider import OpenAIProvider
 logger = get_logger(__name__)
 
 # 요약용 경량 모델 사용
-_summarizer_llm = OpenAIProvider(default_model="gpt-4o-mini", default_temperature=0.3)
+_summarizer_llm = OpenAIProvider(default_model=settings.OPENAI_SUMMARIZE_MODEL, default_temperature=0.3)
 
 
 def _summarize_conversation(question: str, conversation_history: List[Dict]) -> str:
