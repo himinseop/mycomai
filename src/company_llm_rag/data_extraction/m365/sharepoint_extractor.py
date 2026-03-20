@@ -289,15 +289,8 @@ def main():
                 logger.warning("Teams 연결 SharePoint 사이트를 찾을 수 없어 수집을 건너뜁니다.")
                 target_sites = []
         else:
-            logger.info("No SHAREPOINT_SITE_NAME specified. Discovering all accessible sites...")
-            try:
-                sites = get_all_sites(access_token)
-                target_sites = [s.get('displayName') or s.get('name') for s in sites]
-                site_map = {(s.get('displayName') or s.get('name')): s['id'] for s in sites}
-                logger.info(f"Discovered {len(target_sites)} sites: {', '.join(target_sites)}")
-            except Exception as e:
-                logger.error(f"Error discovering sites: {e}", exc_info=True)
-                return
+            logger.info("SHAREPOINT_SITE_NAME과 TEAMS_GROUP_NAME이 모두 설정되지 않아 SharePoint 수집을 건너뜁니다.")
+            return
 
         for i, site_name in enumerate(target_sites):
             logger.info(f"[{i+1}/{len(target_sites)}] Processing SharePoint site: {site_name}...")

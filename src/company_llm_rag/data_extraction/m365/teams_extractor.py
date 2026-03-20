@@ -148,20 +148,12 @@ def main():
         access_token = get_access_token()
         logger.info("Successfully acquired access token.")
 
-        target_teams = [settings.TEAMS_GROUP_NAME] if settings.TEAMS_GROUP_NAME else []
+        if not settings.TEAMS_GROUP_NAME:
+            logger.info("TEAMS_GROUP_NAME이 설정되지 않아 Teams 채널 수집을 건너뜁니다.")
+            return
 
-        if not target_teams:
-            logger.info("No TEAMS_GROUP_NAME specified. Discovering all accessible teams...")
-            try:
-                teams = get_all_teams(access_token)
-                target_teams = [t['displayName'] for t in teams]
-                team_map = {t['displayName']: t['id'] for t in teams}
-                logger.info(f"Discovered {len(target_teams)} teams: {', '.join(target_teams)}")
-            except Exception as e:
-                logger.error(f"Error discovering teams: {e}", exc_info=True)
-                return
-        else:
-            team_map = {}
+        target_teams = [settings.TEAMS_GROUP_NAME]
+        team_map = {}
 
         for i, group_name in enumerate(target_teams):
             logger.info(f"[{i+1}/{len(target_teams)}] Processing Teams team: {group_name}...")
