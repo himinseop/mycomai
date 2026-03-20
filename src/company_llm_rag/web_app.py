@@ -169,11 +169,11 @@ async def clear_session(session_id: str):
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
     if not _check_admin_auth(request):
-        return HTMLResponse(
-            content="Unauthorized",
-            status_code=401,
-            headers={"WWW-Authenticate": 'Basic realm="Admin"'},
+        response = HTMLResponse(content="Unauthorized", status_code=401)
+        response.raw_headers.append(
+            (b"www-authenticate", 'Basic realm="오사장 어드민"'.encode("utf-8"))
         )
+        return response
     with open("/app/company_llm_rag/templates/admin.html", encoding="utf-8") as f:
         return f.read()
 
