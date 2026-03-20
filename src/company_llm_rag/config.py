@@ -5,7 +5,7 @@
 """
 
 import os
-from typing import Optional, List
+from typing import Optional, List, Dict
 from dotenv import load_dotenv
 
 # .env 파일 로드
@@ -77,6 +77,32 @@ class Settings:
     # 페이지네이션 설정
     JIRA_MAX_RESULTS: int = int(os.getenv("JIRA_MAX_RESULTS", "50"))
     CONFLUENCE_PAGE_LIMIT: int = int(os.getenv("CONFLUENCE_PAGE_LIMIT", "25"))
+
+    # 소스별 검색 부스트 가중치 (낮을수록 거리 불이익 — 0~1 사이)
+    # .env에서 개별 조정 가능: BOOST_JIRA=0.95
+    SOURCE_BOOST_WEIGHTS: Dict[str, float] = {
+        "jira":        float(os.getenv("BOOST_JIRA", "0.95")),
+        "confluence":  float(os.getenv("BOOST_CONFLUENCE", "0.85")),
+        "teams":       float(os.getenv("BOOST_TEAMS", "0.9")),
+        "sharepoint":  float(os.getenv("BOOST_SHAREPOINT", "0.7")),
+        "local":       float(os.getenv("BOOST_LOCAL", "0.7")),
+    }
+
+    # 소스별 검색 필터 키워드 (쿼리에 포함되면 해당 소스만 검색)
+    SOURCE_FILTER_KEYWORDS: Dict[str, List[str]] = {
+        "jira":        ["지라", "jira", "이슈에서", "이슈로"],
+        "confluence":  ["컨플루언스", "컨플에서", "컨플루", "confluence"],
+        "teams":       ["팀즈에서", "팀즈 대화", "팀즈에", "teams", "대화에서", "채팅에서", "채널에서"],
+        "sharepoint":  ["쉐어포인트", "sharepoint"],
+    }
+
+    # 파일 확장자 → 소스 매핑 (쿼리에 해당 키워드가 있으면 extensions 필터 적용)
+    EXTENSION_FILTER_KEYWORDS: Dict[str, List[str]] = {
+        ".xlsx,.xls":   ["엑셀", "excel", ".xlsx", ".xls"],
+        ".pptx,.ppt":   ["ppt", "파워포인트", "기획서", "발표자료", "프레젠테이션"],
+        ".docx,.doc":   [".docx", ".doc", "word 문서"],
+        ".pdf":         [".pdf", " pdf "],
+    }
 
     # 페르소나 설정
     AI_NAME: str = os.getenv("AI_NAME", "")

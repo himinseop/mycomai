@@ -17,21 +17,16 @@ def _source_boost(metadata: Dict) -> float:
     """
     소스 타입에 따라 distance에 곱할 부스트 가중치를 반환합니다.
     값이 낮을수록 순위가 높아집니다 (distance 기반).
+    가중치는 config.SOURCE_BOOST_WEIGHTS에서 읽습니다.
     """
     source = metadata.get("source", "")
     mime_type = metadata.get("mime_type", "")
+    weights = settings.SOURCE_BOOST_WEIGHTS
 
-    if source == "local":
-        return 0.7
-    if source == "sharepoint" and mime_type in _DOCUMENT_MIME_TYPES:
-        return 0.7
-    if source == "confluence":
-        return 0.85
-    if source == "jira":
-        return 0.95
-    if source == "teams":
-        return 0.9
-    return 1.0
+    # SharePoint: 문서 파일(PDF/PPTX/DOCX)은 sharepoint 가중치 적용
+    if source == "sharepoint" and mime_type not in _DOCUMENT_MIME_TYPES:
+        return 1.0  # 일반 파일은 부스트 없음
+    return weights.get(source, 1.0)
 
 
 def retrieve_documents(

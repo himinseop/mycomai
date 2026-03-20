@@ -183,32 +183,26 @@ def _is_listing_query(query: str) -> bool:
 
 
 def _detect_filters(query: str) -> dict:
-    """쿼리 텍스트에서 소스 및 파일 타입 필터를 감지합니다."""
+    """쿼리 텍스트에서 소스 및 파일 타입 필터를 감지합니다.
+    키워드 목록은 config.SOURCE_FILTER_KEYWORDS / EXTENSION_FILTER_KEYWORDS에서 읽습니다.
+    """
     q = query.lower()
 
-    sources = []
-    if any(k in q for k in ['지라', 'jira', '이슈에서', '이슈로']):
-        sources.append('jira')
-    if any(k in q for k in ['컨플루언스', '컨플에서', '컨플루', 'confluence']):
-        sources.append('confluence')
-    if any(k in q for k in ['팀즈에서', '팀즈 대화', '팀즈에', 'teams', '대화에서', '채팅에서', '채널에서']):
-        sources.append('teams')
-    if any(k in q for k in ['쉐어포인트', 'sharepoint']):
-        sources.append('sharepoint')
+    sources = [
+        src for src, keywords in settings.SOURCE_FILTER_KEYWORDS.items()
+        if any(k in q for k in keywords)
+    ]
 
     extensions = []
-    if any(k in q for k in ['엑셀', 'excel', '.xlsx', '.xls']):
-        extensions.extend(['.xlsx', '.xls'])
-        if 'sharepoint' not in sources:
-            sources.append('sharepoint')
-    if any(k in q for k in ['ppt', '파워포인트', '기획서', '발표자료', '프레젠테이션']):
-        extensions.extend(['.pptx', '.ppt'])
-        if 'sharepoint' not in sources:
-            sources.append('sharepoint')
-    if any(k in q for k in ['.docx', '.doc', 'word 문서']):
-        extensions.extend(['.docx', '.doc'])
-    if '.pdf' in q or ' pdf ' in q:
-        extensions.append('.pdf')
+    for ext_csv, keywords in settings.EXTENSION_FILTER_KEYWORDS.items():
+        if any(k in q for k in keywords):
+            exts = [e.strip() for e in ext_csv.split(",")]
+            extensions.extend(exts)
+            # 파일 타입 검색은 SharePoint 소스로 한정
+            if 'sharepoint' not in sources and any(
+                e in ('.xlsx', '.xls', '.pptx', '.ppt', '.docx', '.doc', '.pdf') for e in exts
+            ):
+                sources.append('sharepoint')
 
     return {'sources': sources, 'extensions': extensions}
 _NO_ANSWER_PHRASE = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."

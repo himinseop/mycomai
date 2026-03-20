@@ -7,11 +7,11 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
-import msal
 import requests
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
+from company_llm_rag.data_extraction.m365.auth import get_access_token, call_graph_api
 from company_llm_rag.data_extraction.m365.file_parser import extract_pdf_text, extract_pptx_text, extract_docx_text
 
 logger = get_logger(__name__)
@@ -20,56 +20,6 @@ _PROGRESS_EVERY = 10
 
 def _fmt_elapsed(seconds: float) -> str:
     return str(timedelta(seconds=int(seconds)))
-
-def get_msal_app() -> msal.ConfidentialClientApplication:
-    """MSAL 애플리케이션 인스턴스를 생성합니다."""
-    authority = f"https://login.microsoftonline.com/{settings.TENANT_ID}"
-    return msal.ConfidentialClientApplication(
-        settings.CLIENT_ID,
-        authority=authority,
-        client_credential=settings.CLIENT_SECRET
-    )
-
-
-def get_access_token() -> str:
-    """
-    Microsoft Graph API용 액세스 토큰을 획득합니다.
-
-    Returns:
-        액세스 토큰
-
-    Raises:
-        Exception: 토큰 획득 실패 시
-    """
-    app = get_msal_app()
-    scope = ["https://graph.microsoft.com/.default"]
-    result = app.acquire_token_for_client(scopes=scope)
-
-    if "access_token" in result and result["access_token"]:
-        return result["access_token"]
-    else:
-        logger.error(f"MSAL acquire_token_for_client result: {result}")
-        error_msg = result.get('error_description') or result.get('error') or "Access token is empty or could not be acquired."
-        raise Exception(f"Could not acquire access token: {error_msg}")
-
-def call_graph_api(endpoint: str, access_token: str) -> Dict:
-    """
-    Microsoft Graph API에 GET 요청을 보냅니다.
-
-    Args:
-        endpoint: API 엔드포인트 URL
-        access_token: 액세스 토큰
-
-    Returns:
-        API 응답 (JSON)
-    """
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json'
-    }
-    response = requests.get(endpoint, headers=headers, timeout=30)
-    response.raise_for_status()
-    return response.json()
 
 def get_all_sites(access_token: str) -> List[Dict]:
     """
