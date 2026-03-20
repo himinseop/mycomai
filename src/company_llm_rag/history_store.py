@@ -9,7 +9,7 @@ import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
@@ -28,20 +28,42 @@ def _conn() -> sqlite3.Connection:
     return con
 
 
+def _migrate_add_columns(con: sqlite3.Connection) -> None:
+    """기존 DB에 신규 컬럼을 추가합니다 (idempotent)."""
+    existing = {row[1] for row in con.execute("PRAGMA table_info(query_history)")}
+    migrations = [
+        ("response_time_ms", "INTEGER DEFAULT NULL"),
+        ("is_no_answer",     "INTEGER DEFAULT 0"),
+        ("ref_count",        "INTEGER DEFAULT 0"),
+        ("ref_sources_json", "TEXT    DEFAULT '[]'"),
+        ("feedback",         "INTEGER DEFAULT 0"),
+    ]
+    for col, definition in migrations:
+        if col not in existing:
+            con.execute(f"ALTER TABLE query_history ADD COLUMN {col} {definition}")
+            logger.info(f"[History] 컬럼 추가: {col}")
+
+
 def init_db() -> None:
     """DB 초기화 및 만료 레코드 정리."""
     with _conn() as con:
         con.execute("""
             CREATE TABLE IF NOT EXISTS query_history (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id   TEXT    NOT NULL,
-                created_at   TEXT    NOT NULL,
-                question     TEXT    NOT NULL,
-                answer       TEXT    NOT NULL,
-                references_json TEXT DEFAULT '[]',
-                teams_sent   INTEGER DEFAULT 0
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id        TEXT    NOT NULL,
+                created_at        TEXT    NOT NULL,
+                question          TEXT    NOT NULL,
+                answer            TEXT    NOT NULL,
+                references_json   TEXT    DEFAULT '[]',
+                teams_sent        INTEGER DEFAULT 0,
+                response_time_ms  INTEGER DEFAULT NULL,
+                is_no_answer      INTEGER DEFAULT 0,
+                ref_count         INTEGER DEFAULT 0,
+                ref_sources_json  TEXT    DEFAULT '[]',
+                feedback          INTEGER DEFAULT 0
             )
         """)
+        _migrate_add_columns(con)
         con.execute("CREATE INDEX IF NOT EXISTS idx_session ON query_history(session_id)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_created ON query_history(created_at)")
         con.commit()
@@ -59,24 +81,60 @@ def _purge_expired() -> None:
         con.commit()
 
 
-def save(session_id: str, question: str, answer: str,
-         references: List[Dict] = None, teams_sent: bool = False) -> None:
-    """Q&A 한 건을 저장합니다."""
+def save(
+    session_id: str,
+    question: str,
+    answer: str,
+    references: List[Dict] = None,
+    teams_sent: bool = False,
+    response_time_ms: Optional[int] = None,
+    is_no_answer: bool = False,
+) -> int:
+    """Q&A 한 건을 저장하고 record_id를 반환합니다."""
+    refs = references or []
+    sources = list(dict.fromkeys(r.get("source", "unknown") for r in refs))
+
     with _conn() as con:
-        con.execute(
+        cur = con.execute(
             """INSERT INTO query_history
-               (session_id, created_at, question, answer, references_json, teams_sent)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (session_id, created_at, question, answer, references_json, teams_sent,
+                response_time_ms, is_no_answer, ref_count, ref_sources_json, feedback)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
             (
                 session_id,
                 datetime.now(timezone.utc).isoformat(),
                 question,
                 answer,
-                json.dumps(references or [], ensure_ascii=False),
+                json.dumps(refs, ensure_ascii=False),
                 int(teams_sent),
+                response_time_ms,
+                int(is_no_answer),
+                len(refs),
+                json.dumps(sources, ensure_ascii=False),
             ),
         )
         con.commit()
+        return cur.lastrowid
+
+
+def save_feedback(record_id: int, rating: int) -> bool:
+    """
+    피드백을 저장합니다.
+
+    Args:
+        record_id: save()가 반환한 레코드 ID
+        rating: 1(👍) 또는 -1(👎)
+
+    Returns:
+        저장 성공 여부 (존재하지 않는 record_id면 False)
+    """
+    with _conn() as con:
+        cur = con.execute(
+            "UPDATE query_history SET feedback = ? WHERE id = ?",
+            (rating, record_id),
+        )
+        con.commit()
+        return cur.rowcount > 0
 
 
 def get_session_history(session_id: str) -> List[Dict]:
@@ -100,3 +158,85 @@ def get_session_history(session_id: str) -> List[Dict]:
         }
         for row in rows
     ]
+
+
+def get_stats(days: int = 14) -> Dict:
+    """어드민 대시보드용 통계를 반환합니다."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    with _conn() as con:
+        total = con.execute(
+            "SELECT COUNT(*) FROM query_history WHERE created_at >= ?", (cutoff,)
+        ).fetchone()[0]
+
+        avg_ms = con.execute(
+            "SELECT AVG(response_time_ms) FROM query_history WHERE created_at >= ? AND response_time_ms IS NOT NULL",
+            (cutoff,)
+        ).fetchone()[0]
+
+        no_answer_count = con.execute(
+            "SELECT COUNT(*) FROM query_history WHERE created_at >= ? AND is_no_answer = 1",
+            (cutoff,)
+        ).fetchone()[0]
+
+        thumbs_up = con.execute(
+            "SELECT COUNT(*) FROM query_history WHERE created_at >= ? AND feedback = 1",
+            (cutoff,)
+        ).fetchone()[0]
+
+        thumbs_down = con.execute(
+            "SELECT COUNT(*) FROM query_history WHERE created_at >= ? AND feedback = -1",
+            (cutoff,)
+        ).fetchone()[0]
+
+        source_rows = con.execute(
+            "SELECT ref_sources_json FROM query_history WHERE created_at >= ? AND ref_count > 0",
+            (cutoff,)
+        ).fetchall()
+
+        # 시간대별 분포 (UTC 기준 → JS에서 KST 변환)
+        hourly_rows = con.execute(
+            """SELECT substr(created_at, 12, 2) as hour, COUNT(*)
+               FROM query_history WHERE created_at >= ?
+               GROUP BY hour ORDER BY hour""",
+            (cutoff,)
+        ).fetchall()
+
+        # 최근 👎 질문 (최대 20건)
+        bad_rows = con.execute(
+            """SELECT id, created_at, question, answer
+               FROM query_history
+               WHERE feedback = -1
+               ORDER BY created_at DESC LIMIT 20"""
+        ).fetchall()
+
+    # 소스별 카운트 집계
+    source_counts: Dict[str, int] = {}
+    for row in source_rows:
+        for src in json.loads(row[0] or "[]"):
+            source_counts[src] = source_counts.get(src, 0) + 1
+
+    return {
+        "period_days": days,
+        "total": total,
+        "avg_response_ms": round(avg_ms or 0),
+        "no_answer_count": no_answer_count,
+        "success_rate": round((total - no_answer_count) / total * 100, 1) if total else 0,
+        "thumbs_up": thumbs_up,
+        "thumbs_down": thumbs_down,
+        "satisfaction_rate": (
+            round(thumbs_up / (thumbs_up + thumbs_down) * 100, 1)
+            if (thumbs_up + thumbs_down) else None
+        ),
+        "source_counts": source_counts,
+        "hourly": [{"hour": row[0], "count": row[1]} for row in hourly_rows],
+        "recent_thumbs_down": [
+            {
+                "id": r["id"],
+                "created_at": r["created_at"],
+                "question": r["question"],
+                "answer": r["answer"][:200],
+            }
+            for r in bad_rows
+        ],
+    }

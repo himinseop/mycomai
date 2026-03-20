@@ -116,6 +116,9 @@ class Settings:
     SYSTEM_PROMPT_FILE: str = os.getenv("SYSTEM_PROMPT_FILE", "")
     RAG_INSTRUCTIONS_FILE: str = os.getenv("RAG_INSTRUCTIONS_FILE", "")
 
+    # 어드민 대시보드 접근 비밀번호 (비워두면 /admin 비활성화)
+    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")
+
     # 로깅 설정
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 

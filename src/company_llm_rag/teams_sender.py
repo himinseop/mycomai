@@ -134,3 +134,76 @@ def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bo
 def is_inquiry_configured() -> bool:
     """Teams 문의 채널이 설정되어 있는지 확인합니다."""
     return bool(settings.TEAMS_INQUIRY_WEBHOOK_URL)
+
+
+def send_feedback_alert_to_teams(question: str, answer: str) -> bool:
+    """
+    👎 피드백 수신 시 Teams 채널에 알림을 전송합니다.
+
+    Args:
+        question: 사용자 질문
+        answer:   AI 답변
+
+    Returns:
+        전송 성공 여부
+    """
+    if not settings.TEAMS_INQUIRY_WEBHOOK_URL:
+        return False
+
+    answer_preview = answer[:300] + "…" if len(answer) > 300 else answer
+
+    payload = {
+        "type": "message",
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.2",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "text": "👎 AI 답변에 불만족 피드백이 접수됐습니다.",
+                            "weight": "Bolder",
+                            "color": "Attention",
+                            "wrap": True,
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": f"❓ 질문: {question}",
+                            "wrap": True,
+                            "spacing": "Medium",
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": f"🤖 AI 답변: {answer_preview}",
+                            "wrap": True,
+                            "isSubtle": True,
+                            "spacing": "Small",
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": "💬 더 나은 답변이 있다면 이 채널에 남겨주세요. 내용은 AI 학습에 활용됩니다.",
+                            "wrap": True,
+                            "isSubtle": True,
+                            "spacing": "Medium",
+                        },
+                    ],
+                },
+            }
+        ],
+    }
+
+    try:
+        response = requests.post(
+            settings.TEAMS_INQUIRY_WEBHOOK_URL,
+            json=payload,
+            timeout=10,
+        )
+        response.raise_for_status()
+        logger.info("Teams 👎 피드백 알림 전송 완료")
+        return True
+    except Exception as e:
+        logger.error(f"Teams 피드백 알림 전송 실패: {e}")
+        return False

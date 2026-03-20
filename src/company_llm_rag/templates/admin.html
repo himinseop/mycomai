@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>오사장 어드민</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f6fa; color: #333; }
+
+  header {
+    background: #1a1a2e;
+    color: #fff;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  header h1 { font-size: 1.2rem; font-weight: 600; }
+  header .period-select {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+  }
+  header select {
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid #555;
+    background: #2a2a4e;
+    color: #fff;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+
+  /* 지표 카드 */
+  .metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  }
+  .card .label { font-size: 0.78rem; color: #888; margin-bottom: 6px; }
+  .card .value { font-size: 2rem; font-weight: 700; color: #1a1a2e; line-height: 1; }
+  .card .sub   { font-size: 0.8rem; color: #aaa; margin-top: 4px; }
+  .card.green .value { color: #2e7d32; }
+  .card.red   .value { color: #c62828; }
+
+  /* 차트 영역 */
+  .charts { display: grid; grid-template-columns: 1fr 2fr; gap: 16px; margin-bottom: 24px; }
+  @media (max-width: 768px) { .charts { grid-template-columns: 1fr; } }
+  .chart-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  }
+  .chart-card h2 { font-size: 0.9rem; color: #555; margin-bottom: 16px; }
+  .chart-wrap { position: relative; height: 220px; }
+
+  /* 👎 목록 */
+  .bad-list-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    margin-bottom: 24px;
+  }
+  .bad-list-card h2 { font-size: 0.9rem; color: #555; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th { text-align: left; padding: 8px 12px; background: #f5f6fa; color: #666; border-bottom: 1px solid #eee; }
+  td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .q-text { font-weight: 500; }
+  .a-text { color: #666; font-size: 0.82rem; }
+  .ts-text { color: #aaa; white-space: nowrap; font-size: 0.78rem; }
+  .empty { color: #bbb; text-align: center; padding: 32px; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:1.4rem;">📊</span>
+  <h1>오사장 어드민 대시보드</h1>
+  <div class="period-select">
+    <label for="period">기간:</label>
+    <select id="period" onchange="loadStats()">
+      <option value="7">최근 7일</option>
+      <option value="14" selected>최근 14일</option>
+      <option value="30">최근 30일</option>
+    </select>
+  </div>
+</header>
+
+<main>
+  <div class="metrics">
+    <div class="card">
+      <div class="label">총 질문 수</div>
+      <div class="value" id="m-total">—</div>
+      <div class="sub" id="m-period"></div>
+    </div>
+    <div class="card green">
+      <div class="label">답변 성공률</div>
+      <div class="value" id="m-success">—</div>
+      <div class="sub">답변 찾음 비율</div>
+    </div>
+    <div class="card">
+      <div class="label">평균 응답시간</div>
+      <div class="value" id="m-avg-ms">—</div>
+      <div class="sub">ms</div>
+    </div>
+    <div class="card green">
+      <div class="label">👍 만족</div>
+      <div class="value" id="m-up">—</div>
+      <div class="sub" id="m-satis"></div>
+    </div>
+    <div class="card red">
+      <div class="label">👎 불만족</div>
+      <div class="value" id="m-down">—</div>
+      <div class="sub">피드백 받음</div>
+    </div>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h2>소스 분포</h2>
+      <div class="chart-wrap">
+        <canvas id="chart-source"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <h2>시간대별 질문 수 (KST)</h2>
+      <div class="chart-wrap">
+        <canvas id="chart-hourly"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="bad-list-card">
+    <h2>최근 👎 피드백 (최대 20건)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:140px">시간</th>
+          <th>질문 / 답변 미리보기</th>
+        </tr>
+      </thead>
+      <tbody id="bad-tbody"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+  let sourceChart = null;
+  let hourlyChart = null;
+
+  const SOURCE_COLORS = {
+    jira:       '#0052cc',
+    confluence: '#172b4d',
+    teams:      '#6264a7',
+    sharepoint: '#038387',
+    local:      '#b17e00',
+  };
+
+  function fmtTs(iso) {
+    const d = new Date(iso);
+    return d.toLocaleString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12: false });
+  }
+
+  async function loadStats() {
+    const days = document.getElementById('period').value;
+    document.getElementById('m-period').textContent = `최근 ${days}일`;
+
+    let data;
+    try {
+      const res = await fetch(`/admin/stats?days=${days}`);
+      if (!res.ok) { alert('통계 로딩 실패 (' + res.status + ')'); return; }
+      data = await res.json();
+    } catch(e) {
+      alert('네트워크 오류: ' + e.message);
+      return;
+    }
+
+    // 지표 카드
+    document.getElementById('m-total').textContent   = data.total.toLocaleString();
+    document.getElementById('m-success').textContent = data.success_rate + '%';
+    document.getElementById('m-avg-ms').textContent  = data.avg_response_ms.toLocaleString();
+    document.getElementById('m-up').textContent      = data.thumbs_up.toLocaleString();
+    document.getElementById('m-down').textContent    = data.thumbs_down.toLocaleString();
+    document.getElementById('m-satis').textContent   =
+      data.satisfaction_rate !== null ? `만족도 ${data.satisfaction_rate}%` : '피드백 없음';
+
+    // 소스 분포 차트
+    const srcLabels = Object.keys(data.source_counts);
+    const srcValues = Object.values(data.source_counts);
+    const srcColors = srcLabels.map(s => SOURCE_COLORS[s] || '#999');
+
+    if (sourceChart) sourceChart.destroy();
+    if (srcLabels.length === 0) {
+      document.getElementById('chart-source').parentElement.innerHTML = '<p class="empty">데이터 없음</p>';
+    } else {
+      sourceChart = new Chart(document.getElementById('chart-source'), {
+        type: 'doughnut',
+        data: { labels: srcLabels, datasets: [{ data: srcValues, backgroundColor: srcColors, borderWidth: 2 }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 12 } } },
+        },
+      });
+    }
+
+    // 시간대별 차트 (UTC → KST +9)
+    const hourlyMap = {};
+    for (const h of data.hourly) {
+      const kstHour = (parseInt(h.hour, 10) + 9) % 24;
+      hourlyMap[kstHour] = (hourlyMap[kstHour] || 0) + h.count;
+    }
+    const allHours = Array.from({ length: 24 }, (_, i) => i);
+    const hourlyValues = allHours.map(h => hourlyMap[h] || 0);
+
+    if (hourlyChart) hourlyChart.destroy();
+    hourlyChart = new Chart(document.getElementById('chart-hourly'), {
+      type: 'bar',
+      data: {
+        labels: allHours.map(h => `${String(h).padStart(2,'0')}시`),
+        datasets: [{
+          label: '질문 수',
+          data: hourlyValues,
+          backgroundColor: '#6264a7',
+          borderRadius: 4,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+          y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 10 } } },
+        },
+      },
+    });
+
+    // 👎 목록
+    const tbody = document.getElementById('bad-tbody');
+    tbody.innerHTML = '';
+    if (data.recent_thumbs_down.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="2" class="empty">👎 피드백 없음</td></tr>';
+    } else {
+      for (const row of data.recent_thumbs_down) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="ts-text">${fmtTs(row.created_at)}</td>
+          <td>
+            <div class="q-text">❓ ${escHtml(row.question)}</div>
+            <div class="a-text">🤖 ${escHtml(row.answer)}</div>
+          </td>`;
+        tbody.appendChild(tr);
+      }
+    }
+  }
+
+  function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  loadStats();
+</script>
+</body>
+</html>
