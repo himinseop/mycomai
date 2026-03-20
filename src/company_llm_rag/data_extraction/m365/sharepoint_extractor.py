@@ -271,24 +271,25 @@ def main():
 
         # site_map: site_name → site_id (이미 ID를 알고 있는 경우 API 재조회 생략)
         site_map: Dict[str, str] = {}
+        # seen_ids: 동일 사이트 중복 수집 방지
+        seen_ids: set = set()
+        target_sites: List[str] = []
 
+        # 규칙 1: SHAREPOINT_SITE_NAME이 명시된 경우 해당 사이트 수집
         if settings.SHAREPOINT_SITE_NAME:
-            # 명시적으로 지정된 사이트
-            target_sites = [settings.SHAREPOINT_SITE_NAME]
-        elif settings.TEAMS_GROUP_NAME:
-            # Teams 그룹명과 연결된 SharePoint 사이트 자동 탐색
-            logger.info(
-                f"SHAREPOINT_SITE_NAME 미설정 → "
-                f"Teams 그룹 '{settings.TEAMS_GROUP_NAME}'의 연결 SharePoint 사이트 자동 탐색"
-            )
-            site_id = get_site_id_for_teams_group(settings.TEAMS_GROUP_NAME, access_token)
-            if site_id:
-                target_sites = [settings.TEAMS_GROUP_NAME]
-                site_map[settings.TEAMS_GROUP_NAME] = site_id
+            target_sites.append(settings.SHAREPOINT_SITE_NAME)
+
+        # 규칙 2: TEAMS_GROUP_NAME이 설정된 경우 연결된 SharePoint 사이트도 수집
+        if settings.TEAMS_GROUP_NAME:
+            logger.info(f"Teams 그룹 '{settings.TEAMS_GROUP_NAME}'의 연결 SharePoint 사이트 탐색 중...")
+            linked_site_id = get_site_id_for_teams_group(settings.TEAMS_GROUP_NAME, access_token)
+            if linked_site_id:
+                site_map[settings.TEAMS_GROUP_NAME] = linked_site_id
+                target_sites.append(settings.TEAMS_GROUP_NAME)
             else:
-                logger.warning("Teams 연결 SharePoint 사이트를 찾을 수 없어 수집을 건너뜁니다.")
-                target_sites = []
-        else:
+                logger.warning("Teams 연결 SharePoint 사이트를 찾을 수 없어 건너뜁니다.")
+
+        if not target_sites:
             logger.info("SHAREPOINT_SITE_NAME과 TEAMS_GROUP_NAME이 모두 설정되지 않아 SharePoint 수집을 건너뜁니다.")
             return
 
@@ -296,6 +297,10 @@ def main():
             logger.info(f"[{i+1}/{len(target_sites)}] Processing SharePoint site: {site_name}...")
             try:
                 site_id = site_map.get(site_name) or get_sharepoint_site_id(site_name, access_token)
+                if site_id in seen_ids:
+                    logger.info(f"  - 이미 수집된 사이트({site_id}), 건너뜁니다.")
+                    continue
+                seen_ids.add(site_id)
                 logger.info(f"  - Site ID: {site_id}")
 
                 drive_id = get_drive_id_for_site(site_id, access_token)
