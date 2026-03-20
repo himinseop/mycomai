@@ -299,7 +299,7 @@ def load_data_to_chromadb(data_stream):
                 elapsed = time.time() - start_time
                 total_chunks_done = stats["new"] + stats["updated"] + stats["skipped"]
                 logger.info(
-                    f"[{doc_count}/{total_docs}] "
+                    f"[{doc_count}] "
                     f"청크: {total_chunks_done:,} "
                     f"(new {stats['new']:,} | updated {stats['updated']:,} | skipped {stats['skipped']:,}) "
                     f"| 경과: {_fmt_elapsed(elapsed)}"
