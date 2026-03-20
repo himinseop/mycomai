@@ -469,6 +469,23 @@
         aDiv.innerHTML = renderText(rec.answer);
         qa.appendChild(qDiv);
         qa.appendChild(aDiv);
+
+        if (rec.references && rec.references.length > 0) {
+          const refsDiv = document.createElement('div');
+          refsDiv.className = 'refs';
+          refsDiv.innerHTML = '<div class="refs-label">참고 문서</div>';
+          rec.references.forEach(ref => {
+            const item = document.createElement('div');
+            item.className = 'ref-item';
+            const badge = getSourceBadge(ref.source, ref.url);
+            const label = getRefLabel(ref);
+            const meta  = getRefMeta(ref);
+            item.innerHTML = `${badge}<a href="${escapeHtml(ref.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(ref.title || ref.url)}">${escapeHtml(label)}</a>${meta}`;
+            refsDiv.appendChild(item);
+          });
+          qa.appendChild(refsDiv);
+        }
+
         body.appendChild(qa);
       });
     } catch (_) {
