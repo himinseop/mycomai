@@ -3,6 +3,7 @@ import json
 import re
 import hashlib
 import time
+import threading
 from datetime import timedelta
 from typing import List
 
@@ -84,8 +85,9 @@ def strip_sql(text: str) -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# tiktoken 인코더 싱글톤 컨테이너 (중복 로드 방지)
+# tiktoken 인코더 싱글톤 컨테이너 (thread-safe lazy init)
 _encoder = None
+_encoder_lock = threading.Lock()
 
 def _get_encoder():
     """
@@ -97,12 +99,13 @@ def _get_encoder():
     global _encoder
     if not _TIKTOKEN_AVAILABLE:
         return None
-    if _encoder is None:
-        try:
-            _encoder = tiktoken.get_encoding(settings.TIKTOKEN_ENCODING)
-        except Exception as e:
-            logger.warning(f"Failed to load tiktoken encoding '{settings.TIKTOKEN_ENCODING}': {e}. Falling back to word-based chunking.")
-            return None
+    with _encoder_lock:
+        if _encoder is None:
+            try:
+                _encoder = tiktoken.get_encoding(settings.TIKTOKEN_ENCODING)
+            except Exception as e:
+                logger.warning(f"Failed to load tiktoken encoding '{settings.TIKTOKEN_ENCODING}': {e}. Falling back to word-based chunking.")
+                return None
     return _encoder
 
 
@@ -255,16 +258,14 @@ def load_data_to_chromadb(data_stream):
     collection = db_manager.get_collection()
     stats = {"new": 0, "updated": 0, "skipped": 0}
 
-    # 전체 라인 수 확인 (진행률 표시용)
-    lines = [l for l in data_stream if l.strip()]
-    total_docs = len(lines)
-    logger.info(f"총 {total_docs}개 문서 로드 시작.")
-
+    logger.info("문서 로드 시작 (스트리밍 처리).")
     start_time = time.time()
     doc_count = 0
     chunk_count = 0
 
-    for line in lines:
+    for line in data_stream:
+        if not line.strip():
+            continue
         try:
             document = json.loads(line)
             doc_id = document.get("id")
@@ -361,7 +362,7 @@ def load_data_to_chromadb(data_stream):
     elapsed = time.time() - start_time
     failed = stats.get("failed", 0)
     logger.info(
-        f"완료 | 문서: {doc_count:,}/{total_docs:,} | 청크: {chunk_count:,} "
+        f"완료 | 문서: {doc_count:,} | 청크: {chunk_count:,} "
         f"(new {stats['new']:,} | updated {stats['updated']:,} | skipped {stats['skipped']:,} | failed {failed:,}) "
         f"| 총 소요: {_fmt_elapsed(elapsed)}"
     )

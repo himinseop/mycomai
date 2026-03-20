@@ -254,7 +254,7 @@ def get_llm_response(
         return response.choices[0].message.content
     except Exception as e:
         logger.error(f"Error getting response from LLM: {e}", exc_info=True)
-        return f"Error getting response from LLM: {e}"
+        return "답변 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
 
 
 def rag_query(

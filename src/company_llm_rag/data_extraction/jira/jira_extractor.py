@@ -30,7 +30,7 @@ def get_all_projects():
     """사용자가 접근 가능한 모든 프로젝트를 가져옵니다."""
     url = f"{settings.JIRA_BASE_URL}/rest/api/3/project"
     headers = settings.get_auth_header("jira")
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=30)
     response.raise_for_status()
     return response.json()
 
@@ -69,7 +69,7 @@ def get_issues_for_project(project_key):
         if next_page_token:
             params["nextPageToken"] = next_page_token
 
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
 

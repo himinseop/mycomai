@@ -26,7 +26,7 @@ def get_all_spaces():
     while True:
         url = f"{settings.CONFLUENCE_BASE_URL}/rest/api/space"
         params = {"start": start_at, "limit": limit}
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
         results = data.get('results', [])
@@ -82,7 +82,7 @@ def get_space_display_name(space_key: str) -> str:
     """스페이스 키로 표시 이름을 조회합니다."""
     try:
         url = f"{settings.CONFLUENCE_BASE_URL}/rest/api/space/{space_key}"
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         return response.json().get("name", space_key)
     except Exception:
@@ -127,7 +127,7 @@ def get_confluence_pages_in_space(space_key):
                 "type": "page"
             }
 
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
 
@@ -173,7 +173,7 @@ def get_confluence_comments_for_page(page_id):
             "start": start_at,
             "limit": limit
         }
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
         comments = data.get('results', [])

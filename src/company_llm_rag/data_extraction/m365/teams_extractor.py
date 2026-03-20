@@ -68,7 +68,7 @@ def call_graph_api(endpoint: str, access_token: str, max_retries: int = 3) -> Di
         'Content-Type': 'application/json'
     }
     for attempt in range(max_retries):
-        response = requests.get(endpoint, headers=headers)
+        response = requests.get(endpoint, headers=headers, timeout=30)
 
         if response.status_code == 429:
             retry_after = max(int(response.headers.get('Retry-After', 10)), 10)

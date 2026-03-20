@@ -67,7 +67,7 @@ def call_graph_api(endpoint: str, access_token: str) -> Dict:
         'Authorization': f'Bearer {access_token}',
         'Content-Type': 'application/json'
     }
-    response = requests.get(endpoint, headers=headers)
+    response = requests.get(endpoint, headers=headers, timeout=30)
     response.raise_for_status()
     return response.json()
 
@@ -142,7 +142,7 @@ def get_drive_id_for_site(site_id: str, access_token: str) -> str:
     drive_info = call_graph_api(endpoint, access_token)
     return drive_info['id']
 
-def get_files_in_folder(drive_id: str, folder_path: str, access_token: str) -> List[Dict]:
+def get_files_in_folder(drive_id: str, folder_path: str, access_token: str, _depth: int = 0) -> List[Dict]:
     """
     폴더 내의 파일을 재귀적으로 가져옵니다.
     LOOKBACK_DAYS가 설정된 경우 날짜로 필터링합니다.
@@ -155,6 +155,11 @@ def get_files_in_folder(drive_id: str, folder_path: str, access_token: str) -> L
     Returns:
         파일 메타데이터 리스트
     """
+    _MAX_FOLDER_DEPTH = 15
+    if _depth > _MAX_FOLDER_DEPTH:
+        logger.warning(f"최대 폴더 깊이({_MAX_FOLDER_DEPTH}) 초과, 탐색 중단: {folder_path}")
+        return []
+
     all_files_metadata = []
 
     # Base URL for children
@@ -181,7 +186,7 @@ def get_files_in_folder(drive_id: str, folder_path: str, access_token: str) -> L
                     logger.info(f"  - Skipping 'old' folder: {os.path.join(folder_path, item['name'])}")
                     continue
                 new_folder_path = os.path.join(folder_path, item['name'])
-                all_files_metadata.extend(get_files_in_folder(drive_id, new_folder_path, access_token))
+                all_files_metadata.extend(get_files_in_folder(drive_id, new_folder_path, access_token, _depth + 1))
         
         endpoint = response_data.get('@odata.nextLink') 
 
@@ -199,7 +204,7 @@ def download_file_content(download_url: str, access_token: str) -> str:
         파일 콘텐츠 (텍스트)
     """
     headers = {'Authorization': f'Bearer {access_token}'}
-    response = requests.get(download_url, headers=headers)
+    response = requests.get(download_url, headers=headers, timeout=30)
     response.raise_for_status()
     return response.text
 
@@ -216,7 +221,7 @@ def download_file_bytes(download_url: str, access_token: str) -> bytes:
         파일 바이너리 데이터
     """
     headers = {'Authorization': f'Bearer {access_token}'}
-    response = requests.get(download_url, headers=headers)
+    response = requests.get(download_url, headers=headers, timeout=30)
     response.raise_for_status()
     return response.content
 
