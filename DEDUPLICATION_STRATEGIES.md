@@ -1,7 +1,6 @@
 # 🔄 중복 데이터 수집 최소화 전략
 
 **작성일**: 2026-02-23
-**마지막 현행화**: 2026-03-19
 **목적**: API 호출 최소화 및 수집 효율성 향상
 
 ---
@@ -116,10 +115,10 @@ if sync_mode == 'incremental':
 **사용법**:
 ```bash
 # 초기 전체 수집
-SYNC_MODE=full docker-compose -f docker/docker-compose.yml up data-loader
+SYNC_MODE=full docker-compose up data-loader
 
 # 이후 증분 수집
-SYNC_MODE=incremental docker-compose -f docker/docker-compose.yml up data-loader
+SYNC_MODE=incremental docker-compose up data-loader
 ```
 
 **장점**:
@@ -272,7 +271,7 @@ src/company_llm_rag/state_manager.py
 
 # 3. 크론잡 설정
 # 매일 새벽 2시 증분 수집
-0 2 * * * docker-compose -f docker/docker-compose.yml up data-loader
+0 2 * * * docker-compose up data-loader
 ```
 
 **효과**:
@@ -313,7 +312,7 @@ src/company_llm_rag/state_manager.py
 LOOKBACK_DAYS=7
 
 # 재실행
-docker-compose -f docker/docker-compose.yml up data-loader
+docker-compose up data-loader
 ```
 
 ### 옵션 B: 상태 파일 구현 (30분)
@@ -326,8 +325,6 @@ docker-compose -f docker/docker-compose.yml up data-loader
 ---
 
 ## 💰 비용 절감 효과
-
-아래 수치는 2026-02 시점 추정치이며, 현재 데이터 규모와 OpenAI 단가에 따라 달라질 수 있습니다.
 
 **현재 (전체 수집)**:
 - API 호출: 1000회
@@ -350,8 +347,8 @@ docker-compose -f docker/docker-compose.yml up data-loader
 
 ## 📝 다음 단계
 
-## 정리
+어떤 방법을 적용하시겠습니까?
 
-- 현재 코드베이스에서는 `LOOKBACK_DAYS` + `content_hash` 스킵만으로도 상당한 비용 절감 효과를 얻을 수 있습니다.
-- 추가 자동화를 원하면 상태 파일 방식이 다음 우선순위입니다.
-- 최신 실행 명령은 [`README.md`](/Users/himinseop/Dev/lab/mycomai/README.md)를 우선 참고합니다.
+1. **즉시**: `.env`에 LOOKBACK_DAYS=7 추가
+2. **단기**: 상태 파일 시스템 구현
+3. **장기**: 완전 자동화 시스템

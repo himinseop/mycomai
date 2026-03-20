@@ -1,7 +1,6 @@
 # 🔧 페이지네이션 버그 수정
 
 **작성일**: 2026-02-23
-**마지막 현행화**: 2026-03-19
 **이슈**: Jira 50개, Confluence 25개만 수집되는 문제
 
 ---
@@ -159,7 +158,7 @@ wc -l confluence_test.jsonl
 
 ### Docker 테스트
 ```bash
-docker-compose -f docker/docker-compose.yml up data-loader
+docker-compose -f docker/docker-compose.yml run --rm data-loader
 ```
 
 ### 로그 확인
@@ -197,8 +196,8 @@ grep "total so far" data/confluence_errors.log
 
 ## 🚀 다음 단계
 
-1. **즉시**: 현재 운영 DB에 수정사항이 반영되었는지 확인
-2. **이후**: 필요 시 전체 데이터 재수집 실행
+1. **즉시**: 수정사항 커밋 및 푸시
+2. **이후**: 전체 데이터 재수집 실행
    ```bash
    docker-compose -f docker/docker-compose.yml up data-loader
    ```
@@ -206,8 +205,3 @@ grep "total so far" data/confluence_errors.log
    ```bash
    wc -l data/*.jsonl
    ```
-
-## 참고
-
-- 이 문서는 버그 수정 배경과 검증 아이디어를 기록한 이력 문서입니다.
-- 현재 운영 절차와 최신 명령은 [`README.md`](/Users/himinseop/Dev/lab/mycomai/README.md)를 우선 참고합니다.
