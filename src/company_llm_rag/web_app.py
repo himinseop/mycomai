@@ -172,7 +172,7 @@ async def admin_page(request: Request):
         return HTMLResponse(
             content="Unauthorized",
             status_code=401,
-            headers={"WWW-Authenticate": 'Basic realm="오사장 어드민"'},
+            headers={"WWW-Authenticate": 'Basic realm="Admin"'},
         )
     with open("/app/company_llm_rag/templates/admin.html", encoding="utf-8") as f:
         return f.read()

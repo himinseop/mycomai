@@ -51,6 +51,19 @@ class OpenAIProvider(LLMProvider):
         try:
             response = self._client.chat.completions.create(**kwargs)
             return response.choices[0].message.content
+        except openai.BadRequestError as e:
+            # 일부 모델(gpt-5 등)은 temperature 파라미터를 지원하지 않음 → 제외 후 재시도
+            if "temperature" in str(e) and "temperature" in kwargs:
+                logger.warning(f"모델이 temperature를 지원하지 않아 기본값으로 재시도: {e}")
+                kwargs.pop("temperature")
+                try:
+                    response = self._client.chat.completions.create(**kwargs)
+                    return response.choices[0].message.content
+                except Exception as e2:
+                    logger.error(f"OpenAI API error: {e2}", exc_info=True)
+                    raise LLMError(str(e2)) from e2
+            logger.error(f"OpenAI API error: {e}", exc_info=True)
+            raise LLMError(str(e)) from e
         except Exception as e:
             logger.error(f"OpenAI API error: {e}", exc_info=True)
             raise LLMError(str(e)) from e
