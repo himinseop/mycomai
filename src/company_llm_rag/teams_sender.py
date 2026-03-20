@@ -13,14 +13,15 @@ Incoming Webhook 방식 사용 (Azure AD Application 권한 불필요)
 from typing import Dict, List
 
 import requests
-from openai import OpenAI
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
+from company_llm_rag.llm.openai_provider import OpenAIProvider
 
 logger = get_logger(__name__)
 
-_openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+# 요약용 경량 모델 사용
+_summarizer_llm = OpenAIProvider(default_model="gpt-4o-mini", default_temperature=0.3)
 
 
 def _summarize_conversation(question: str, conversation_history: List[Dict]) -> str:
@@ -34,8 +35,7 @@ def _summarize_conversation(question: str, conversation_history: List[Dict]) -> 
     )
 
     try:
-        response = _openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+        return _summarizer_llm.chat(
             messages=[
                 {
                     "role": "system",
@@ -48,9 +48,7 @@ def _summarize_conversation(question: str, conversation_history: List[Dict]) -> 
                 {"role": "user", "content": history_text},
             ],
             max_tokens=300,
-            temperature=0.3,
-        )
-        return response.choices[0].message.content.strip()
+        ).strip()
     except Exception as e:
         logger.warning(f"대화 요약 실패, 생략: {e}")
         return ""

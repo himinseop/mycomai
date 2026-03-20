@@ -3,9 +3,9 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from urllib.parse import quote
 
-import openai
-
 from company_llm_rag.config import settings
+from company_llm_rag.exceptions import LLMError
+from company_llm_rag.llm.openai_provider import default_llm
 from company_llm_rag.retrieval_module import retrieve_documents
 from company_llm_rag.logger import get_logger
 
@@ -227,11 +227,6 @@ def get_llm_response(
     Returns:
         LLM 응답 텍스트
     """
-    if model is None:
-        model = settings.OPENAI_CHAT_MODEL
-    if temperature is None:
-        temperature = settings.OPENAI_TEMPERATURE
-
     system_prompt = _load_prompt(settings.SYSTEM_PROMPT_FILE, "system_prompt.txt")
     messages = [{"role": "system", "content": system_prompt}]
     if conversation_history:
@@ -239,15 +234,9 @@ def get_llm_response(
     messages.append({"role": "user", "content": prompt})
 
     try:
-        client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        logger.error(f"Error getting response from LLM: {e}", exc_info=True)
+        return default_llm.chat(messages, model=model, temperature=temperature)
+    except LLMError as e:
+        logger.error(f"LLM 호출 실패: {e}", exc_info=True)
         return "답변 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
 
 
