@@ -77,6 +77,54 @@ def get_sharepoint_site_id(site_name: str, access_token: str) -> str:
         else:
             raise
 
+def get_site_id_for_teams_group(team_name: str, access_token: str) -> Optional[str]:
+    """
+    Teams 그룹명으로 연결된 SharePoint 사이트 ID를 반환합니다.
+
+    Microsoft 365 그룹(Teams)은 자동으로 연결된 SharePoint 사이트를 갖습니다.
+    Graph API: GET /groups/{group_id}/sites/root
+
+    Args:
+        team_name: Teams 그룹 displayName
+        access_token: 액세스 토큰
+
+    Returns:
+        SharePoint 사이트 ID, 탐색 실패 시 None
+    """
+    filter_query = (
+        f"displayName eq '{team_name}' "
+        f"and resourceProvisioningOptions/any(x:x eq 'Team')"
+    )
+    try:
+        data = call_graph_api(
+            f"https://graph.microsoft.com/v1.0/groups"
+            f"?$filter={requests.utils.quote(filter_query)}&$select=id,displayName",
+            access_token,
+        )
+        groups = data.get("value", [])
+        if not groups:
+            logger.warning(f"Teams 그룹을 찾을 수 없습니다: '{team_name}'")
+            return None
+        group_id = groups[0]["id"]
+        logger.info(f"Teams 그룹 ID 확인: {team_name} → {group_id}")
+    except Exception as e:
+        logger.warning(f"Teams 그룹 ID 조회 실패: {e}")
+        return None
+
+    try:
+        site_data = call_graph_api(
+            f"https://graph.microsoft.com/v1.0/groups/{group_id}/sites/root",
+            access_token,
+        )
+        site_id = site_data.get("id")
+        site_display = site_data.get("displayName") or site_data.get("name", "")
+        logger.info(f"Teams 연결 SharePoint 사이트 발견: {site_display} ({site_id})")
+        return site_id
+    except Exception as e:
+        logger.warning(f"Teams 그룹의 SharePoint 사이트 조회 실패: {e}")
+        return None
+
+
 def get_drive_id_for_site(site_id: str, access_token: str) -> str:
     """
     SharePoint 사이트의 기본 문서 드라이브 ID를 가져옵니다.
@@ -221,9 +269,26 @@ def main():
         access_token = get_access_token()
         logger.info("Successfully acquired access token.")
 
-        target_sites = [settings.SHAREPOINT_SITE_NAME] if settings.SHAREPOINT_SITE_NAME else []
+        # site_map: site_name → site_id (이미 ID를 알고 있는 경우 API 재조회 생략)
+        site_map: Dict[str, str] = {}
 
-        if not target_sites:
+        if settings.SHAREPOINT_SITE_NAME:
+            # 명시적으로 지정된 사이트
+            target_sites = [settings.SHAREPOINT_SITE_NAME]
+        elif settings.TEAMS_GROUP_NAME:
+            # Teams 그룹명과 연결된 SharePoint 사이트 자동 탐색
+            logger.info(
+                f"SHAREPOINT_SITE_NAME 미설정 → "
+                f"Teams 그룹 '{settings.TEAMS_GROUP_NAME}'의 연결 SharePoint 사이트 자동 탐색"
+            )
+            site_id = get_site_id_for_teams_group(settings.TEAMS_GROUP_NAME, access_token)
+            if site_id:
+                target_sites = [settings.TEAMS_GROUP_NAME]
+                site_map[settings.TEAMS_GROUP_NAME] = site_id
+            else:
+                logger.warning("Teams 연결 SharePoint 사이트를 찾을 수 없어 수집을 건너뜁니다.")
+                target_sites = []
+        else:
             logger.info("No SHAREPOINT_SITE_NAME specified. Discovering all accessible sites...")
             try:
                 sites = get_all_sites(access_token)
@@ -233,8 +298,6 @@ def main():
             except Exception as e:
                 logger.error(f"Error discovering sites: {e}", exc_info=True)
                 return
-        else:
-            site_map = {}
 
         for i, site_name in enumerate(target_sites):
             logger.info(f"[{i+1}/{len(target_sites)}] Processing SharePoint site: {site_name}...")
