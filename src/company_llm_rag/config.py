@@ -52,7 +52,9 @@ class Settings:
     CLIENT_ID: str = os.getenv("CLIENT_ID", "")
     CLIENT_SECRET: str = os.getenv("CLIENT_SECRET", "")
     SHAREPOINT_SITE_NAME: str = os.getenv("SHAREPOINT_SITE_NAME", "")
-    TEAMS_GROUP_NAME: str = os.getenv("TEAMS_GROUP_NAME", "")
+    TEAMS_GROUP_NAMES: List[str] = [
+        t.strip() for t in os.getenv("TEAMS_GROUP_NAME", "").split(",") if t.strip()
+    ]
     TEAMS_CHAT_IDS: List[str] = [
         c.strip() for c in os.getenv("TEAMS_CHAT_IDS", "").split(",") if c.strip()
     ]

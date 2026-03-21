@@ -148,11 +148,11 @@ def main():
         access_token = get_access_token()
         logger.info("Successfully acquired access token.")
 
-        if not settings.TEAMS_GROUP_NAME:
+        if not settings.TEAMS_GROUP_NAMES:
             logger.info("TEAMS_GROUP_NAME이 설정되지 않아 Teams 채널 수집을 건너뜁니다.")
             return
 
-        target_teams = [settings.TEAMS_GROUP_NAME]
+        target_teams = settings.TEAMS_GROUP_NAMES
         team_map = {}
 
         for i, group_name in enumerate(target_teams):
