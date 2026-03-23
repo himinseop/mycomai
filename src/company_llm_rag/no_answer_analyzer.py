@@ -49,6 +49,9 @@ def _source_badge(source: str) -> str:
     )
 
 
+_RRF_MAX = 2 / 61  # rank=0 벡터+키워드 동시 1위일 때 최대값 ≈ 0.03279
+
+
 def _build_docs_html(docs: list) -> str:
     if not docs:
         return '<p style="color:#888;font-size:0.85rem">검색된 문서 없음</p>'
@@ -62,19 +65,19 @@ def _build_docs_html(docs: list) -> str:
         rrf = doc.get("_rrf", 0)
         v_rank = doc.get("_vector_rank")
         k_rank = doc.get("_keyword_rank")
-        preview = (doc.get("content") or "").strip().replace("\n", " ")[:180]
-        preview_esc = preview.replace("<", "&lt;").replace(">", "&gt;")
 
         v_cell = f'<span style="color:#0052cc">#{v_rank + 1}</span>' if v_rank is not None else '<span style="color:#ccc">—</span>'
         k_cell = f'<span style="color:#038387">#{k_rank + 1}</span>' if k_rank is not None else '<span style="color:#ccc">—</span>'
 
-        bar_pct = min(int(rrf / 0.03 * 100), 100)
+        pct = min(rrf / _RRF_MAX * 100, 100)
+        bar_pct = int(pct)
+        pct_color = "#2e7d32" if pct >= 60 else "#f57c00" if pct >= 30 else "#9e9e9e"
         bar = (
-            f'<div style="display:flex;align-items:center;gap:4px">'
-            f'<div style="flex:1;height:5px;background:#eee;border-radius:3px;min-width:60px">'
-            f'<div style="width:{bar_pct}%;height:100%;background:#6264a7;border-radius:3px"></div>'
+            f'<div style="display:flex;align-items:center;gap:6px">'
+            f'<div style="width:80px;height:5px;background:#eee;border-radius:3px;flex-shrink:0">'
+            f'<div style="width:{bar_pct}%;height:100%;background:{pct_color};border-radius:3px"></div>'
             f'</div>'
-            f'<span style="font-size:0.7rem;color:#666;white-space:nowrap">{rrf:.5f}</span>'
+            f'<span style="font-size:0.78rem;font-weight:600;color:{pct_color};white-space:nowrap">{pct:.0f}%</span>'
             f'</div>'
         )
         bg = "#fffde7" if i <= 3 else ""
@@ -82,11 +85,10 @@ def _build_docs_html(docs: list) -> str:
             f'<tr style="background:{bg};border-bottom:1px solid #f0f0f0">'
             f'<td style="text-align:center;color:#999;font-size:0.78rem;padding:5px 4px">{i}</td>'
             f'<td style="padding:5px 4px">{_source_badge(source)}</td>'
-            f'<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 4px" title="{title_esc}">{title_esc}</td>'
-            f'<td style="padding:5px 8px;min-width:130px">{bar}</td>'
+            f'<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 4px;max-width:320px" title="{title_esc}">{title_esc}</td>'
+            f'<td style="padding:5px 8px;min-width:140px">{bar}</td>'
             f'<td style="text-align:center;font-size:0.78rem;padding:5px 4px">{v_cell}</td>'
             f'<td style="text-align:center;font-size:0.78rem;padding:5px 4px">{k_cell}</td>'
-            f'<td style="color:#777;font-size:0.73rem;max-width:220px;padding:5px 4px">{preview_esc}</td>'
             f'</tr>'
         )
 
@@ -94,10 +96,9 @@ def _build_docs_html(docs: list) -> str:
     header = (
         f'<thead><tr style="background:#f7f7f7;border-bottom:2px solid #eee">'
         f'<th {th}>#</th><th {th}>소스</th><th {th}>제목</th>'
-        f'<th {th}>관련도 (RRF)</th>'
+        f'<th {th}>관련도</th>'
         f'<th {th} title="벡터 검색 순위">벡터</th>'
         f'<th {th} title="키워드 검색 순위">키워드</th>'
-        f'<th {th}>내용 미리보기</th>'
         f'</tr></thead>'
     )
     return (
@@ -153,20 +154,29 @@ async def analyze_no_answer(record_id: int, question: str) -> None:
         docs_html = _build_docs_html(docs)
         q_esc = question.replace("<", "&lt;").replace(">", "&gt;")
 
+        toggle_btn = (
+            f'<button onclick="var el=document.getElementById(\'ana-docs\');'
+            f'var btn=this;'
+            f'if(el.style.display===\'none\'){{el.style.display=\'\';btn.textContent=\'▲ 검색 결과 {len(docs)}건 접기\';}}'
+            f'else{{el.style.display=\'none\';btn.textContent=\'▼ 검색 결과 {len(docs)}건 펼치기\';}}" '
+            f'style="background:none;border:1px solid #ddd;border-radius:4px;padding:4px 10px;'
+            f'font-size:0.75rem;color:#666;cursor:pointer;margin-top:14px;width:100%;text-align:left">'
+            f'▼ 검색 결과 {len(docs)}건 펼치기'
+            f'</button>'
+        )
+
         html = (
             '<div style="font-family:inherit;font-size:0.85rem">'
             '<div style="margin-bottom:14px">'
             '<div style="font-size:0.72rem;color:#999;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">질문</div>'
             f'<div style="background:#f8f8f8;border-left:3px solid #6264a7;padding:8px 12px;border-radius:0 4px 4px 0">{q_esc}</div>'
             '</div>'
-            '<div style="margin-bottom:16px">'
-            f'<div style="font-size:0.72rem;color:#999;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">검색 결과 {len(docs)}건</div>'
-            f'{docs_html}'
-            '</div>'
             '<div style="border-top:1px solid #eee;padding-top:14px">'
             '<div style="font-size:0.72rem;color:#999;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">AI 분석</div>'
             f'<div style="line-height:1.75;color:#333">{llm_html}</div>'
             '</div>'
+            f'{toggle_btn}'
+            f'<div id="ana-docs" style="display:none;margin-top:8px">{docs_html}</div>'
             '</div>'
         )
 
