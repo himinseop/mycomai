@@ -161,6 +161,12 @@
     .msg.user .bubble a { color: #c7d2fe; }
     .msg.assistant .bubble { background: white; color: #1a1a2e; border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     .typing .bubble { color: #888; font-style: italic; }
+    .stream-cursor {
+      display: inline-block; width: 2px; height: 1em;
+      background: #4f46e5; margin-left: 2px; vertical-align: text-bottom;
+      animation: blink-cursor 0.8s step-end infinite;
+    }
+    @keyframes blink-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
     /* 피드백 버튼 */
     .feedback-bar { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
@@ -611,15 +617,21 @@
     chatWindow.scrollTop = chatWindow.scrollHeight;
   }
 
-  function appendAssistantMessage(text, references, recordId) {
+  function _createAssistantBubble() {
     const div = document.createElement('div');
     div.className = 'msg assistant';
     const msgBody = document.createElement('div');
     msgBody.className = 'msg-body';
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    bubble.innerHTML = renderText(text);
     msgBody.appendChild(bubble);
+    div.innerHTML = `<div class="avatar"><img src="/static/osajang-header.jpg" alt="오사장"></div>`;
+    div.appendChild(msgBody);
+    return { div, bubble, msgBody };
+  }
+
+  function _finalizeAssistantBubble(msgBody, bubble, fullText, references, recordId) {
+    bubble.innerHTML = renderText(fullText);
 
     if (references && references.length > 0) {
       const refsDiv = document.createElement('div');
@@ -646,22 +658,23 @@
         <button class="feedback-btn" data-rating="-1" onclick="sendFeedback(this,${recordId},-1)">👎</button>`;
       msgBody.appendChild(feedbackBar);
     }
+  }
 
-    div.innerHTML = `<div class="avatar"><img src="/static/osajang-header.jpg" alt="오사장"></div>`;
-    div.appendChild(msgBody);
+  function appendAssistantMessage(text, references, recordId) {
+    const { div, bubble, msgBody } = _createAssistantBubble();
+    _finalizeAssistantBubble(msgBody, bubble, text, references, recordId);
     chatWindow.appendChild(div);
     chatWindow.scrollTop = chatWindow.scrollHeight;
     return div;
   }
 
-  // ── 메시지 전송 ──────────────────────────────────────────────────
+  // ── 메시지 전송 (SSE 스트리밍) ──────────────────────────────────
   async function sendMessage() {
     const text = input.value.trim();
     if (!text) return;
 
     if (!firstQuestion) {
       firstQuestion = text;
-      // 첫 질문 시 세션 목록에 등록
       _addToSessionList(sessionId, text, new Date().toISOString());
       sessionSaved = true;
     }
@@ -672,29 +685,56 @@
 
     appendUserMessage(text);
 
-    const loadingDiv = document.createElement('div');
-    loadingDiv.className = 'msg assistant typing';
-    loadingDiv.innerHTML = `<div class="avatar">AI</div><div class="msg-body"><div class="bubble">답변을 생성 중입니다...</div></div>`;
-    chatWindow.appendChild(loadingDiv);
+    // 빈 버블 생성 (스트리밍용)
+    const { div: msgDiv, bubble, msgBody } = _createAssistantBubble();
+    bubble.innerHTML = '<span class="stream-cursor"></span>';
+    chatWindow.appendChild(msgDiv);
     chatWindow.scrollTop = chatWindow.scrollHeight;
 
+    let fullText = '';
+    let finalRefs = [];
+
     try {
-      const res = await fetch('/chat', {
+      const res = await fetch('/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text, session_id: sessionId }),
       });
-      const data = await res.json();
-      loadingDiv.remove();
-      appendAssistantMessage(data.answer, data.references, data.record_id);
 
-      clientHistory.push({ role: 'user', content: text });
-      clientHistory.push({ role: 'assistant', content: data.answer });
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-      if (data.inquiry_available) teamsFloatBtn.classList.add('visible');
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // 아직 완성되지 않은 줄
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let ev;
+          try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+
+          if (ev.type === 'token') {
+            fullText += ev.text;
+            bubble.innerHTML = renderText(fullText) + '<span class="stream-cursor"></span>';
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+          } else if (ev.type === 'done') {
+            finalRefs = ev.references || [];
+          } else if (ev.type === 'meta') {
+            _finalizeAssistantBubble(msgBody, bubble, fullText, finalRefs, ev.record_id);
+            clientHistory.push({ role: 'user', content: text });
+            clientHistory.push({ role: 'assistant', content: fullText });
+            if (ev.inquiry_available) teamsFloatBtn.classList.add('visible');
+          } else if (ev.type === 'error') {
+            bubble.innerHTML = renderText('오류가 발생했습니다. 다시 시도해주세요.');
+          }
+        }
+      }
     } catch (_) {
-      loadingDiv.remove();
-      appendAssistantMessage('오류가 발생했습니다. 다시 시도해주세요.', []);
+      bubble.innerHTML = renderText('오류가 발생했습니다. 다시 시도해주세요.');
     }
 
     sendBtn.disabled = false;

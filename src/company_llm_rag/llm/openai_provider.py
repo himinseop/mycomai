@@ -73,6 +73,50 @@ class OpenAIProvider(LLMProvider):
             logger.error(f"OpenAI API error: {e}", exc_info=True)
             raise LLMError(str(e)) from e
 
+    def stream_chat(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ):
+        """스트리밍 LLM 응답을 텍스트 청크로 yield합니다."""
+        kwargs: Dict = {
+            "model": model or self._default_model,
+            "messages": messages,
+            "stream": True,
+        }
+        if not self._temperature_unsupported:
+            kwargs["temperature"] = temperature if temperature is not None else self._default_temperature
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+
+        def _iter_stream(kw):
+            stream = self._client.chat.completions.create(**kw)
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+
+        try:
+            yield from _iter_stream(kwargs)
+        except openai.BadRequestError as e:
+            if "temperature" in str(e) and "temperature" in kwargs:
+                logger.warning(f"모델이 temperature를 지원하지 않음 (스트리밍) — 이후 요청에서 temperature 생략: {e}")
+                self._temperature_unsupported = True
+                kwargs.pop("temperature")
+                try:
+                    yield from _iter_stream(kwargs)
+                except Exception as e2:
+                    logger.error(f"OpenAI stream error: {e2}", exc_info=True)
+                    raise LLMError(str(e2)) from e2
+            else:
+                logger.error(f"OpenAI stream error: {e}", exc_info=True)
+                raise LLMError(str(e)) from e
+        except Exception as e:
+            logger.error(f"OpenAI stream error: {e}", exc_info=True)
+            raise LLMError(str(e)) from e
+
 
 # 앱 전체에서 공유하는 기본 인스턴스
 default_llm = OpenAIProvider()

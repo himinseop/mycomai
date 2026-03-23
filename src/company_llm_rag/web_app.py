@@ -1,15 +1,16 @@
 import asyncio
 import base64
+import json
 import time
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from company_llm_rag.config import settings
-from company_llm_rag.rag_system import rag_query, _NO_ANSWER_PHRASE
+from company_llm_rag.rag_system import rag_query, rag_query_stream, _NO_ANSWER_PHRASE
 from company_llm_rag.teams_sender import (
     send_inquiry_to_teams,
     send_feedback_alert_to_teams,
@@ -126,6 +127,73 @@ async def chat(req: ChatRequest):
         inquiry_available=is_inquiry_configured(),
         references=references,
         record_id=record_id,
+    )
+
+
+@app.post("/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """SSE 스트리밍 채팅 엔드포인트. 토큰이 생성될 때마다 즉시 전송합니다."""
+    history = _sessions.setdefault(req.session_id, [])
+    loop = asyncio.get_event_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def _run():
+        try:
+            for ev in rag_query_stream(req.message, conversation_history=history):
+                loop.call_soon_threadsafe(queue.put_nowait, ev)
+        except Exception as e:
+            loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "message": str(e)})
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    async def generate():
+        loop.run_in_executor(None, _run)
+        done_event = None
+        while True:
+            ev = await queue.get()
+            if ev is None:
+                break
+            yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+            if ev.get("type") == "done":
+                done_event = ev
+
+        if done_event:
+            answer = done_event.get("answer", "")
+            references = done_event.get("references", [])
+            timing = done_event.get("timing", {})
+            is_no_answer = done_event.get("is_no_answer", False)
+
+            if is_no_answer and is_inquiry_configured():
+                answer = answer + _TEAMS_GUIDE
+
+            history.append({"role": "user", "content": req.message})
+            history.append({"role": "assistant", "content": answer})
+            max_messages = _MAX_HISTORY_TURNS * 2
+            if len(history) > max_messages:
+                _sessions[req.session_id] = history[-max_messages:]
+
+            record_id = history_save(
+                req.session_id, req.message, answer, references,
+                response_time_ms=timing.get("total_ms"),
+                is_no_answer=is_no_answer,
+                perf=timing,
+            )
+
+            meta_ev = {
+                "type": "meta",
+                "record_id": record_id,
+                "inquiry_available": is_inquiry_configured(),
+                "is_no_answer": is_no_answer,
+            }
+            yield f"data: {json.dumps(meta_ev, ensure_ascii=False)}\n\n"
+
+            if is_no_answer and get_setting("analyze_no_answer", "0") == "1":
+                asyncio.create_task(analyze_no_answer(record_id, req.message))
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
