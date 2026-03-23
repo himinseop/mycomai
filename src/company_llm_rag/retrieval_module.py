@@ -157,7 +157,8 @@ def retrieve_documents(
     n_results: int = None,
     source_filter: List[str] = None,
     url_extensions: List[str] = None,
-) -> List[Dict]:
+    return_timing: bool = False,
+):
     """
     ChromaDB에서 하이브리드 검색(벡터 + 키워드 RRF)으로 관련 문서를 검색합니다.
 
@@ -166,9 +167,10 @@ def retrieve_documents(
         n_results: 반환할 결과 개수 (기본값: settings.RETRIEVAL_TOP_K)
         source_filter: 검색할 소스 목록 (예: ['jira', 'confluence'])
         url_extensions: URL 확장자 필터 (예: ['.xlsx', '.pptx'])
+        return_timing: True이면 (docs, timing) 튜플 반환
 
     Returns:
-        검색된 문서 리스트
+        검색된 문서 리스트, 또는 return_timing=True이면 (리스트, timing dict)
     """
     if n_results is None:
         n_results = settings.RETRIEVAL_TOP_K
@@ -231,9 +233,11 @@ def retrieve_documents(
                     '_distance': 1.0,  # 벡터 점수 없으면 최대 distance
                 }
 
+        vector_ms  = int((t_vector - t0) * 1000)
+        keyword_ms = int((t_keyword - t_vector) * 1000)
         logger.info(
-            f"[검색 성능] 벡터={int((t_vector-t0)*1000)}ms | "
-            f"키워드({len(keywords)}개)={int((t_keyword-t_vector)*1000)}ms | "
+            f"[검색 성능] 벡터={vector_ms}ms | "
+            f"키워드({len(keywords)}개)={keyword_ms}ms | "
             f"벡터후보={len(vector_rank_map)} 키워드후보={len(keyword_rank_map)}"
         )
 
@@ -256,14 +260,17 @@ def retrieve_documents(
                        for ext in url_extensions)
             ]
 
-        return [
+        docs = [
             {"content": c["content"], "metadata": c["metadata"], "_distance": c["_distance"]}
             for c in scored[:n_results]
         ]
+        if return_timing:
+            return docs, {"vector_ms": vector_ms, "keyword_ms": keyword_ms}
+        return docs
 
     except Exception as e:
         logger.error(f"Error during document retrieval: {e}", exc_info=True)
-        return []
+        return ([], {"vector_ms": 0, "keyword_ms": 0}) if return_timing else []
 
 
 if __name__ == "__main__":

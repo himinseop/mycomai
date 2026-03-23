@@ -322,18 +322,19 @@ def rag_query(
     filters = _detect_filters(user_query)
     listing = _is_listing_query(user_query)
     effective_n = (n_results or settings.RETRIEVAL_TOP_K) * (3 if listing else 1)
-    retrieved_docs = retrieve_documents(
+    retrieved_docs, ret_timing = retrieve_documents(
         user_query,
         n_results=effective_n,
         source_filter=filters['sources'] or None,
         url_extensions=filters['extensions'] or None,
+        return_timing=True,
     )
     t_retrieval = time.monotonic()
     retrieval_ms = int((t_retrieval - t0) * 1000)
 
     if not retrieved_docs:
         answer = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
-        timing = {"retrieval_ms": retrieval_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm._default_model}
+        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm._default_model}
         return (answer, [], timing) if return_refs else answer
 
     prompt = build_rag_prompt(user_query, retrieved_docs)
@@ -343,10 +344,10 @@ def rag_query(
     total_ms = int((t_llm - t0) * 1000)
 
     logger.info(
-        f"[RAG 성능] 검색={retrieval_ms}ms | LLM={llm_ms}ms | "
+        f"[RAG 성능] 검색={retrieval_ms}ms (벡터={ret_timing['vector_ms']}ms / FTS={ret_timing['keyword_ms']}ms) | LLM={llm_ms}ms | "
         f"총={total_ms}ms | 문서={len(retrieved_docs)}개"
     )
-    timing = {"retrieval_ms": retrieval_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm._default_model}
+    timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm._default_model}
 
     if not return_refs:
         return llm_response
@@ -378,18 +379,19 @@ def rag_query_stream(
     filters = _detect_filters(user_query)
     listing = _is_listing_query(user_query)
     effective_n = (n_results or settings.RETRIEVAL_TOP_K) * (3 if listing else 1)
-    retrieved_docs = retrieve_documents(
+    retrieved_docs, ret_timing = retrieve_documents(
         user_query,
         n_results=effective_n,
         source_filter=filters['sources'] or None,
         url_extensions=filters['extensions'] or None,
+        return_timing=True,
     )
     t_retrieval = time.monotonic()
     retrieval_ms = int((t_retrieval - t0) * 1000)
 
     if not retrieved_docs:
         answer = _NO_ANSWER_PHRASE
-        timing = {"retrieval_ms": retrieval_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm._default_model}
+        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm._default_model}
         yield {"type": "done", "answer": answer, "references": [], "timing": timing, "is_no_answer": True}
         return
 
@@ -414,9 +416,9 @@ def rag_query_stream(
     t_llm = time.monotonic()
     llm_ms = int((t_llm - t_llm_start) * 1000)
     total_ms = int((t_llm - t0) * 1000)
-    timing = {"retrieval_ms": retrieval_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm._default_model}
+    timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm._default_model}
     logger.info(
-        f"[RAG 스트리밍 성능] 검색={retrieval_ms}ms | LLM={llm_ms}ms | "
+        f"[RAG 스트리밍 성능] 검색={retrieval_ms}ms (벡터={ret_timing['vector_ms']}ms / FTS={ret_timing['keyword_ms']}ms) | LLM={llm_ms}ms | "
         f"총={total_ms}ms | 문서={len(retrieved_docs)}개"
     )
 
