@@ -32,11 +32,13 @@ def _migrate_add_columns(con: sqlite3.Connection) -> None:
     """기존 DB에 신규 컬럼을 추가합니다 (idempotent)."""
     existing = {row[1] for row in con.execute("PRAGMA table_info(query_history)")}
     migrations = [
-        ("response_time_ms", "INTEGER DEFAULT NULL"),
-        ("is_no_answer",     "INTEGER DEFAULT 0"),
-        ("ref_count",        "INTEGER DEFAULT 0"),
-        ("ref_sources_json", "TEXT    DEFAULT '[]'"),
-        ("feedback",         "INTEGER DEFAULT 0"),
+        ("response_time_ms",   "INTEGER DEFAULT NULL"),
+        ("is_no_answer",       "INTEGER DEFAULT 0"),
+        ("ref_count",          "INTEGER DEFAULT 0"),
+        ("ref_sources_json",   "TEXT    DEFAULT '[]'"),
+        ("feedback",           "INTEGER DEFAULT 0"),
+        ("no_answer_analysis", "TEXT    DEFAULT NULL"),
+        ("analysis_status",    "TEXT    DEFAULT NULL"),
     ]
     for col, definition in migrations:
         if col not in existing:
@@ -47,6 +49,12 @@ def _migrate_add_columns(con: sqlite3.Connection) -> None:
 def init_db() -> None:
     """DB 초기화 및 만료 레코드 정리."""
     with _conn() as con:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
         con.execute("""
             CREATE TABLE IF NOT EXISTS query_history (
                 id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,12 +68,15 @@ def init_db() -> None:
                 is_no_answer      INTEGER DEFAULT 0,
                 ref_count         INTEGER DEFAULT 0,
                 ref_sources_json  TEXT    DEFAULT '[]',
-                feedback          INTEGER DEFAULT 0
+                feedback          INTEGER DEFAULT 0,
+                no_answer_analysis TEXT   DEFAULT NULL,
+                analysis_status   TEXT    DEFAULT NULL
             )
         """)
         _migrate_add_columns(con)
         con.execute("CREATE INDEX IF NOT EXISTS idx_session ON query_history(session_id)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_created ON query_history(created_at)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_no_answer ON query_history(is_no_answer)")
         con.commit()
 
     _purge_expired()
@@ -240,3 +251,150 @@ def get_stats(days: int = 14) -> Dict:
             for r in bad_rows
         ],
     }
+
+
+# ── 앱 설정 ─────────────────────────────────────────────────────────────────
+
+def get_setting(key: str, default: str = "") -> str:
+    """앱 설정값을 반환합니다."""
+    with _conn() as con:
+        row = con.execute(
+            "SELECT value FROM app_settings WHERE key = ?", (key,)
+        ).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(key: str, value: str) -> None:
+    """앱 설정값을 저장합니다."""
+    with _conn() as con:
+        con.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+        con.commit()
+
+
+# ── 이력 페이지네이션 조회 ────────────────────────────────────────────────────
+
+def get_history_page(
+    page: int = 1,
+    page_size: int = 20,
+    is_no_answer: Optional[int] = None,
+    feedback: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    q: Optional[str] = None,
+) -> Dict:
+    """필터 + 페이지네이션으로 query_history를 조회합니다."""
+    conditions = []
+    params: list = []
+
+    if is_no_answer is not None:
+        conditions.append("is_no_answer = ?")
+        params.append(is_no_answer)
+    if feedback is not None:
+        conditions.append("feedback = ?")
+        params.append(feedback)
+    if date_from:
+        conditions.append("created_at >= ?")
+        params.append(date_from)
+    if date_to:
+        # date_to는 날짜만 오므로 해당 날 끝까지 포함
+        conditions.append("created_at < ?")
+        params.append(date_to + "T23:59:59.999999")
+    if q:
+        conditions.append("question LIKE ?")
+        params.append(f"%{q}%")
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    offset = (page - 1) * page_size
+
+    with _conn() as con:
+        total = con.execute(
+            f"SELECT COUNT(*) FROM query_history {where}", params
+        ).fetchone()[0]
+
+        rows = con.execute(
+            f"""SELECT id, session_id, created_at, question, answer,
+                       ref_count, ref_sources_json, response_time_ms,
+                       is_no_answer, feedback, analysis_status
+                FROM query_history {where}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?""",
+            params + [page_size, offset],
+        ).fetchall()
+
+    items = [
+        {
+            "id": r["id"],
+            "session_id": r["session_id"],
+            "created_at": r["created_at"],
+            "question": r["question"],
+            "answer_preview": r["answer"][:80] if r["answer"] else "",
+            "ref_count": r["ref_count"],
+            "ref_sources": json.loads(r["ref_sources_json"] or "[]"),
+            "response_time_ms": r["response_time_ms"],
+            "is_no_answer": bool(r["is_no_answer"]),
+            "feedback": r["feedback"],
+            "analysis_status": r["analysis_status"],
+        }
+        for r in rows
+    ]
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": max(1, (total + page_size - 1) // page_size),
+        "items": items,
+    }
+
+
+def get_record_detail(record_id: int) -> Optional[Dict]:
+    """단건 전체 내용 (모달용)."""
+    with _conn() as con:
+        row = con.execute(
+            """SELECT id, session_id, created_at, question, answer,
+                      references_json, ref_count, ref_sources_json,
+                      response_time_ms, is_no_answer, feedback,
+                      no_answer_analysis, analysis_status
+               FROM query_history WHERE id = ?""",
+            (record_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "session_id": row["session_id"],
+        "created_at": row["created_at"],
+        "question": row["question"],
+        "answer": row["answer"],
+        "references": json.loads(row["references_json"] or "[]"),
+        "ref_count": row["ref_count"],
+        "ref_sources": json.loads(row["ref_sources_json"] or "[]"),
+        "response_time_ms": row["response_time_ms"],
+        "is_no_answer": bool(row["is_no_answer"]),
+        "feedback": row["feedback"],
+        "no_answer_analysis": row["no_answer_analysis"],
+        "analysis_status": row["analysis_status"],
+    }
+
+
+def save_analysis(record_id: int, analysis: str, status: str = "done") -> None:
+    """답변없음 조사 결과를 저장합니다."""
+    with _conn() as con:
+        con.execute(
+            "UPDATE query_history SET no_answer_analysis = ?, analysis_status = ? WHERE id = ?",
+            (analysis, status, record_id),
+        )
+        con.commit()
+
+
+def set_analysis_pending(record_id: int) -> None:
+    """조사 시작을 표시합니다."""
+    with _conn() as con:
+        con.execute(
+            "UPDATE query_history SET analysis_status = 'pending' WHERE id = ?",
+            (record_id,),
+        )
+        con.commit()
