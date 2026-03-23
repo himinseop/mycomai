@@ -167,6 +167,14 @@
       animation: blink-cursor 0.8s step-end infinite;
     }
     @keyframes blink-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+    .writing-img {
+      display: block; width: 72px; margin: 4px 0;
+      animation: writing-bounce 0.55s ease-in-out infinite alternate;
+    }
+    @keyframes writing-bounce {
+      from { transform: translateY(0) rotate(-1deg); }
+      to   { transform: translateY(-5px) rotate(1deg); }
+    }
 
     /* 피드백 버튼 */
     .feedback-bar { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
@@ -685,14 +693,15 @@
 
     appendUserMessage(text);
 
-    // 빈 버블 생성 (스트리밍용)
+    // 빈 버블 생성 (스트리밍용) — 대기 중엔 글쓰는 이미지 표시
     const { div: msgDiv, bubble, msgBody } = _createAssistantBubble();
-    bubble.innerHTML = '<span class="stream-cursor"></span>';
+    bubble.innerHTML = '<img class="writing-img" src="/static/osajang-writing.png" alt="답변 생성 중">';
     chatWindow.appendChild(msgDiv);
     chatWindow.scrollTop = chatWindow.scrollHeight;
 
     let fullText = '';
     let finalRefs = [];
+    let firstToken = true;
 
     try {
       const res = await fetch('/chat/stream', {
@@ -718,6 +727,7 @@
           try { ev = JSON.parse(line.slice(6)); } catch { continue; }
 
           if (ev.type === 'token') {
+            if (firstToken) { firstToken = false; }  // 첫 토큰 — 이미지 자동 사라짐
             fullText += ev.text;
             bubble.innerHTML = renderText(fullText) + '<span class="stream-cursor"></span>';
             chatWindow.scrollTop = chatWindow.scrollHeight;
