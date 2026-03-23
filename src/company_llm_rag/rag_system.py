@@ -206,7 +206,7 @@ def _detect_filters(query: str) -> dict:
 
     return {'sources': sources, 'extensions': extensions}
 _NO_ANSWER_PHRASE = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
-_REFERENCE_DISTANCE_THRESHOLD = 0.5  # 이 값 미만인 문서만 참고 링크로 표시
+_MAX_REFERENCES = 5  # 참고 링크 최대 표시 수 (RRF 순위 기준 상위 N개)
 
 
 def get_llm_response(
@@ -282,15 +282,14 @@ def rag_query(
     if _NO_ANSWER_PHRASE in llm_response:
         return llm_response, []
 
-    # 목록 쿼리는 임계값 완화, 일반 쿼리는 0.5
-    ref_threshold = 0.8 if listing else _REFERENCE_DISTANCE_THRESHOLD
-
-    # URL이 있는 문서만 중복 제거하여 참고 링크 구성 (Teams는 딥링크 생성)
+    # URL이 있는 문서를 RRF 순위(상위) 기준으로 최대 _MAX_REFERENCES개 포함
+    # 하이브리드 검색(키워드 매칭) 결과도 포함되도록 distance 임계값 대신 순위 기반 사용
+    max_refs = _MAX_REFERENCES * (2 if listing else 1)
     seen = set()
     references = []
     for doc in retrieved_docs:
-        if doc.get("_distance", 1.0) >= ref_threshold:
-            continue
+        if len(references) >= max_refs:
+            break
         meta = doc["metadata"]
         url = meta.get("url", "") or ""
         if not url or url == "None":
