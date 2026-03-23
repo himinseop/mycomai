@@ -833,7 +833,7 @@
             </tr>
           </tbody>
         </table>
-        <div style="font-size:.78rem;color:#aaa;margin-top:4px;padding:0 8px">검색 문서 ${p.doc_count}개</div>`;
+        <div style="font-size:.78rem;color:#aaa;margin-top:4px;padding:0 8px">검색 문서 ${p.doc_count}개${p.model ? ` &nbsp;·&nbsp; 모델: <code style="background:#f0f0f0;padding:1px 5px;border-radius:3px">${escHtml(p.model)}</code>` : ''}</div>`;
     }
     showModal(`응답시간 상세 #${recordId}`, html);
   }

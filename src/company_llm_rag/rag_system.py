@@ -333,7 +333,7 @@ def rag_query(
 
     if not retrieved_docs:
         answer = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
-        timing = {"retrieval_ms": retrieval_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0}
+        timing = {"retrieval_ms": retrieval_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm._default_model}
         return (answer, [], timing) if return_refs else answer
 
     prompt = build_rag_prompt(user_query, retrieved_docs)
@@ -346,7 +346,7 @@ def rag_query(
         f"[RAG 성능] 검색={retrieval_ms}ms | LLM={llm_ms}ms | "
         f"총={total_ms}ms | 문서={len(retrieved_docs)}개"
     )
-    timing = {"retrieval_ms": retrieval_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs)}
+    timing = {"retrieval_ms": retrieval_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm._default_model}
 
     if not return_refs:
         return llm_response
@@ -389,7 +389,7 @@ def rag_query_stream(
 
     if not retrieved_docs:
         answer = _NO_ANSWER_PHRASE
-        timing = {"retrieval_ms": retrieval_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0}
+        timing = {"retrieval_ms": retrieval_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm._default_model}
         yield {"type": "done", "answer": answer, "references": [], "timing": timing, "is_no_answer": True}
         return
 
@@ -414,7 +414,7 @@ def rag_query_stream(
     t_llm = time.monotonic()
     llm_ms = int((t_llm - t_llm_start) * 1000)
     total_ms = int((t_llm - t0) * 1000)
-    timing = {"retrieval_ms": retrieval_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs)}
+    timing = {"retrieval_ms": retrieval_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm._default_model}
     logger.info(
         f"[RAG 스트리밍 성능] 검색={retrieval_ms}ms | LLM={llm_ms}ms | "
         f"총={total_ms}ms | 문서={len(retrieved_docs)}개"
