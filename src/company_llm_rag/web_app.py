@@ -1,8 +1,9 @@
+import asyncio
 import base64
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -17,7 +18,10 @@ from company_llm_rag.teams_sender import (
 from company_llm_rag.history_store import (
     init_db, save as history_save, save_feedback,
     get_session_history, get_stats, SESSION_TTL_DAYS,
+    get_setting, set_setting,
+    get_history_page, get_record_detail,
 )
+from company_llm_rag.no_answer_analyzer import analyze_no_answer
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
@@ -98,6 +102,7 @@ async def chat(req: ChatRequest):
         answer = answer + _TEAMS_GUIDE
 
     history.append({"role": "user", "content": req.message})
+
     history.append({"role": "assistant", "content": answer})
 
     max_messages = _MAX_HISTORY_TURNS * 2
@@ -109,6 +114,10 @@ async def chat(req: ChatRequest):
         response_time_ms=response_time_ms,
         is_no_answer=is_no_answer,
     )
+
+    # 답변없음 조사: 설정 ON일 때만 백그라운드 실행
+    if is_no_answer and get_setting("analyze_no_answer", "0") == "1":
+        asyncio.create_task(analyze_no_answer(record_id, req.message))
 
     return ChatResponse(
         answer=answer,
@@ -183,3 +192,73 @@ async def admin_stats(request: Request, days: int = 14):
     if not _check_admin_auth(request):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     return get_stats(days=days)
+
+
+@app.get("/admin/history/data")
+async def admin_history_data(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    is_no_answer: Optional[int] = Query(None),
+    feedback: Optional[int] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
+):
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    return get_history_page(
+        page=page,
+        page_size=page_size,
+        is_no_answer=is_no_answer,
+        feedback=feedback,
+        date_from=date_from,
+        date_to=date_to,
+        q=q,
+    )
+
+
+@app.get("/admin/history/{record_id}/detail")
+async def admin_history_detail(request: Request, record_id: int):
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    detail = get_record_detail(record_id)
+    if not detail:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return detail
+
+
+@app.get("/admin/history/{record_id}/analysis")
+async def admin_history_analysis(request: Request, record_id: int):
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    detail = get_record_detail(record_id)
+    if not detail:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {
+        "record_id": record_id,
+        "analysis_status": detail["analysis_status"],
+        "no_answer_analysis": detail["no_answer_analysis"],
+    }
+
+
+@app.get("/admin/settings/data")
+async def admin_settings_get(request: Request):
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    return {
+        "analyze_no_answer": get_setting("analyze_no_answer", "0") == "1",
+    }
+
+
+class SettingsUpdateRequest(BaseModel):
+    analyze_no_answer: Optional[bool] = None
+
+
+@app.post("/admin/settings")
+async def admin_settings_update(request: Request, body: SettingsUpdateRequest):
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if body.analyze_no_answer is not None:
+        set_setting("analyze_no_answer", "1" if body.analyze_no_answer else "0")
+    return {"success": True}
