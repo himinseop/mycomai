@@ -15,6 +15,7 @@ except ImportError:
 
 from company_llm_rag.config import settings
 from company_llm_rag.database import db_manager
+from company_llm_rag.history_store import fts_bulk_upsert, init_db as _init_db
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
@@ -200,10 +201,14 @@ def _chunk_by_words(content: str, chunk_size: int, chunk_overlap: int) -> List[s
     return chunks
 
 
-def _upsert_with_fallback(collection, chunk: str, metadata: dict, chunk_id: str, stats: dict, is_existing: bool):
+def _upsert_with_fallback(
+    collection, chunk: str, metadata: dict, chunk_id: str,
+    stats: dict, is_existing: bool, fts_buffer: list = None,
+):
     """
     청크를 ChromaDB에 upsert합니다.
     토큰 초과 오류 발생 시 절반 크기로 분할하여 sub-chunk ID로 재시도합니다.
+    fts_buffer가 제공되면 성공한 청크를 FTS 동기화 버퍼에 추가합니다.
     """
     try:
         collection.upsert(documents=[chunk], metadatas=[metadata], ids=[chunk_id])
@@ -213,6 +218,8 @@ def _upsert_with_fallback(collection, chunk: str, metadata: dict, chunk_id: str,
         else:
             stats["new"] += 1
             logger.debug(f"Added chunk {chunk_id}.")
+        if fts_buffer is not None:
+            fts_buffer.append((chunk_id, chunk))
     except Exception as e:
         err = str(e).lower()
         # 토큰/길이 초과는 결정론적 오류 → sub-chunk로 분할
@@ -233,6 +240,8 @@ def _upsert_with_fallback(collection, chunk: str, metadata: dict, chunk_id: str,
                     collection.upsert(documents=[sub_chunk], metadatas=[sub_metadata], ids=[sub_id])
                     stats["new"] += 1
                     logger.debug(f"Added sub-chunk {sub_id}.")
+                    if fts_buffer is not None:
+                        fts_buffer.append((sub_id, sub_chunk))
                 except Exception as sub_e:
                     logger.error(f"Sub-chunk {sub_id} also failed: {sub_e}")
                     stats.setdefault("failed", 0)
@@ -248,15 +257,21 @@ def _fmt_elapsed(seconds: float) -> str:
     return str(timedelta(seconds=int(seconds)))
 
 
+_FTS_FLUSH_SIZE = 200  # 이 개수마다 FTS 버퍼를 일괄 저장
+
+
 def load_data_to_chromadb(data_stream):
     """
     JSONL 데이터를 읽고, 청크로 분할하고, 임베딩을 생성하여 ChromaDB에 로드합니다.
+    ChromaDB upsert와 동시에 SQLite FTS5 인덱스를 갱신합니다.
 
     Args:
         data_stream: JSONL 라인의 iterable
     """
+    _init_db()  # FTS5 테이블 포함 DB 초기화 보장
     collection = db_manager.get_collection()
     stats = {"new": 0, "updated": 0, "skipped": 0}
+    fts_buffer: list = []  # FTS 일괄 저장 버퍼
 
     logger.info("문서 로드 시작 (스트리밍 처리).")
     start_time = time.time()
@@ -350,7 +365,11 @@ def load_data_to_chromadb(data_stream):
                         stats["skipped"] += 1
                         continue
 
-                    _upsert_with_fallback(collection, chunk, metadata_to_store, chunk_id, stats, existing["ids"])
+                    _upsert_with_fallback(collection, chunk, metadata_to_store, chunk_id, stats, existing["ids"], fts_buffer)
+                    # FTS 버퍼가 일정 크기에 도달하면 일괄 저장
+                    if len(fts_buffer) >= _FTS_FLUSH_SIZE:
+                        fts_bulk_upsert(fts_buffer)
+                        fts_buffer.clear()
                 except Exception as e:
                     logger.error(f"Error upserting chunk {chunk_id} to ChromaDB: {e}", exc_info=True)
 
@@ -358,6 +377,11 @@ def load_data_to_chromadb(data_stream):
             logger.warning(f"Skipping invalid JSONL line: {line.strip()[:100]}... - Error: {e}")
         except Exception as e:
             logger.error(f"An unexpected error occurred while processing line: {line.strip()[:100]}... - Error: {e}", exc_info=True)
+
+    # 남은 FTS 버퍼 최종 저장
+    if fts_buffer:
+        fts_bulk_upsert(fts_buffer)
+        fts_buffer.clear()
 
     elapsed = time.time() - start_time
     failed = stats.get("failed", 0)

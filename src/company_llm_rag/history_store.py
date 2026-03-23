@@ -56,6 +56,14 @@ def init_db() -> None:
                 value TEXT NOT NULL
             )
         """)
+        # FTS5 역인덱스 — ChromaDB $contains 대체 (O(N) → O(log N))
+        con.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS doc_fts USING fts5(
+                chunk_id UNINDEXED,
+                content,
+                tokenize='unicode61 remove_diacritics 1'
+            )
+        """)
         con.execute("""
             CREATE TABLE IF NOT EXISTS query_history (
                 id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -404,3 +412,54 @@ def set_analysis_pending(record_id: int) -> None:
             (record_id,),
         )
         con.commit()
+
+
+# ── FTS5 역인덱스 ─────────────────────────────────────────────────────────────
+
+def fts_upsert(chunk_id: str, content: str) -> None:
+    """단일 청크를 FTS 인덱스에 추가/갱신합니다."""
+    with _conn() as con:
+        con.execute("DELETE FROM doc_fts WHERE chunk_id = ?", (chunk_id,))
+        con.execute("INSERT INTO doc_fts (chunk_id, content) VALUES (?, ?)", (chunk_id, content))
+        con.commit()
+
+
+def fts_bulk_upsert(docs: List[tuple]) -> None:
+    """여러 청크를 FTS 인덱스에 일괄 추가합니다. docs: [(chunk_id, content), ...]"""
+    if not docs:
+        return
+    with _conn() as con:
+        con.executemany("DELETE FROM doc_fts WHERE chunk_id = ?", [(d[0],) for d in docs])
+        con.executemany("INSERT INTO doc_fts (chunk_id, content) VALUES (?, ?)", docs)
+        con.commit()
+
+
+def fts_search(keywords: List[str], limit: int = 21) -> List[str]:
+    """
+    키워드 prefix 검색으로 매칭 chunk_id 리스트를 반환합니다.
+    FTS5 BM25 점수 순(관련도 높은 순)으로 정렬됩니다.
+    """
+    if not keywords:
+        return []
+    # 각 키워드를 quoted prefix query로 OR 결합 (FTS5 특수문자 안전 처리)
+    parts = ['"' + kw.replace('"', '') + '"*' for kw in keywords]
+    fts_query = " OR ".join(parts)
+    try:
+        with _conn() as con:
+            rows = con.execute(
+                "SELECT chunk_id FROM doc_fts WHERE doc_fts MATCH ? ORDER BY rank LIMIT ?",
+                (fts_query, limit),
+            ).fetchall()
+        return [row[0] for row in rows]
+    except Exception as e:
+        logger.debug(f"FTS 검색 실패 (query={fts_query!r}): {e}")
+        return []
+
+
+def fts_count() -> int:
+    """FTS 인덱스의 청크 수를 반환합니다."""
+    try:
+        with _conn() as con:
+            return con.execute("SELECT COUNT(*) FROM doc_fts").fetchone()[0]
+    except Exception:
+        return 0

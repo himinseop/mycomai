@@ -1,7 +1,7 @@
 import json
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Set
 
 from company_llm_rag.config import settings
@@ -46,26 +46,6 @@ def _extract_keywords(query: str) -> List[str]:
     return filtered[:_MAX_KEYWORDS]
 
 
-def _search_one_keyword(collection, kw: str, n: int, where: Dict) -> List[Dict]:
-    """단일 키워드 $contains 검색 (스레드 풀에서 호출)."""
-    try:
-        get_kwargs = dict(
-            where_document={"$contains": kw},
-            limit=n,
-            include=['documents', 'metadatas'],
-        )
-        if where:
-            get_kwargs["where"] = where
-        res = collection.get(**get_kwargs)
-        return [
-            {'_id': doc_id, 'content': res['documents'][i], 'metadata': res['metadatas'][i]}
-            for i, doc_id in enumerate(res['ids'])
-        ]
-    except Exception as e:
-        logger.debug(f"키워드 검색 실패 ({kw}): {e}")
-        return []
-
-
 def _keyword_search(
     collection,
     keywords: List[str],
@@ -73,20 +53,66 @@ def _keyword_search(
     where: Dict = None,
 ) -> List[Dict]:
     """
-    ChromaDB $contains 를 이용한 키워드 매칭 검색.
-    키워드별 검색을 스레드 풀로 병렬 실행 후 합산, 중복 제거하여 반환합니다.
+    SQLite FTS5 역인덱스를 이용한 키워드 검색 (O(log N)).
+    FTS 인덱스가 비어있으면 ChromaDB $contains로 fallback합니다.
     """
     if not keywords:
         return []
 
+    from company_llm_rag.history_store import fts_search, fts_count
+
+    fts_total = fts_count()
+    if fts_total == 0:
+        logger.warning("FTS 인덱스가 비어있음 — $contains 폴백. 데이터 재수집 후 FTS가 자동 구축됩니다.")
+        return _contains_keyword_search(collection, keywords, n, where)
+
+    # FTS5로 BM25 점수 순 chunk_id 획득
+    chunk_ids = fts_search(keywords, limit=n)
+    if not chunk_ids:
+        return []
+
+    # ChromaDB에서 해당 ID의 content + metadata 조회
+    try:
+        get_kwargs = dict(ids=chunk_ids, include=['documents', 'metadatas'])
+        if where:
+            get_kwargs['where'] = where
+        res = collection.get(**get_kwargs)
+        return [
+            {'_id': doc_id, 'content': res['documents'][i], 'metadata': res['metadatas'][i]}
+            for i, doc_id in enumerate(res['ids'])
+        ]
+    except Exception as e:
+        logger.debug(f"FTS 후 ChromaDB 조회 실패: {e}")
+        return []
+
+
+def _contains_keyword_search(
+    collection,
+    keywords: List[str],
+    n: int,
+    where: Dict = None,
+) -> List[Dict]:
+    """$contains 기반 키워드 검색 (FTS 미구축 시 fallback). 병렬 실행."""
     seen_ids: Set[str] = set()
     results: List[Dict] = []
 
+    def _search_one(kw: str) -> List[Dict]:
+        try:
+            get_kwargs = dict(where_document={"$contains": kw}, limit=n, include=['documents', 'metadatas'])
+            if where:
+                get_kwargs["where"] = where
+            res = collection.get(**get_kwargs)
+            return [
+                {'_id': doc_id, 'content': res['documents'][i], 'metadata': res['metadatas'][i]}
+                for i, doc_id in enumerate(res['ids'])
+            ]
+        except Exception as e:
+            logger.debug(f"$contains 검색 실패 ({kw}): {e}")
+            return []
+
     with ThreadPoolExecutor(max_workers=len(keywords)) as executor:
-        futures = {executor.submit(_search_one_keyword, collection, kw, n, where): kw
-                   for kw in keywords}
-        for future in as_completed(futures):
-            for item in future.result():
+        for items in executor.map(_search_one, keywords):
+            for item in items:
                 if item['_id'] not in seen_ids:
                     seen_ids.add(item['_id'])
                     results.append(item)

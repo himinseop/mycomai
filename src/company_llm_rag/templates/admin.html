@@ -110,12 +110,17 @@
   /* ── 공통 테이블 ── */
   table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
   th { text-align: left; padding: 8px 12px; background: #f5f6fa; color: #666; border-bottom: 1px solid #eee; font-weight: 600; }
-  td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
   tr:last-child td { border-bottom: none; }
-  .q-text { font-weight: 500; }
+  /* 이력 테이블: 질문 제외 나머지 셀 중앙 정렬 */
+  #history-table td:not(:nth-child(3)) { text-align: center; }
+  #history-table th:not(:nth-child(3)) { text-align: center; }
+  .q-text { font-weight: 500; text-align: left !important; }
   .a-text { color: #666; font-size: 0.82rem; }
   .ts-text { color: #aaa; white-space: nowrap; font-size: 0.78rem; }
   .empty { color: #bbb; text-align: center; padding: 32px; font-size: 0.9rem; }
+  /* '조사' 컬럼 배지 줄바꿈 방지 */
+  #history-table td:last-child .badge { white-space: nowrap; }
 
   /* ── 이력 조회 탭 ── */
   .history-card {
