@@ -747,18 +747,73 @@
     const refs = data.references || [];
     if (refs.length === 0) { showModal('참고문서', '<p class="empty">참고 문서 없음</p>'); return; }
 
-    const rows = refs.map((r, i) => {
+    const SRC_META = {
+      jira:       { label: 'J', bg: '#0052CC', name: 'Jira' },
+      confluence: { label: 'C', bg: '#0065FF', name: 'Confluence' },
+      sharepoint: { label: 'S', bg: '#038387', name: 'SharePoint' },
+      teams:      { label: 'T', bg: '#6264A7', name: 'Teams' },
+    };
+
+    function refTitle(r) {
       const src = r.source || '';
-      const badge = src === 'jira' ? '<span class="src-badge jira">J</span>'
-        : src === 'confluence' ? '<span class="src-badge confluence">C</span>'
-        : src === 'teams'      ? '<span class="src-badge teams">T</span>'
-        : src === 'sharepoint' ? '<span class="src-badge sharepoint">S</span>'
-        : '';
-      const label = r.title || r.url || '—';
-      return `<div class="ref-item">${badge}<a href="${escHtml(r.url)}" target="_blank" rel="noopener noreferrer">${escHtml(label)}</a></div>`;
+      if (src === 'jira') return r.issue_key ? `[${r.issue_key}] ${r.title}` : r.title;
+      if (src === 'confluence') {
+        const parts = [];
+        if (r.space_name) parts.push(r.space_name);
+        if (r.ancestors) r.ancestors.split(' / ').forEach(a => parts.push(a));
+        parts.push(r.title);
+        return parts.join(' / ');
+      }
+      if (src === 'sharepoint') {
+        try {
+          const segs = decodeURIComponent(r.url).split('/');
+          return segs[segs.length - 1].split('?')[0] || r.title;
+        } catch { return r.title; }
+      }
+      if (src === 'teams') {
+        const prefix = r.team_name && r.channel_name ? `[${r.team_name}/${r.channel_name}] `
+          : r.chat_topic ? `[${r.chat_topic}] ` : '';
+        return prefix + (r.author ? `${r.author}: ` : '') + (r.snippet || '').replace(/\s+/g, ' ').slice(0, 60);
+      }
+      return r.title || r.url;
+    }
+
+    function refSubInfo(r) {
+      const parts = [];
+      if (r.author) parts.push(`<span>✍ ${escHtml(r.author)}</span>`);
+      if (r.created_at) {
+        try {
+          const d = new Date(r.created_at);
+          parts.push(`<span>📅 ${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()}</span>`);
+        } catch {}
+      }
+      try {
+        const host = new URL(r.url).hostname.replace('www.', '');
+        parts.push(`<span style="color:#bbb">${escHtml(host)}</span>`);
+      } catch {}
+      return parts.join('<span style="color:#ddd;margin:0 4px">·</span>');
+    }
+
+    const cards = refs.map((r, i) => {
+      const src  = r.source || '';
+      const meta = SRC_META[src] || { label: '?', bg: '#888', name: src };
+      const title = refTitle(r);
+      const sub   = refSubInfo(r);
+      return `
+        <a href="${escHtml(r.url)}" target="_blank" rel="noopener noreferrer" style="display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1px solid #eee;border-radius:8px;text-decoration:none;color:inherit;transition:background .15s;margin-bottom:8px" onmouseover="this.style.background='#f8f8ff'" onmouseout="this.style.background=''">
+          <div style="flex-shrink:0;margin-top:2px">
+            <span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:6px;background:${meta.bg};color:#fff;font-size:11px;font-weight:700">${meta.label}</span>
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:.88rem;font-weight:600;color:#1a1a2e;line-height:1.4;word-break:break-word">${escHtml(title)}</div>
+            ${sub ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;font-size:.76rem;color:#888">${sub}</div>` : ''}
+          </div>
+          <div style="flex-shrink:0;color:#bbb;font-size:13px;margin-top:3px">↗</div>
+        </a>`;
     }).join('');
 
-    showModal(`참고문서 (${refs.length}건)`, `<div class="refs" style="padding:8px 0">${rows}</div>`);
+    showModal(`참고문서 (${refs.length}건)`,
+      `<div style="padding:4px 0">${cards}</div>`);
   }
 
   // ms → "234ms" 또는 "1.2s" 포맷
