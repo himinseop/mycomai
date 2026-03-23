@@ -87,8 +87,9 @@ def _build_teams_url(meta: dict) -> str:
             f"?tenantId={tenant_id}&groupId={team_id}"
             f"&parentMessageId={source_id}&teamName={team_name}&channelName={channel_name}"
         )
-    if chat_id and source_id:
-        return f"https://teams.microsoft.com/l/message/{chat_id}/{source_id}?tenantId={tenant_id}"
+    if chat_id:
+        # 대화방(채팅) 딥링크 — /l/chat/ 형식 사용 (팀 채널과 다름)
+        return f"https://teams.microsoft.com/l/chat/{chat_id}/0?tenantId={tenant_id}"
     return ""
 
 
