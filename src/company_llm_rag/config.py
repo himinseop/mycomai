@@ -91,6 +91,14 @@ class Settings:
         "local":       float(os.getenv("BOOST_LOCAL", "0.7")),
     }
 
+    # Teams Knowledge Hub 우선순위 부스트
+    # TEAMS_KNOWLEDGE_HUB_TEAMS: 쉼표 구분 팀명 (teams_team_name 메타데이터 값, 비워두면 비활성화)
+    # BOOST_KNOWLEDGE_HUB_RRF: RRF 점수에 곱할 가중치 (클수록 순위 상승, 기본 3.0)
+    TEAMS_KNOWLEDGE_HUB_TEAMS: List[str] = [
+        t.strip() for t in os.getenv("TEAMS_KNOWLEDGE_HUB_TEAMS", "").split(",") if t.strip()
+    ]
+    BOOST_KNOWLEDGE_HUB_RRF: float = float(os.getenv("BOOST_KNOWLEDGE_HUB_RRF", "3.0"))
+
     # 소스별 검색 필터 키워드 (쿼리에 포함되면 해당 소스만 검색)
     SOURCE_FILTER_KEYWORDS: Dict[str, List[str]] = {
         "jira":        ["지라", "jira", "이슈에서", "이슈로"],

@@ -242,12 +242,20 @@ def retrieve_documents(
         )
 
         # ── 3. RRF 융합 ───────────────────────────────────────────
+        hub_teams = set(settings.TEAMS_KNOWLEDGE_HUB_TEAMS)
+        hub_rrf_boost = settings.BOOST_KNOWLEDGE_HUB_RRF
+
         all_ids = set(vector_rank_map) | set(keyword_rank_map)
         scored: List[Dict] = []
         for doc_id in all_ids:
             v_score = _rrf_score(vector_rank_map[doc_id]) if doc_id in vector_rank_map else 0.0
             k_score = _rrf_score(keyword_rank_map[doc_id]) if doc_id in keyword_rank_map else 0.0
             rrf = v_score + k_score
+            # Knowledge Hub 팀 문서 우선순위 부스트
+            if hub_teams:
+                team = doc_map[doc_id].get('metadata', {}).get('teams_team_name', '')
+                if team in hub_teams:
+                    rrf *= hub_rrf_boost
             scored.append({**doc_map[doc_id], '_rrf': rrf})
 
         scored.sort(key=lambda x: x['_rrf'], reverse=True)
