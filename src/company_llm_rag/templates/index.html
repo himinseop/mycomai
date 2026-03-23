@@ -167,10 +167,6 @@
       animation: blink-cursor 0.8s step-end infinite;
     }
     @keyframes blink-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
-    @keyframes writing-bounce {
-      from { transform: translateY(0) rotate(-1deg); }
-      to   { transform: translateY(-5px) rotate(1deg); }
-    }
 
     /* 피드백 버튼 */
     .feedback-bar { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
@@ -220,7 +216,7 @@
     /* 글쓰는 오사장 — fixed floating, DOM 영향 없음 */
     #writing-float {
       position: fixed;
-      width: 22px;
+      width: 96px;
       pointer-events: none;
       z-index: 999;
       display: none;
@@ -231,7 +227,6 @@
     #writing-float img {
       width: 100%;
       display: block;
-      animation: writing-bounce 0.55s ease-in-out infinite alternate;
     }
     #input {
       flex: 1; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px;
