@@ -209,27 +209,23 @@
 
     /* 입력창 */
     #input-area {
-      position: relative;
       padding: 16px 24px;
       background: white;
       border-top: 1px solid #e5e5e5;
       display: flex;
       gap: 12px;
       flex-shrink: 0;
-      overflow: visible;
     }
 
-    /* 글쓰는 오사장 — 입력창 위에 float */
+    /* 글쓰는 오사장 — fixed floating, DOM 영향 없음 */
     #writing-float {
-      position: absolute;
-      bottom: 100%;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 84px;
+      position: fixed;
+      width: 22px;
       pointer-events: none;
-      z-index: 10;
+      z-index: 999;
       display: none;
       opacity: 1;
+      transform: translateY(-100%);
       transition: opacity 0.5s ease;
     }
     #writing-float img {
@@ -384,7 +380,6 @@
   </div>
 
   <div id="input-area">
-    <div id="writing-float"><img src="/static/osajang-writing.png" alt=""></div>
     <textarea id="input" placeholder="질문을 입력하세요... (Shift+Enter로 줄바꿈, Enter로 전송)" rows="1"></textarea>
     <button id="send-btn" onclick="sendMessage()">전송</button>
   </div>
@@ -698,17 +693,22 @@
   const writingFloat = document.getElementById('writing-float');
   let _writingFadeTimer = null;
 
-  function showWriting() {
+  function showWriting(bubbleEl) {
     clearTimeout(_writingFadeTimer);
-    writingFloat.style.opacity = '1';
-    writingFloat.style.display = 'block';
+    requestAnimationFrame(() => {
+      const r = bubbleEl.getBoundingClientRect();
+      writingFloat.style.left = r.left + 'px';
+      writingFloat.style.top  = r.top + 'px';   // translateY(-100%)로 바로 위에 붙음
+      writingFloat.style.opacity = '1';
+      writingFloat.style.display = 'block';
+    });
   }
 
   function hideWriting() {
     writingFloat.style.opacity = '0';
     _writingFadeTimer = setTimeout(() => {
       writingFloat.style.display = 'none';
-    }, 520); // transition 0.5s 완료 후 숨김
+    }, 520);
   }
 
   // ── 메시지 전송 (SSE 스트리밍) ──────────────────────────────────
@@ -733,7 +733,7 @@
     bubble.innerHTML = '<span class="stream-cursor"></span>';
     chatWindow.appendChild(msgDiv);
     chatWindow.scrollTop = chatWindow.scrollHeight;
-    showWriting();
+    showWriting(bubble);
 
     let fullText = '';
     let finalRefs = [];
@@ -859,5 +859,8 @@
     }
   }
 </script>
+
+<!-- 글쓰는 오사장 floating 이미지 (position:fixed, DOM 영향 없음) -->
+<div id="writing-float"><img src="/static/osajang-writing.png" alt=""></div>
 </body>
 </html>
