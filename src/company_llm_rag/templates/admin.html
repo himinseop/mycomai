@@ -12,20 +12,52 @@
   header {
     background: #1a1a2e;
     color: #fff;
-    padding: 16px 24px;
+    padding: 0 24px;
     display: flex;
-    align-items: center;
+    align-items: stretch;
     gap: 12px;
   }
-  header h1 { font-size: 1.2rem; font-weight: 600; }
-  header .period-select {
+  .header-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 0;
+    font-size: 1.2rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* 탭 네비게이션 */
+  .tabs {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    margin-left: 16px;
+    flex: 1;
+  }
+  .tab-btn {
+    padding: 10px 20px;
+    background: transparent;
+    border: none;
+    color: #aaa;
+    font-size: 0.9rem;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    transition: color .15s, border-color .15s;
+    white-space: nowrap;
+  }
+  .tab-btn:hover { color: #ddd; }
+  .tab-btn.active { color: #fff; border-bottom-color: #6264a7; }
+
+  .header-right {
     margin-left: auto;
     display: flex;
     align-items: center;
     gap: 8px;
     font-size: 0.85rem;
+    padding: 16px 0;
   }
-  header select {
+  .header-right select {
     padding: 4px 8px;
     border-radius: 6px;
     border: 1px solid #555;
@@ -37,7 +69,11 @@
 
   main { padding: 24px; max-width: 1200px; margin: 0 auto; }
 
-  /* 지표 카드 */
+  /* 탭 패널 */
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── 대시보드 탭 ── */
   .metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
   .card {
     background: #fff;
@@ -51,7 +87,6 @@
   .card.green .value { color: #2e7d32; }
   .card.red   .value { color: #c62828; }
 
-  /* 차트 영역 */
   .charts { display: grid; grid-template-columns: 1fr 2fr; gap: 16px; margin-bottom: 24px; }
   @media (max-width: 768px) { .charts { grid-template-columns: 1fr; } }
   .chart-card {
@@ -63,7 +98,6 @@
   .chart-card h2 { font-size: 0.9rem; color: #555; margin-bottom: 16px; }
   .chart-wrap { position: relative; height: 220px; }
 
-  /* 👎 목록 */
   .bad-list-card {
     background: #fff;
     border-radius: 12px;
@@ -72,22 +106,195 @@
     margin-bottom: 24px;
   }
   .bad-list-card h2 { font-size: 0.9rem; color: #555; margin-bottom: 16px; }
+
+  /* ── 공통 테이블 ── */
   table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th { text-align: left; padding: 8px 12px; background: #f5f6fa; color: #666; border-bottom: 1px solid #eee; }
+  th { text-align: left; padding: 8px 12px; background: #f5f6fa; color: #666; border-bottom: 1px solid #eee; font-weight: 600; }
   td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
   tr:last-child td { border-bottom: none; }
   .q-text { font-weight: 500; }
   .a-text { color: #666; font-size: 0.82rem; }
   .ts-text { color: #aaa; white-space: nowrap; font-size: 0.78rem; }
   .empty { color: #bbb; text-align: center; padding: 32px; font-size: 0.9rem; }
+
+  /* ── 이력 조회 탭 ── */
+  .history-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    margin-bottom: 16px;
+  }
+  .filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .filter-bar input, .filter-bar select {
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    background: #fff;
+  }
+  .filter-bar input[type="text"] { flex: 1; min-width: 160px; }
+  .filter-bar input[type="date"] { width: 140px; }
+  .btn {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .btn-primary { background: #6264a7; color: #fff; }
+  .btn-primary:hover { background: #4f51a0; }
+  .btn-secondary { background: #eee; color: #555; }
+  .btn-secondary:hover { background: #ddd; }
+
+  tr.no-answer-row { background: #fff5f5; }
+  tr.no-answer-row:hover { background: #ffe8e8; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: rgba(98,100,167,.05); }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .badge-no-answer { background: #ffebee; color: #c62828; }
+  .badge-ok        { background: #e8f5e9; color: #2e7d32; }
+  .badge-up        { background: #e3f2fd; color: #1565c0; }
+  .badge-down      { background: #fce4ec; color: #c62828; }
+  .badge-pending   { background: #fff8e1; color: #f57f17; }
+  .badge-done      { background: #e8f5e9; color: #2e7d32; cursor: pointer; text-decoration: underline; }
+  .badge-error     { background: #fce4ec; color: #b71c1c; }
+
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 16px;
+    font-size: 0.85rem;
+  }
+  .page-info { color: #666; }
+
+  /* ── 설정 탭 ── */
+  .settings-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    max-width: 560px;
+  }
+  .settings-card h2 { font-size: 0.95rem; color: #555; margin-bottom: 20px; font-weight: 600; }
+  .setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-label { font-size: 0.9rem; font-weight: 500; margin-bottom: 4px; }
+  .setting-desc  { font-size: 0.8rem; color: #888; }
+
+  /* 토글 스위치 */
+  .toggle { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; inset: 0;
+    background: #ccc;
+    border-radius: 24px;
+    cursor: pointer;
+    transition: background .2s;
+  }
+  .toggle-slider:before {
+    content: '';
+    position: absolute;
+    width: 18px; height: 18px;
+    left: 3px; top: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform .2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,.2);
+  }
+  .toggle input:checked + .toggle-slider { background: #6264a7; }
+  .toggle input:checked + .toggle-slider:before { transform: translateX(20px); }
+
+  /* ── 모달 ── */
+  .modal-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.45);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: #fff;
+    border-radius: 14px;
+    padding: 28px;
+    max-width: 680px;
+    width: 92%;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0,0,0,.2);
+  }
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 16px;
+  }
+  .modal-header h3 { font-size: 1rem; color: #1a1a2e; }
+  .modal-close {
+    background: none; border: none; font-size: 1.4rem; cursor: pointer; color: #999; line-height: 1;
+    padding: 0 4px;
+  }
+  .modal-section { margin-bottom: 14px; }
+  .modal-section label { font-size: 0.78rem; color: #888; display: block; margin-bottom: 4px; }
+  .modal-section .content-box {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 0.87rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .modal-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.8rem; color: #888; margin-bottom: 14px; }
+  .analysis-box {
+    background: #f0f4ff;
+    border-left: 3px solid #6264a7;
+    border-radius: 0 8px 8px 0;
+    padding: 12px 14px;
+    font-size: 0.87rem;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 </style>
 </head>
 <body>
 
 <header>
-  <span style="font-size:1.4rem;">📊</span>
-  <h1>오사장 어드민 대시보드</h1>
-  <div class="period-select">
+  <div class="header-title">
+    <span style="font-size:1.4rem;">📊</span>
+    오사장 어드민
+  </div>
+  <nav class="tabs">
+    <button class="tab-btn active" onclick="switchTab('dashboard', this)">대시보드</button>
+    <button class="tab-btn" onclick="switchTab('history', this)">이력 조회</button>
+    <button class="tab-btn" onclick="switchTab('settings', this)">설정</button>
+  </nav>
+  <div class="header-right" id="period-wrap">
     <label for="period">기간:</label>
     <select id="period" onchange="loadStats()">
       <option value="7">최근 7일</option>
@@ -98,66 +305,156 @@
 </header>
 
 <main>
-  <div class="metrics">
-    <div class="card">
-      <div class="label">총 질문 수</div>
-      <div class="value" id="m-total">—</div>
-      <div class="sub" id="m-period"></div>
+
+  <!-- ── 대시보드 탭 ── -->
+  <div class="tab-panel active" id="tab-dashboard">
+    <div class="metrics">
+      <div class="card">
+        <div class="label">총 질문 수</div>
+        <div class="value" id="m-total">—</div>
+        <div class="sub" id="m-period"></div>
+      </div>
+      <div class="card green">
+        <div class="label">답변 성공률</div>
+        <div class="value" id="m-success">—</div>
+        <div class="sub">답변 찾음 비율</div>
+      </div>
+      <div class="card">
+        <div class="label">평균 응답시간</div>
+        <div class="value" id="m-avg-ms">—</div>
+        <div class="sub">ms</div>
+      </div>
+      <div class="card green">
+        <div class="label">👍 만족</div>
+        <div class="value" id="m-up">—</div>
+        <div class="sub" id="m-satis"></div>
+      </div>
+      <div class="card red">
+        <div class="label">👎 불만족</div>
+        <div class="value" id="m-down">—</div>
+        <div class="sub">피드백 받음</div>
+      </div>
     </div>
-    <div class="card green">
-      <div class="label">답변 성공률</div>
-      <div class="value" id="m-success">—</div>
-      <div class="sub">답변 찾음 비율</div>
+
+    <div class="charts">
+      <div class="chart-card">
+        <h2>소스 분포</h2>
+        <div class="chart-wrap"><canvas id="chart-source"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <h2>시간대별 질문 수 (KST)</h2>
+        <div class="chart-wrap"><canvas id="chart-hourly"></canvas></div>
+      </div>
     </div>
-    <div class="card">
-      <div class="label">평균 응답시간</div>
-      <div class="value" id="m-avg-ms">—</div>
-      <div class="sub">ms</div>
-    </div>
-    <div class="card green">
-      <div class="label">👍 만족</div>
-      <div class="value" id="m-up">—</div>
-      <div class="sub" id="m-satis"></div>
-    </div>
-    <div class="card red">
-      <div class="label">👎 불만족</div>
-      <div class="value" id="m-down">—</div>
-      <div class="sub">피드백 받음</div>
+
+    <div class="bad-list-card">
+      <h2>최근 👎 피드백 (최대 20건)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:140px">시간</th>
+            <th>질문 / 답변 미리보기</th>
+          </tr>
+        </thead>
+        <tbody id="bad-tbody"></tbody>
+      </table>
     </div>
   </div>
 
-  <div class="charts">
-    <div class="chart-card">
-      <h2>소스 분포</h2>
-      <div class="chart-wrap">
-        <canvas id="chart-source"></canvas>
+  <!-- ── 이력 조회 탭 ── -->
+  <div class="tab-panel" id="tab-history">
+    <div class="history-card">
+      <div class="filter-bar">
+        <input type="text" id="h-q" placeholder="질문 검색..." onkeydown="if(event.key==='Enter') loadHistory(1)">
+        <input type="date" id="h-from" title="시작일">
+        <input type="date" id="h-to" title="종료일">
+        <select id="h-no-answer">
+          <option value="">전체</option>
+          <option value="1">답변없음만</option>
+          <option value="0">답변있음만</option>
+        </select>
+        <select id="h-feedback">
+          <option value="">피드백 전체</option>
+          <option value="1">👍 만족</option>
+          <option value="-1">👎 불만족</option>
+        </select>
+        <button class="btn btn-primary" onclick="loadHistory(1)">검색</button>
+        <button class="btn btn-secondary" onclick="resetHistoryFilter()">초기화</button>
       </div>
-    </div>
-    <div class="chart-card">
-      <h2>시간대별 질문 수 (KST)</h2>
-      <div class="chart-wrap">
-        <canvas id="chart-hourly"></canvas>
+
+      <table id="history-table">
+        <thead>
+          <tr>
+            <th style="width:40px">#</th>
+            <th style="width:130px">일시</th>
+            <th>질문</th>
+            <th style="width:80px">소스</th>
+            <th style="width:80px">응답시간</th>
+            <th style="width:60px">피드백</th>
+            <th style="width:70px">답변</th>
+            <th style="width:70px">조사</th>
+          </tr>
+        </thead>
+        <tbody id="history-tbody">
+          <tr><td colspan="8" class="empty">검색 버튼을 눌러 조회하세요.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="pagination" id="history-pagination" style="display:none;">
+        <button class="btn btn-secondary" id="page-prev" onclick="loadHistory(currentPage-1)">← 이전</button>
+        <span class="page-info" id="page-info"></span>
+        <button class="btn btn-secondary" id="page-next" onclick="loadHistory(currentPage+1)">다음 →</button>
       </div>
     </div>
   </div>
 
-  <div class="bad-list-card">
-    <h2>최근 👎 피드백 (최대 20건)</h2>
-    <table>
-      <thead>
-        <tr>
-          <th style="width:140px">시간</th>
-          <th>질문 / 답변 미리보기</th>
-        </tr>
-      </thead>
-      <tbody id="bad-tbody"></tbody>
-    </table>
+  <!-- ── 설정 탭 ── -->
+  <div class="tab-panel" id="tab-settings">
+    <div class="settings-card">
+      <h2>⚙️ 어드민 설정</h2>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">답변없음 조사</div>
+          <div class="setting-desc">답변을 찾지 못한 질문에 대해 AI가 자동으로 원인을 조사하고 기록합니다.</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-analyze" onchange="updateSetting('analyze_no_answer', this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
   </div>
+
 </main>
+
+<!-- ── 상세 모달 ── -->
+<div class="modal-backdrop" id="modal-backdrop" onclick="closeModal(event)">
+  <div class="modal" id="modal-content">
+    <div class="modal-header">
+      <h3 id="modal-title">질문 상세</h3>
+      <button class="modal-close" onclick="closeModalDirect()">✕</button>
+    </div>
+    <div class="modal-meta" id="modal-meta"></div>
+    <div class="modal-section">
+      <label>질문</label>
+      <div class="content-box" id="modal-question"></div>
+    </div>
+    <div class="modal-section">
+      <label>답변</label>
+      <div class="content-box" id="modal-answer"></div>
+    </div>
+    <div class="modal-section" id="modal-analysis-section" style="display:none;">
+      <label>🔍 답변없음 조사 결과</label>
+      <div class="analysis-box" id="modal-analysis"></div>
+    </div>
+  </div>
+</div>
 
 <script>
   let sourceChart = null;
   let hourlyChart = null;
+  let currentPage = 1;
+  let totalPages = 1;
 
   const SOURCE_COLORS = {
     jira:       '#0052cc',
@@ -167,11 +464,37 @@
     local:      '#b17e00',
   };
 
+  // ── 탭 전환 ───────────────────────────────────────────────────────────────
+  function switchTab(name, btn) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    btn.classList.add('active');
+    document.getElementById('period-wrap').style.display = name === 'dashboard' ? '' : 'none';
+
+    if (name === 'history' && document.getElementById('history-tbody').children.length === 1
+        && document.getElementById('history-tbody').children[0].children[0].colSpan > 1) {
+      loadHistory(1);
+    }
+    if (name === 'settings') loadSettings();
+  }
+
+  // ── 유틸 ──────────────────────────────────────────────────────────────────
+  function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
   function fmtTs(iso) {
     const d = new Date(iso);
     return d.toLocaleString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12: false });
   }
 
+  function fmtTsFull(iso) {
+    const d = new Date(iso);
+    return d.toLocaleString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false });
+  }
+
+  // ── 대시보드 ──────────────────────────────────────────────────────────────
   async function loadStats() {
     const days = document.getElementById('period').value;
     document.getElementById('m-period').textContent = `최근 ${days}일`;
@@ -186,7 +509,6 @@
       return;
     }
 
-    // 지표 카드
     document.getElementById('m-total').textContent   = data.total.toLocaleString();
     document.getElementById('m-success').textContent = data.success_rate + '%';
     document.getElementById('m-avg-ms').textContent  = data.avg_response_ms.toLocaleString();
@@ -195,7 +517,6 @@
     document.getElementById('m-satis').textContent   =
       data.satisfaction_rate !== null ? `만족도 ${data.satisfaction_rate}%` : '피드백 없음';
 
-    // 소스 분포 차트
     const srcLabels = Object.keys(data.source_counts);
     const srcValues = Object.values(data.source_counts);
     const srcColors = srcLabels.map(s => SOURCE_COLORS[s] || '#999');
@@ -214,7 +535,6 @@
       });
     }
 
-    // 시간대별 차트 (UTC → KST +9)
     const hourlyMap = {};
     for (const h of data.hourly) {
       const kstHour = (parseInt(h.hour, 10) + 9) % 24;
@@ -228,12 +548,7 @@
       type: 'bar',
       data: {
         labels: allHours.map(h => `${String(h).padStart(2,'0')}시`),
-        datasets: [{
-          label: '질문 수',
-          data: hourlyValues,
-          backgroundColor: '#6264a7',
-          borderRadius: 4,
-        }],
+        datasets: [{ label: '질문 수', data: hourlyValues, backgroundColor: '#6264a7', borderRadius: 4 }],
       },
       options: {
         responsive: true, maintainAspectRatio: false,
@@ -245,7 +560,6 @@
       },
     });
 
-    // 👎 목록
     const tbody = document.getElementById('bad-tbody');
     tbody.innerHTML = '';
     if (data.recent_thumbs_down.length === 0) {
@@ -264,10 +578,186 @@
     }
   }
 
-  function escHtml(str) {
-    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  // ── 이력 조회 ─────────────────────────────────────────────────────────────
+  async function loadHistory(page) {
+    page = Math.max(1, page);
+    if (totalPages > 0 && page > totalPages) return;
+
+    const q          = document.getElementById('h-q').value.trim();
+    const dateFrom   = document.getElementById('h-from').value;
+    const dateTo     = document.getElementById('h-to').value;
+    const noAnswer   = document.getElementById('h-no-answer').value;
+    const feedback   = document.getElementById('h-feedback').value;
+
+    const params = new URLSearchParams({ page, page_size: 20 });
+    if (q)        params.set('q', q);
+    if (dateFrom) params.set('date_from', dateFrom);
+    if (dateTo)   params.set('date_to', dateTo);
+    if (noAnswer !== '') params.set('is_no_answer', noAnswer);
+    if (feedback !== '') params.set('feedback', feedback);
+
+    const tbody = document.getElementById('history-tbody');
+    tbody.innerHTML = '<tr><td colspan="8" class="empty">불러오는 중...</td></tr>';
+
+    let data;
+    try {
+      const res = await fetch('/admin/history/data?' + params);
+      if (!res.ok) { tbody.innerHTML = '<tr><td colspan="8" class="empty">오류: ' + res.status + '</td></tr>'; return; }
+      data = await res.json();
+    } catch(e) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty">네트워크 오류</td></tr>';
+      return;
+    }
+
+    currentPage = data.page;
+    totalPages  = data.total_pages;
+
+    tbody.innerHTML = '';
+    if (data.items.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty">결과 없음</td></tr>';
+    } else {
+      for (const row of data.items) {
+        const tr = document.createElement('tr');
+        tr.classList.add('clickable');
+        if (row.is_no_answer) tr.classList.add('no-answer-row');
+        tr.onclick = () => openModal(row.id);
+
+        const feedbackBadge = row.feedback === 1
+          ? '<span class="badge badge-up">👍</span>'
+          : row.feedback === -1
+          ? '<span class="badge badge-down">👎</span>'
+          : '—';
+
+        const answerBadge = row.is_no_answer
+          ? '<span class="badge badge-no-answer">없음</span>'
+          : '<span class="badge badge-ok">있음</span>';
+
+        const analysisBadge = buildAnalysisBadge(row);
+
+        tr.innerHTML = `
+          <td class="ts-text">${row.id}</td>
+          <td class="ts-text">${fmtTs(row.created_at)}</td>
+          <td class="q-text">${escHtml(row.question.substring(0, 80))}${row.question.length > 80 ? '…' : ''}</td>
+          <td class="ts-text">${escHtml((row.ref_sources || []).join(', ') || '—')}</td>
+          <td class="ts-text">${row.response_time_ms != null ? row.response_time_ms + 'ms' : '—'}</td>
+          <td>${feedbackBadge}</td>
+          <td>${answerBadge}</td>
+          <td>${analysisBadge}</td>`;
+        tbody.appendChild(tr);
+      }
+    }
+
+    // 페이지네이션
+    const pg = document.getElementById('history-pagination');
+    pg.style.display = data.total > 0 ? 'flex' : 'none';
+    document.getElementById('page-info').textContent =
+      `${currentPage} / ${totalPages} 페이지 (총 ${data.total.toLocaleString()}건)`;
+    document.getElementById('page-prev').disabled = currentPage <= 1;
+    document.getElementById('page-next').disabled = currentPage >= totalPages;
   }
 
+  function buildAnalysisBadge(row) {
+    if (!row.is_no_answer) return '—';
+    if (!row.analysis_status) return '<span class="badge" style="background:#eee;color:#999;">미조사</span>';
+    if (row.analysis_status === 'pending') return '<span class="badge badge-pending">조사중…</span>';
+    if (row.analysis_status === 'done')
+      return `<span class="badge badge-done" onclick="event.stopPropagation();openAnalysisModal(${row.id})">📋 보기</span>`;
+    if (row.analysis_status === 'error') return '<span class="badge badge-error">오류</span>';
+    return '—';
+  }
+
+  function resetHistoryFilter() {
+    document.getElementById('h-q').value = '';
+    document.getElementById('h-from').value = '';
+    document.getElementById('h-to').value = '';
+    document.getElementById('h-no-answer').value = '';
+    document.getElementById('h-feedback').value = '';
+    loadHistory(1);
+  }
+
+  // ── 모달 ──────────────────────────────────────────────────────────────────
+  async function openModal(recordId) {
+    let data;
+    try {
+      const res = await fetch(`/admin/history/${recordId}/detail`);
+      if (!res.ok) return;
+      data = await res.json();
+    } catch(e) { return; }
+
+    document.getElementById('modal-title').textContent = `질문 #${data.id}`;
+    document.getElementById('modal-meta').innerHTML = `
+      <span>🕐 ${fmtTsFull(data.created_at)}</span>
+      <span>⏱ ${data.response_time_ms != null ? data.response_time_ms + 'ms' : '—'}</span>
+      <span>📂 ${escHtml((data.ref_sources || []).join(', ') || '소스 없음')}</span>
+      ${data.is_no_answer ? '<span style="color:#c62828">⚠️ 답변없음</span>' : ''}
+      ${data.feedback === 1 ? '<span>👍 만족</span>' : data.feedback === -1 ? '<span>👎 불만족</span>' : ''}
+    `;
+    document.getElementById('modal-question').textContent = data.question;
+    document.getElementById('modal-answer').textContent   = data.answer;
+
+    const analysisSection = document.getElementById('modal-analysis-section');
+    if (data.analysis_status === 'done' && data.no_answer_analysis) {
+      document.getElementById('modal-analysis').textContent = data.no_answer_analysis;
+      analysisSection.style.display = '';
+    } else {
+      analysisSection.style.display = 'none';
+    }
+
+    document.getElementById('modal-backdrop').classList.add('open');
+  }
+
+  async function openAnalysisModal(recordId) {
+    let data;
+    try {
+      const res = await fetch(`/admin/history/${recordId}/analysis`);
+      if (!res.ok) return;
+      data = await res.json();
+    } catch(e) { return; }
+
+    document.getElementById('modal-title').textContent = `조사 결과 #${recordId}`;
+    document.getElementById('modal-meta').innerHTML = '';
+    document.getElementById('modal-question').textContent = '';
+    document.getElementById('modal-answer').textContent   = '';
+    document.getElementById('modal-analysis').textContent = data.no_answer_analysis || '내용 없음';
+    document.getElementById('modal-analysis-section').style.display = '';
+    document.querySelector('#modal-content .modal-section:nth-child(3)').style.display = 'none';
+    document.querySelector('#modal-content .modal-section:nth-child(4)').style.display = 'none';
+
+    document.getElementById('modal-backdrop').classList.add('open');
+  }
+
+  function closeModal(e) {
+    if (e.target === document.getElementById('modal-backdrop')) closeModalDirect();
+  }
+  function closeModalDirect() {
+    document.getElementById('modal-backdrop').classList.remove('open');
+    // 숨겼던 섹션 복원
+    document.querySelectorAll('#modal-content .modal-section').forEach(s => s.style.display = '');
+  }
+
+  // ── 설정 ──────────────────────────────────────────────────────────────────
+  async function loadSettings() {
+    try {
+      const res = await fetch('/admin/settings/data');
+      if (!res.ok) return;
+      const data = await res.json();
+      document.getElementById('toggle-analyze').checked = !!data.analyze_no_answer;
+    } catch(e) {}
+  }
+
+  async function updateSetting(key, value) {
+    try {
+      await fetch('/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: value }),
+      });
+    } catch(e) {
+      alert('설정 저장 실패: ' + e.message);
+    }
+  }
+
+  // ── 초기화 ────────────────────────────────────────────────────────────────
   loadStats();
 </script>
 </body>
