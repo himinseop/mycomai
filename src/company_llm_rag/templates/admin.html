@@ -327,7 +327,7 @@
       <div class="card">
         <div class="label">평균 응답시간</div>
         <div class="value" id="m-avg-ms">—</div>
-        <div class="sub">ms</div>
+        <div class="sub">검색+LLM 합산</div>
       </div>
       <div class="card green">
         <div class="label">👍 만족</div>
@@ -522,7 +522,7 @@
 
     document.getElementById('m-total').textContent   = data.total.toLocaleString();
     document.getElementById('m-success').textContent = data.success_rate + '%';
-    document.getElementById('m-avg-ms').textContent  = data.avg_response_ms.toLocaleString();
+    document.getElementById('m-avg-ms').textContent  = fmtMs(data.avg_response_ms);
     document.getElementById('m-up').textContent      = data.thumbs_up.toLocaleString();
     document.getElementById('m-down').textContent    = data.thumbs_down.toLocaleString();
     document.getElementById('m-satis').textContent   =
@@ -649,7 +649,7 @@
 
         // 응답시간 셀: 클릭 시 단계별 타이밍
         const perfCell = row.response_time_ms != null
-          ? `<span class="ts-text" style="cursor:pointer;text-decoration:underline dotted" onclick="openPerfModal(${row.id})">${row.response_time_ms}ms</span>`
+          ? `<span class="ts-text" style="cursor:pointer;text-decoration:underline dotted" onclick="openPerfModal(${row.id})">${fmtMs(row.response_time_ms)}</span>`
           : '—';
 
         // 조사 셀
@@ -723,7 +723,7 @@
 
     const meta = `<div class="modal-meta">
       <span>🕐 ${fmtTsFull(data.created_at)}</span>
-      <span>⏱ ${data.response_time_ms != null ? data.response_time_ms + 'ms' : '—'}</span>
+      <span>⏱ ${data.response_time_ms != null ? fmtMs(data.response_time_ms) : '—'}</span>
       ${data.is_no_answer ? '<span style="color:#c62828">⚠️ 답변없음</span>' : ''}
       ${data.feedback === 1 ? '<span>👍 만족</span>' : data.feedback === -1 ? '<span>👎 불만족</span>' : ''}
     </div>`;
@@ -761,7 +761,14 @@
     showModal(`참고문서 (${refs.length}건)`, `<div class="refs" style="padding:8px 0">${rows}</div>`);
   }
 
-  // 응답시간 상세 모달
+  // ms → "234ms" 또는 "1.2s" 포맷
+  function fmtMs(ms) {
+    if (ms == null) return '—';
+    if (ms < 1000) return ms + 'ms';
+    return (ms / 1000).toFixed(1) + 's';
+  }
+
+  // 응답시간 상세 모달 (스택바 차트)
   async function openPerfModal(recordId) {
     let data;
     try {
@@ -773,29 +780,60 @@
     const p = data.perf;
     let html;
     if (!p) {
-      html = `<div style="padding:8px 0;color:#888">이전 기록은 단계별 시간이 없습니다. (총 ${data.response_time_ms ?? '—'}ms)</div>`;
+      html = `<div style="padding:8px 0;color:#888">이전 기록은 단계별 시간이 없습니다. (총 ${fmtMs(data.response_time_ms)})</div>`;
     } else {
-      const bar = (ms, total) => {
-        const pct = total > 0 ? Math.round(ms / total * 100) : 0;
-        return `<div style="height:8px;background:#e8e8f0;border-radius:4px;margin-top:4px">
-          <div style="height:100%;width:${pct}%;background:#6264a7;border-radius:4px"></div></div>`;
-      };
-      html = `<table style="width:100%;border-collapse:collapse;font-size:.9rem">
-        <tr><td style="padding:10px 0;border-bottom:1px solid #eee;width:50%">
-          <div style="color:#888;font-size:.78rem">검색 (ChromaDB)</div>
-          <div style="font-size:1.4rem;font-weight:700;color:#1a1a2e">${p.retrieval_ms}<small style="font-size:.7em;color:#888">ms</small></div>
-          ${bar(p.retrieval_ms, p.total_ms)}
-        </td><td style="padding:10px 0 10px 20px;border-bottom:1px solid #eee">
-          <div style="color:#888;font-size:.78rem">LLM 생성 (OpenAI)</div>
-          <div style="font-size:1.4rem;font-weight:700;color:#1a1a2e">${p.llm_ms}<small style="font-size:.7em;color:#888">ms</small></div>
-          ${bar(p.llm_ms, p.total_ms)}
-        </td></tr>
-        <tr><td colspan="2" style="padding:12px 0 0">
-          <div style="color:#888;font-size:.78rem">총 응답시간</div>
-          <div style="font-size:1.6rem;font-weight:700;color:#6264a7">${p.total_ms}<small style="font-size:.7em;color:#888">ms</small></div>
-          <div style="font-size:.8rem;color:#aaa;margin-top:4px">검색 문서 ${p.doc_count}개</div>
-        </td></tr>
-      </table>`;
+      const total = p.total_ms || 1;
+      const rPct  = Math.max(1, Math.round(p.retrieval_ms / total * 100));
+      const lPct  = Math.max(1, 100 - rPct);
+      html = `
+        <div style="margin-bottom:16px">
+          <!-- 스택바 -->
+          <div style="display:flex;height:28px;border-radius:6px;overflow:hidden;font-size:.75rem;font-weight:600">
+            <div style="width:${rPct}%;background:#6264a7;display:flex;align-items:center;justify-content:center;color:#fff;min-width:32px" title="검색 ${fmtMs(p.retrieval_ms)}">
+              ${rPct >= 12 ? '검색' : ''}
+            </div>
+            <div style="width:${lPct}%;background:#0078d4;display:flex;align-items:center;justify-content:center;color:#fff;min-width:32px" title="LLM ${fmtMs(p.llm_ms)}">
+              ${lPct >= 12 ? 'LLM' : ''}
+            </div>
+          </div>
+          <!-- 범례 -->
+          <div style="display:flex;gap:16px;margin-top:8px;font-size:.8rem;color:#555">
+            <span><span style="display:inline-block;width:10px;height:10px;background:#6264a7;border-radius:2px;margin-right:4px"></span>검색</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:#0078d4;border-radius:2px;margin-right:4px"></span>LLM 생성</span>
+          </div>
+        </div>
+        <!-- 상세 수치 -->
+        <table style="width:100%;border-collapse:collapse;font-size:.9rem">
+          <thead>
+            <tr style="border-bottom:1px solid #eee">
+              <th style="text-align:left;padding:6px 8px;color:#888;font-weight:500;font-size:.78rem">구분</th>
+              <th style="text-align:right;padding:6px 8px;color:#888;font-weight:500;font-size:.78rem">시간</th>
+              <th style="text-align:right;padding:6px 8px;color:#888;font-weight:500;font-size:.78rem">비율</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding:10px 8px">
+                <span style="display:inline-block;width:8px;height:8px;background:#6264a7;border-radius:2px;margin-right:6px"></span>검색 (ChromaDB + FTS)
+              </td>
+              <td style="text-align:right;padding:10px 8px;font-weight:700;color:#1a1a2e">${fmtMs(p.retrieval_ms)}</td>
+              <td style="text-align:right;padding:10px 8px;color:#888">${rPct}%</td>
+            </tr>
+            <tr>
+              <td style="padding:10px 8px;border-top:1px solid #f0f0f0">
+                <span style="display:inline-block;width:8px;height:8px;background:#0078d4;border-radius:2px;margin-right:6px"></span>LLM 생성 (OpenAI)
+              </td>
+              <td style="text-align:right;padding:10px 8px;font-weight:700;color:#1a1a2e;border-top:1px solid #f0f0f0">${fmtMs(p.llm_ms)}</td>
+              <td style="text-align:right;padding:10px 8px;color:#888;border-top:1px solid #f0f0f0">${lPct}%</td>
+            </tr>
+            <tr style="border-top:2px solid #eee">
+              <td style="padding:12px 8px;font-weight:600">총 응답시간</td>
+              <td style="text-align:right;padding:12px 8px;font-size:1.2rem;font-weight:700;color:#6264a7">${fmtMs(p.total_ms)}</td>
+              <td style="text-align:right;padding:12px 8px;color:#888">100%</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="font-size:.78rem;color:#aaa;margin-top:4px;padding:0 8px">검색 문서 ${p.doc_count}개</div>`;
     }
     showModal(`응답시간 상세 #${recordId}`, html);
   }
