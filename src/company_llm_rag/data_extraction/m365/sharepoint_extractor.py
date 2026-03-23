@@ -160,7 +160,12 @@ def get_files_in_folder(drive_id: str, folder_path: str, access_token: str, _dep
 
     all_files_metadata = []
 
-    # Base URL for children
+    # LOOKBACK_DAYS 날짜 기준 (파일에만 적용 — 폴더에 적용하면 하위 폴더 전체가 누락됨)
+    lookback_dt = None
+    if settings.LOOKBACK_DAYS:
+        lookback_dt = datetime.now(timezone.utc) - timedelta(days=settings.LOOKBACK_DAYS)
+
+    # Base URL for children (날짜 필터 없이 폴더 전체 탐색)
     if folder_path == "" or folder_path == "/":
         base_endpoint = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/children"
     else:
@@ -168,18 +173,25 @@ def get_files_in_folder(drive_id: str, folder_path: str, access_token: str, _dep
         base_endpoint = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{encoded_folder_path}:/children"
 
     endpoint = base_endpoint
-    if settings.LOOKBACK_DAYS:
-        lookback_date = (datetime.now(timezone.utc) - timedelta(days=settings.LOOKBACK_DAYS)).isoformat()
-        endpoint += f"?$filter=lastModifiedDateTime ge {lookback_date}"
-
     while endpoint:
         response_data = call_graph_api(endpoint, access_token)
         items = response_data.get('value', [])
-        
+
         for item in items:
             if 'file' in item:
+                # 파일에만 날짜 필터 적용
+                if lookback_dt:
+                    modified_str = item.get('lastModifiedDateTime', '')
+                    if modified_str:
+                        try:
+                            modified_dt = datetime.fromisoformat(modified_str.replace('Z', '+00:00'))
+                            if modified_dt < lookback_dt:
+                                continue
+                        except ValueError:
+                            pass
                 all_files_metadata.append(item)
             elif 'folder' in item:
+                # 폴더는 날짜 필터 없이 항상 재귀 탐색
                 if item['name'].lower() == 'old':
                     logger.info(f"  - Skipping 'old' folder: {os.path.join(folder_path, item['name'])}")
                     continue
@@ -188,8 +200,8 @@ def get_files_in_folder(drive_id: str, folder_path: str, access_token: str, _dep
                     all_files_metadata.extend(get_files_in_folder(drive_id, new_folder_path, access_token, _depth + 1))
                 except Exception as e:
                     logger.warning(f"  - 폴더 탐색 실패, 건너뜁니다: {new_folder_path} | {e}")
-        
-        endpoint = response_data.get('@odata.nextLink') 
+
+        endpoint = response_data.get('@odata.nextLink')
 
     return all_files_metadata
 
