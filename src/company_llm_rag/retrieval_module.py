@@ -1,5 +1,7 @@
 import json
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Set
 
 from company_llm_rag.config import settings
@@ -14,20 +16,54 @@ _DOCUMENT_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
-# 검색 의미 없는 불용어
+# 검색 의미 없는 불용어 (일반적이거나 검색 가치가 낮은 단어)
 _STOPWORDS: Set[str] = {
-    "찾아줘", "알려줘", "보여줘", "찾아봐", "알아봐",
+    # 요청 동사
+    "찾아줘", "알려줘", "보여줘", "찾아봐", "알아봐", "정리해줘",
+    "확인해줘", "알려주세요", "찾아주세요", "보여주세요",
+    # 일반 의문사
     "있어", "없어", "어떻게", "어디서", "어디에", "언제",
     "뭐야", "뭔가", "무엇", "어떤", "어디",
+    # 관계어
     "관련해서", "관련된", "관련", "대해서", "대한",
     "연동건", "이슈", "건", "것", "거",
+    # 빈출 일반명사 (검색 노이즈)
+    "이벤트", "내용", "관련내용", "정보", "자료", "문서",
+    "진행", "진행된", "진행했던", "진행중인",
+    "관련자료", "내역", "현황", "결과",
 }
 
 
+_MAX_KEYWORDS = 3  # 키워드 검색 최대 개수 (많을수록 $contains 풀스캔 반복)
+
+
 def _extract_keywords(query: str) -> List[str]:
-    """쿼리에서 검색에 유효한 핵심 키워드를 추출합니다."""
+    """쿼리에서 검색에 유효한 핵심 키워드를 추출합니다. 최대 _MAX_KEYWORDS개."""
     words = re.findall(r'[가-힣A-Za-z0-9]+', query)
-    return [w for w in words if len(w) >= 2 and w not in _STOPWORDS]
+    filtered = [w for w in words if len(w) >= 2 and w not in _STOPWORDS]
+    # 긴 단어일수록 고유성이 높음 → 길이 내림차순으로 상위 N개만 사용
+    filtered.sort(key=len, reverse=True)
+    return filtered[:_MAX_KEYWORDS]
+
+
+def _search_one_keyword(collection, kw: str, n: int, where: Dict) -> List[Dict]:
+    """단일 키워드 $contains 검색 (스레드 풀에서 호출)."""
+    try:
+        get_kwargs = dict(
+            where_document={"$contains": kw},
+            limit=n,
+            include=['documents', 'metadatas'],
+        )
+        if where:
+            get_kwargs["where"] = where
+        res = collection.get(**get_kwargs)
+        return [
+            {'_id': doc_id, 'content': res['documents'][i], 'metadata': res['metadatas'][i]}
+            for i, doc_id in enumerate(res['ids'])
+        ]
+    except Exception as e:
+        logger.debug(f"키워드 검색 실패 ({kw}): {e}")
+        return []
 
 
 def _keyword_search(
@@ -38,31 +74,22 @@ def _keyword_search(
 ) -> List[Dict]:
     """
     ChromaDB $contains 를 이용한 키워드 매칭 검색.
-    각 키워드로 검색 후 합산, 중복 제거하여 반환합니다.
+    키워드별 검색을 스레드 풀로 병렬 실행 후 합산, 중복 제거하여 반환합니다.
     """
+    if not keywords:
+        return []
+
     seen_ids: Set[str] = set()
     results: List[Dict] = []
 
-    for kw in keywords:
-        try:
-            get_kwargs = dict(
-                where_document={"$contains": kw},
-                limit=n,
-                include=['documents', 'metadatas'],
-            )
-            if where:
-                get_kwargs["where"] = where
-            res = collection.get(**get_kwargs)
-            for i, doc_id in enumerate(res['ids']):
-                if doc_id not in seen_ids:
-                    seen_ids.add(doc_id)
-                    results.append({
-                        '_id': doc_id,
-                        'content': res['documents'][i],
-                        'metadata': res['metadatas'][i],
-                    })
-        except Exception as e:
-            logger.debug(f"키워드 검색 실패 ({kw}): {e}")
+    with ThreadPoolExecutor(max_workers=len(keywords)) as executor:
+        futures = {executor.submit(_search_one_keyword, collection, kw, n, where): kw
+                   for kw in keywords}
+        for future in as_completed(futures):
+            for item in future.result():
+                if item['_id'] not in seen_ids:
+                    seen_ids.add(item['_id'])
+                    results.append(item)
 
     return results
 
@@ -131,6 +158,8 @@ def retrieve_documents(
         elif source_filter and len(source_filter) > 1:
             where = {"$or": [{"source": s} for s in source_filter]}
 
+        t0 = time.monotonic()
+
         # ── 1. 벡터 검색 ──────────────────────────────────────────
         query_kwargs = dict(
             query_texts=[query],
@@ -141,6 +170,7 @@ def retrieve_documents(
             query_kwargs["where"] = where
 
         vector_results = collection.query(**query_kwargs)
+        t_vector = time.monotonic()
 
         # id → {content, metadata, vector_rank} 맵
         doc_map: Dict[str, Dict] = {}
@@ -162,6 +192,7 @@ def retrieve_documents(
         # ── 2. 키워드 검색 ────────────────────────────────────────
         keywords = _extract_keywords(query)
         keyword_results = _keyword_search(collection, keywords, fetch_n, where)
+        t_keyword = time.monotonic()
 
         keyword_rank_map: Dict[str, int] = {}
         for rank, item in enumerate(keyword_results):
@@ -174,8 +205,11 @@ def retrieve_documents(
                     '_distance': 1.0,  # 벡터 점수 없으면 최대 distance
                 }
 
-        if keywords:
-            logger.debug(f"하이브리드 검색 키워드: {keywords} | 벡터 후보: {len(vector_rank_map)} | 키워드 후보: {len(keyword_rank_map)}")
+        logger.info(
+            f"[검색 성능] 벡터={int((t_vector-t0)*1000)}ms | "
+            f"키워드({len(keywords)}개)={int((t_keyword-t_vector)*1000)}ms | "
+            f"벡터후보={len(vector_rank_map)} 키워드후보={len(keyword_rank_map)}"
+        )
 
         # ── 3. RRF 융합 ───────────────────────────────────────────
         all_ids = set(vector_rank_map) | set(keyword_rank_map)

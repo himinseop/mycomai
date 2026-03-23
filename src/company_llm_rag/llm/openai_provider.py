@@ -32,6 +32,8 @@ class OpenAIProvider(LLMProvider):
             if default_temperature is not None
             else settings.OPENAI_TEMPERATURE
         )
+        # temperature 미지원 모델 여부 캐시 (한 번 실패하면 이후 요청부터 생략)
+        self._temperature_unsupported = False
 
     def chat(
         self,
@@ -43,8 +45,10 @@ class OpenAIProvider(LLMProvider):
         kwargs: Dict = {
             "model": model or self._default_model,
             "messages": messages,
-            "temperature": temperature if temperature is not None else self._default_temperature,
         }
+        # temperature 미지원으로 확인된 모델은 처음부터 생략
+        if not self._temperature_unsupported:
+            kwargs["temperature"] = temperature if temperature is not None else self._default_temperature
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
 
@@ -54,7 +58,8 @@ class OpenAIProvider(LLMProvider):
         except openai.BadRequestError as e:
             # 일부 모델(gpt-5 등)은 temperature 파라미터를 지원하지 않음 → 제외 후 재시도
             if "temperature" in str(e) and "temperature" in kwargs:
-                logger.warning(f"모델이 temperature를 지원하지 않아 기본값으로 재시도: {e}")
+                logger.warning(f"모델이 temperature를 지원하지 않음 — 이후 요청에서 temperature 생략: {e}")
+                self._temperature_unsupported = True
                 kwargs.pop("temperature")
                 try:
                     response = self._client.chat.completions.create(**kwargs)
