@@ -635,14 +635,9 @@
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
     msgBody.appendChild(bubble);
-    const writingImg = document.createElement('img');
-    writingImg.src = '/static/osajang-writing.png';
-    writingImg.className = 'writing-img';
-    writingImg.alt = '';
-    msgBody.appendChild(writingImg);
     div.innerHTML = `<div class="avatar"><img src="/static/osajang-header.jpg" alt="오사장"></div>`;
     div.appendChild(msgBody);
-    return { div, bubble, msgBody, writingImg };
+    return { div, bubble, msgBody };
   }
 
   function _finalizeAssistantBubble(msgBody, bubble, fullText, references, recordId) {
@@ -707,9 +702,14 @@
 
     appendUserMessage(text);
 
-    // 빈 버블 생성 (스트리밍용) + 글쓰기 이미지 (버블 아래 인라인)
-    const { div: msgDiv, bubble, msgBody, writingImg } = _createAssistantBubble();
+    // 빈 버블 생성 (스트리밍용) + 글쓰기 이미지 (맨 아래 인라인)
+    const { div: msgDiv, bubble, msgBody } = _createAssistantBubble();
     bubble.innerHTML = '<span class="stream-cursor"></span>';
+    const writingImg = document.createElement('img');
+    writingImg.src = '/static/osajang-writing.png';
+    writingImg.className = 'writing-img';
+    writingImg.alt = '';
+    msgBody.appendChild(writingImg);
     chatWindow.appendChild(msgDiv);
     chatWindow.scrollTop = chatWindow.scrollHeight;
 
@@ -746,7 +746,10 @@
           } else if (ev.type === 'done') {
             finalRefs = ev.references || [];
           } else if (ev.type === 'meta') {
+            // finalize 후 이미지를 맨 끝으로 이동
+            msgBody.removeChild(writingImg);
             _finalizeAssistantBubble(msgBody, bubble, fullText, finalRefs, ev.record_id);
+            msgBody.appendChild(writingImg);
             clientHistory.push({ role: 'user', content: text });
             clientHistory.push({ role: 'assistant', content: fullText });
             if (ev.inquiry_available) teamsFloatBtn.classList.add('visible');

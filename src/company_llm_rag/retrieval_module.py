@@ -158,6 +158,7 @@ def retrieve_documents(
     source_filter: List[str] = None,
     url_extensions: List[str] = None,
     return_timing: bool = False,
+    return_scores: bool = False,
 ):
     """
     ChromaDB에서 하이브리드 검색(벡터 + 키워드 RRF)으로 관련 문서를 검색합니다.
@@ -248,15 +249,18 @@ def retrieve_documents(
         all_ids = set(vector_rank_map) | set(keyword_rank_map)
         scored: List[Dict] = []
         for doc_id in all_ids:
-            v_score = _rrf_score(vector_rank_map[doc_id]) if doc_id in vector_rank_map else 0.0
-            k_score = _rrf_score(keyword_rank_map[doc_id]) if doc_id in keyword_rank_map else 0.0
+            v_rank = vector_rank_map.get(doc_id)
+            k_rank = keyword_rank_map.get(doc_id)
+            v_score = _rrf_score(v_rank) if v_rank is not None else 0.0
+            k_score = _rrf_score(k_rank) if k_rank is not None else 0.0
             rrf = v_score + k_score
             # Knowledge Hub 팀 문서 우선순위 부스트
             if hub_teams:
                 team = doc_map[doc_id].get('metadata', {}).get('teams_team_name', '')
                 if team in hub_teams:
                     rrf *= hub_rrf_boost
-            scored.append({**doc_map[doc_id], '_rrf': rrf})
+            scored.append({**doc_map[doc_id], '_rrf': rrf, '_doc_id': doc_id,
+                           '_vector_rank': v_rank, '_keyword_rank': k_rank})
 
         scored.sort(key=lambda x: x['_rrf'], reverse=True)
 
@@ -268,12 +272,27 @@ def retrieve_documents(
                        for ext in url_extensions)
             ]
 
-        docs = [
-            {"content": c["content"], "metadata": c["metadata"], "_distance": c["_distance"]}
-            for c in scored[:n_results]
-        ]
+        if return_scores:
+            docs = [
+                {
+                    "content": c["content"],
+                    "metadata": c["metadata"],
+                    "_distance": c["_distance"],
+                    "_rrf": round(c["_rrf"], 6),
+                    "_vector_rank": c["_vector_rank"],
+                    "_keyword_rank": c["_keyword_rank"],
+                }
+                for c in scored[:n_results]
+            ]
+        else:
+            docs = [
+                {"content": c["content"], "metadata": c["metadata"], "_distance": c["_distance"]}
+                for c in scored[:n_results]
+            ]
+
         if return_timing:
-            return docs, {"vector_ms": vector_ms, "keyword_ms": keyword_ms}
+            timing = {"vector_ms": vector_ms, "keyword_ms": keyword_ms}
+            return docs, timing
         return docs
 
     except Exception as e:

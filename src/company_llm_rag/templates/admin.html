@@ -246,9 +246,9 @@
     background: #fff;
     border-radius: 14px;
     padding: 28px;
-    max-width: 680px;
-    width: 92%;
-    max-height: 80vh;
+    max-width: 900px;
+    width: 94%;
+    max-height: 85vh;
     overflow-y: auto;
     box-shadow: 0 8px 32px rgba(0,0,0,.2);
   }
@@ -276,15 +276,22 @@
   }
   .modal-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.8rem; color: #888; margin-bottom: 14px; }
   .analysis-box {
-    background: #f0f4ff;
-    border-left: 3px solid #6264a7;
-    border-radius: 0 8px 8px 0;
-    padding: 12px 14px;
-    font-size: 0.87rem;
+    font-size: 0.85rem;
     line-height: 1.7;
-    white-space: pre-wrap;
     word-break: break-word;
   }
+  .analysis-box h4 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #1a1a2e;
+    margin: 14px 0 4px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid #eee;
+  }
+  .analysis-box h4:first-child { margin-top: 0; }
+  .analysis-box p { margin: 4px 0 10px; color: #444; }
+  .analysis-box ul { margin: 4px 0 10px; padding-left: 18px; color: #444; }
+  .analysis-box li { margin-bottom: 3px; }
 </style>
 </head>
 <body>
@@ -929,9 +936,9 @@
       data = await res.json();
     } catch(e) { return; }
 
-    const content = data.no_answer_analysis || '조사 결과 없음';
+    const content = data.no_answer_analysis || '<p style="color:#888">조사 결과 없음</p>';
     showModal(`답변없음 조사 결과 #${recordId}`,
-      `<div class="analysis-box" style="margin-top:8px">${escHtml(content)}</div>`);
+      `<div class="analysis-box">${content}</div>`);
   }
 
   // ── 설정 ──────────────────────────────────────────────────────────────────
