@@ -1,5 +1,6 @@
 import json
-from typing import List, Dict
+import re
+from typing import List, Dict, Set
 
 from company_llm_rag.config import settings
 from company_llm_rag.database import db_manager
@@ -12,6 +13,64 @@ _DOCUMENT_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
+
+# 검색 의미 없는 불용어
+_STOPWORDS: Set[str] = {
+    "찾아줘", "알려줘", "보여줘", "찾아봐", "알아봐",
+    "있어", "없어", "어떻게", "어디서", "어디에", "언제",
+    "뭐야", "뭔가", "무엇", "어떤", "어디",
+    "관련해서", "관련된", "관련", "대해서", "대한",
+    "연동건", "이슈", "건", "것", "거",
+}
+
+
+def _extract_keywords(query: str) -> List[str]:
+    """쿼리에서 검색에 유효한 핵심 키워드를 추출합니다."""
+    words = re.findall(r'[가-힣A-Za-z0-9]+', query)
+    return [w for w in words if len(w) >= 2 and w not in _STOPWORDS]
+
+
+def _keyword_search(
+    collection,
+    keywords: List[str],
+    n: int,
+    where: Dict = None,
+) -> List[Dict]:
+    """
+    ChromaDB $contains 를 이용한 키워드 매칭 검색.
+    각 키워드로 검색 후 합산, 중복 제거하여 반환합니다.
+    """
+    seen_ids: Set[str] = set()
+    results: List[Dict] = []
+
+    for kw in keywords:
+        try:
+            get_kwargs = dict(
+                where_document={"$contains": kw},
+                limit=n,
+                include=['documents', 'metadatas'],
+            )
+            if where:
+                get_kwargs["where"] = where
+            res = collection.get(**get_kwargs)
+            for i, doc_id in enumerate(res['ids']):
+                if doc_id not in seen_ids:
+                    seen_ids.add(doc_id)
+                    results.append({
+                        '_id': doc_id,
+                        'content': res['documents'][i],
+                        'metadata': res['metadatas'][i],
+                    })
+        except Exception as e:
+            logger.debug(f"키워드 검색 실패 ({kw}): {e}")
+
+    return results
+
+
+def _rrf_score(rank: int, k: int = 60) -> float:
+    """Reciprocal Rank Fusion 점수. 순위가 낮을수록 높은 점수."""
+    return 1.0 / (k + rank + 1)
+
 
 def _source_boost(metadata: Dict) -> float:
     """
@@ -29,6 +88,17 @@ def _source_boost(metadata: Dict) -> float:
     return weights.get(source, 1.0)
 
 
+def _fix_metadata(metadata: Dict) -> Dict:
+    """JSON 문자열로 저장된 comments/replies 필드를 복원합니다."""
+    for key in ("comments", "replies"):
+        if key in metadata and isinstance(metadata[key], str):
+            try:
+                metadata[key] = json.loads(metadata[key])
+            except json.JSONDecodeError:
+                pass
+    return metadata
+
+
 def retrieve_documents(
     query: str,
     n_results: int = None,
@@ -36,7 +106,7 @@ def retrieve_documents(
     url_extensions: List[str] = None,
 ) -> List[Dict]:
     """
-    ChromaDB에서 사용자 쿼리와 관련된 문서 청크를 검색합니다.
+    ChromaDB에서 하이브리드 검색(벡터 + 키워드 RRF)으로 관련 문서를 검색합니다.
 
     Args:
         query: 검색 쿼리
@@ -52,7 +122,6 @@ def retrieve_documents(
 
     try:
         collection = db_manager.get_collection()
-        # 재정렬을 위해 더 많은 후보를 가져옴
         fetch_n = n_results * 3
 
         # ChromaDB where 절 구성 (소스 필터)
@@ -62,6 +131,7 @@ def retrieve_documents(
         elif source_filter and len(source_filter) > 1:
             where = {"$or": [{"source": s} for s in source_filter]}
 
+        # ── 1. 벡터 검색 ──────────────────────────────────────────
         query_kwargs = dict(
             query_texts=[query],
             n_results=fetch_n,
@@ -70,56 +140,71 @@ def retrieve_documents(
         if where:
             query_kwargs["where"] = where
 
-        results = collection.query(**query_kwargs)
+        vector_results = collection.query(**query_kwargs)
 
-        candidates = []
-        if results and results['documents'] and len(results['documents']) > 0:
-            for i in range(len(results['documents'][0])):
-                doc_content = results['documents'][0][i]
-                metadata = results['metadatas'][0][i]
-                distance = results['distances'][0][i]
+        # id → {content, metadata, vector_rank} 맵
+        doc_map: Dict[str, Dict] = {}
+        vector_rank_map: Dict[str, int] = {}
 
-                # Reconstruct comments/replies if they were stringified in metadata
-                if "comments" in metadata and isinstance(metadata["comments"], str):
-                    try:
-                        metadata["comments"] = json.loads(metadata["comments"])
-                    except json.JSONDecodeError:
-                        pass
-                if "replies" in metadata and isinstance(metadata["replies"], str):
-                    try:
-                        metadata["replies"] = json.loads(metadata["replies"])
-                    except json.JSONDecodeError:
-                        pass
+        if vector_results and vector_results['documents']:
+            for rank, i in enumerate(range(len(vector_results['documents'][0]))):
+                doc_id = vector_results['ids'][0][i]
+                metadata = _fix_metadata(vector_results['metadatas'][0][i])
+                distance = vector_results['distances'][0][i]
+                boosted = distance * _source_boost(metadata)
+                doc_map[doc_id] = {
+                    'content': vector_results['documents'][0][i],
+                    'metadata': metadata,
+                    '_distance': boosted,
+                }
+                vector_rank_map[doc_id] = rank
 
-                boosted_distance = distance * _source_boost(metadata)
-                candidates.append({
-                    "content": doc_content,
-                    "metadata": metadata,
-                    "_distance": distance,
-                    "_boosted_distance": boosted_distance,
-                })
+        # ── 2. 키워드 검색 ────────────────────────────────────────
+        keywords = _extract_keywords(query)
+        keyword_results = _keyword_search(collection, keywords, fetch_n, where)
 
-        # 부스트 적용 후 재정렬하여 상위 n_results 반환
-        # URL 확장자 후처리 필터
+        keyword_rank_map: Dict[str, int] = {}
+        for rank, item in enumerate(keyword_results):
+            doc_id = item['_id']
+            keyword_rank_map[doc_id] = rank
+            if doc_id not in doc_map:
+                doc_map[doc_id] = {
+                    'content': item['content'],
+                    'metadata': _fix_metadata(item['metadata']),
+                    '_distance': 1.0,  # 벡터 점수 없으면 최대 distance
+                }
+
+        if keywords:
+            logger.debug(f"하이브리드 검색 키워드: {keywords} | 벡터 후보: {len(vector_rank_map)} | 키워드 후보: {len(keyword_rank_map)}")
+
+        # ── 3. RRF 융합 ───────────────────────────────────────────
+        all_ids = set(vector_rank_map) | set(keyword_rank_map)
+        scored: List[Dict] = []
+        for doc_id in all_ids:
+            v_score = _rrf_score(vector_rank_map[doc_id]) if doc_id in vector_rank_map else 0.0
+            k_score = _rrf_score(keyword_rank_map[doc_id]) if doc_id in keyword_rank_map else 0.0
+            rrf = v_score + k_score
+            scored.append({**doc_map[doc_id], '_rrf': rrf})
+
+        scored.sort(key=lambda x: x['_rrf'], reverse=True)
+
+        # ── 4. 후처리 필터 & 반환 ─────────────────────────────────
         if url_extensions:
-            candidates = [
-                c for c in candidates
+            scored = [
+                c for c in scored
                 if any((c["metadata"].get("url") or "").lower().split("?")[0].endswith(ext)
                        for ext in url_extensions)
             ]
 
-        candidates.sort(key=lambda x: x["_boosted_distance"])
-        retrieved_docs = []
-        for c in candidates[:n_results]:
-            retrieved_docs.append({
-                "content": c["content"],
-                "metadata": c["metadata"],
-                "_distance": c["_boosted_distance"],
-            })
-        return retrieved_docs
+        return [
+            {"content": c["content"], "metadata": c["metadata"], "_distance": c["_distance"]}
+            for c in scored[:n_results]
+        ]
+
     except Exception as e:
         logger.error(f"Error during document retrieval: {e}", exc_info=True)
         return []
+
 
 if __name__ == "__main__":
     stats = db_manager.get_collection_stats()
@@ -142,7 +227,6 @@ if __name__ == "__main__":
                     print(f"  Source: {doc['metadata'].get('source')}")
                     print(f"  Title: {doc['metadata'].get('title')}")
                     print(f"  URL: {doc['metadata'].get('url')}")
-                    print(f"  Original Doc ID: {doc['metadata'].get('original_doc_id')}")
                     print("-" * 30)
             else:
                 logger.warning("No relevant documents found.")
