@@ -118,6 +118,7 @@
   .q-text { font-weight: 500; text-align: left !important; }
   .a-text { color: #666; font-size: 0.82rem; }
   .ts-text { color: #aaa; white-space: nowrap; font-size: 0.78rem; }
+  #bad-tbody tr:hover { background: #fff8f8; }
   .empty { color: #bbb; text-align: center; padding: 32px; font-size: 0.9rem; }
   /* '조사' 컬럼 배지 줄바꿈 방지 */
   #history-table td:last-child .badge { white-space: nowrap; }
@@ -479,6 +480,14 @@
     if (name === 'settings') loadSettings();
   }
 
+  // 이력 탭으로 이동 후 상세 팝업 오픈
+  async function goToDetail(recordId) {
+    const histBtn = document.querySelector('.tab-btn:nth-child(2)');
+    switchTab('history', histBtn);
+    await loadHistory(1);
+    openDetailModal(recordId);
+  }
+
   // ── 유틸 ──────────────────────────────────────────────────────────────────
   function escHtml(str) {
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -585,8 +594,11 @@
     } else {
       for (const row of data.recent_thumbs_down) {
         const tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        tr.title = '클릭하면 이력 상세 보기';
+        tr.onclick = () => goToDetail(row.id);
         tr.innerHTML = `
-          <td class="ts-text">${fmtTs(row.created_at)}</td>
+          <td class="ts-text" title="${fmtTsFull(row.created_at)}">${fmtRelative(row.created_at)}</td>
           <td>
             <div class="q-text">❓ ${escHtml(row.question)}</div>
             <div class="a-text">🤖 ${escHtml(row.answer)}</div>
