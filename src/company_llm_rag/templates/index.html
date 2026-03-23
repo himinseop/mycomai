@@ -213,20 +213,14 @@
       flex-shrink: 0;
     }
 
-    /* 글쓰는 오사장 — fixed floating, DOM 영향 없음 */
-    #writing-float {
-      position: fixed;
-      width: 96px;
-      pointer-events: none;
-      z-index: 999;
-      display: none;
-      opacity: 1;
-      transform: translateY(-100%);
-      transition: opacity 0.5s ease;
-    }
-    #writing-float img {
-      width: 100%;
+    /* 글쓰는 오사장 — 버블 아래 인라인 */
+    .writing-img {
+      width: 110px;
       display: block;
+      margin-top: 6px;
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 0.5s ease;
     }
     #input {
       flex: 1; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px;
@@ -379,9 +373,6 @@
     <button id="send-btn" onclick="sendMessage()">전송</button>
   </div>
 </div>
-
-<!-- 글쓰는 오사장 floating 이미지 (position:fixed, DOM 영향 없음) -->
-<div id="writing-float"><img src="/static/osajang-writing.png" alt=""></div>
 
 <!-- 플로팅 Teams 문의 버튼 -->
 <button id="teams-float-btn" title="Teams 채널에 문의 남기기">
@@ -644,9 +635,14 @@
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
     msgBody.appendChild(bubble);
+    const writingImg = document.createElement('img');
+    writingImg.src = '/static/osajang-writing.png';
+    writingImg.className = 'writing-img';
+    writingImg.alt = '';
+    msgBody.appendChild(writingImg);
     div.innerHTML = `<div class="avatar"><img src="/static/osajang-header.jpg" alt="오사장"></div>`;
     div.appendChild(msgBody);
-    return { div, bubble, msgBody };
+    return { div, bubble, msgBody, writingImg };
   }
 
   function _finalizeAssistantBubble(msgBody, bubble, fullText, references, recordId) {
@@ -688,25 +684,10 @@
   }
 
   // ── 글쓰기 이미지 제어 ───────────────────────────────────────────
-  const writingFloat = document.getElementById('writing-float');
-  let _writingFadeTimer = null;
-
-  function showWriting(bubbleEl) {
-    clearTimeout(_writingFadeTimer);
-    requestAnimationFrame(() => {
-      const r = bubbleEl.getBoundingClientRect();
-      writingFloat.style.left = r.left + 'px';
-      writingFloat.style.top  = r.top + 'px';   // translateY(-100%)로 바로 위에 붙음
-      writingFloat.style.opacity = '1';
-      writingFloat.style.display = 'block';
-    });
-  }
-
-  function hideWriting() {
-    writingFloat.style.opacity = '0';
-    _writingFadeTimer = setTimeout(() => {
-      writingFloat.style.display = 'none';
-    }, 520);
+  function hideWriting(imgEl) {
+    if (!imgEl) return;
+    imgEl.style.opacity = '0';
+    setTimeout(() => imgEl.remove(), 520);
   }
 
   // ── 메시지 전송 (SSE 스트리밍) ──────────────────────────────────
@@ -726,12 +707,11 @@
 
     appendUserMessage(text);
 
-    // 빈 버블 생성 (스트리밍용) + 글쓰기 이미지 표시
-    const { div: msgDiv, bubble, msgBody } = _createAssistantBubble();
+    // 빈 버블 생성 (스트리밍용) + 글쓰기 이미지 (버블 아래 인라인)
+    const { div: msgDiv, bubble, msgBody, writingImg } = _createAssistantBubble();
     bubble.innerHTML = '<span class="stream-cursor"></span>';
     chatWindow.appendChild(msgDiv);
     chatWindow.scrollTop = chatWindow.scrollHeight;
-    showWriting(bubble);
 
     let fullText = '';
     let finalRefs = [];
@@ -770,16 +750,16 @@
             clientHistory.push({ role: 'user', content: text });
             clientHistory.push({ role: 'assistant', content: fullText });
             if (ev.inquiry_available) teamsFloatBtn.classList.add('visible');
-            hideWriting(); // 스트리밍 완료 → 자연스럽게 페이드아웃
+            hideWriting(writingImg); // 스트리밍 완료 → 자연스럽게 페이드아웃
           } else if (ev.type === 'error') {
             bubble.innerHTML = renderText('오류가 발생했습니다. 다시 시도해주세요.');
-            hideWriting();
+            hideWriting(writingImg);
           }
         }
       }
     } catch (_) {
       bubble.innerHTML = renderText('오류가 발생했습니다. 다시 시도해주세요.');
-      hideWriting();
+      hideWriting(writingImg);
     }
 
     sendBtn.disabled = false;
