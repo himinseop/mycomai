@@ -167,10 +167,6 @@
       animation: blink-cursor 0.8s step-end infinite;
     }
     @keyframes blink-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
-    .writing-img {
-      display: block; width: 72px; margin: 4px 0;
-      animation: writing-bounce 0.55s ease-in-out infinite alternate;
-    }
     @keyframes writing-bounce {
       from { transform: translateY(0) rotate(-1deg); }
       to   { transform: translateY(-5px) rotate(1deg); }
@@ -213,12 +209,33 @@
 
     /* 입력창 */
     #input-area {
+      position: relative;
       padding: 16px 24px;
       background: white;
       border-top: 1px solid #e5e5e5;
       display: flex;
       gap: 12px;
       flex-shrink: 0;
+      overflow: visible;
+    }
+
+    /* 글쓰는 오사장 — 입력창 위에 float */
+    #writing-float {
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 84px;
+      pointer-events: none;
+      z-index: 10;
+      display: none;
+      opacity: 1;
+      transition: opacity 0.5s ease;
+    }
+    #writing-float img {
+      width: 100%;
+      display: block;
+      animation: writing-bounce 0.55s ease-in-out infinite alternate;
     }
     #input {
       flex: 1; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px;
@@ -367,6 +384,7 @@
   </div>
 
   <div id="input-area">
+    <div id="writing-float"><img src="/static/osajang-writing.png" alt=""></div>
     <textarea id="input" placeholder="질문을 입력하세요... (Shift+Enter로 줄바꿈, Enter로 전송)" rows="1"></textarea>
     <button id="send-btn" onclick="sendMessage()">전송</button>
   </div>
@@ -676,6 +694,23 @@
     return div;
   }
 
+  // ── 글쓰기 이미지 제어 ───────────────────────────────────────────
+  const writingFloat = document.getElementById('writing-float');
+  let _writingFadeTimer = null;
+
+  function showWriting() {
+    clearTimeout(_writingFadeTimer);
+    writingFloat.style.opacity = '1';
+    writingFloat.style.display = 'block';
+  }
+
+  function hideWriting() {
+    writingFloat.style.opacity = '0';
+    _writingFadeTimer = setTimeout(() => {
+      writingFloat.style.display = 'none';
+    }, 520); // transition 0.5s 완료 후 숨김
+  }
+
   // ── 메시지 전송 (SSE 스트리밍) ──────────────────────────────────
   async function sendMessage() {
     const text = input.value.trim();
@@ -693,15 +728,15 @@
 
     appendUserMessage(text);
 
-    // 빈 버블 생성 (스트리밍용) — 대기 중엔 글쓰는 이미지 표시
+    // 빈 버블 생성 (스트리밍용) + 글쓰기 이미지 표시
     const { div: msgDiv, bubble, msgBody } = _createAssistantBubble();
-    bubble.innerHTML = '<img class="writing-img" src="/static/osajang-writing.png" alt="답변 생성 중">';
+    bubble.innerHTML = '<span class="stream-cursor"></span>';
     chatWindow.appendChild(msgDiv);
     chatWindow.scrollTop = chatWindow.scrollHeight;
+    showWriting();
 
     let fullText = '';
     let finalRefs = [];
-    let firstToken = true;
 
     try {
       const res = await fetch('/chat/stream', {
@@ -727,7 +762,6 @@
           try { ev = JSON.parse(line.slice(6)); } catch { continue; }
 
           if (ev.type === 'token') {
-            if (firstToken) { firstToken = false; }  // 첫 토큰 — 이미지 자동 사라짐
             fullText += ev.text;
             bubble.innerHTML = renderText(fullText) + '<span class="stream-cursor"></span>';
             chatWindow.scrollTop = chatWindow.scrollHeight;
@@ -738,13 +772,16 @@
             clientHistory.push({ role: 'user', content: text });
             clientHistory.push({ role: 'assistant', content: fullText });
             if (ev.inquiry_available) teamsFloatBtn.classList.add('visible');
+            hideWriting(); // 스트리밍 완료 → 자연스럽게 페이드아웃
           } else if (ev.type === 'error') {
             bubble.innerHTML = renderText('오류가 발생했습니다. 다시 시도해주세요.');
+            hideWriting();
           }
         }
       }
     } catch (_) {
       bubble.innerHTML = renderText('오류가 발생했습니다. 다시 시도해주세요.');
+      hideWriting();
     }
 
     sendBtn.disabled = false;
