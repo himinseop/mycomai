@@ -12,7 +12,14 @@ import requests
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
 from company_llm_rag.data_extraction.m365.auth import get_access_token, call_graph_api
-from company_llm_rag.data_extraction.m365.file_parser import extract_pdf_text, extract_pptx_text, extract_docx_text
+from company_llm_rag.data_extraction.m365.file_parser import (
+    extract_pdf_text,
+    extract_pptx_text,
+    extract_docx_text,
+    extract_doc_text,
+    extract_xlsx_text,
+    extract_xls_text,
+)
 
 logger = get_logger(__name__)
 
@@ -323,6 +330,9 @@ def main():
                         "application/pdf": extract_pdf_text,
                         "application/vnd.openxmlformats-officedocument.presentationml.presentation": extract_pptx_text,
                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": extract_docx_text,
+                        "application/msword": extract_doc_text,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": extract_xlsx_text,
+                        "application/vnd.ms-excel": extract_xls_text,
                     }
 
                     for k, file_meta in enumerate(files_metadata, 1):
