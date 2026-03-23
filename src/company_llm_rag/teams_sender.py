@@ -77,30 +77,73 @@ def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bo
 
     summary = _summarize_conversation(first_question, conversation_history)
 
+    ai_name = settings.AI_NAME or "오사장AI"
+
     body_blocks = [
+        # ── 헤더 ──────────────────────────────────────────────────
         {
             "type": "TextBlock",
-            "text": f"❓ Q : {first_question}",
+            "text": f"💬 [{ai_name}] 답변을 찾지 못한 질문입니다",
             "weight": "Bolder",
             "wrap": True,
+        },
+        {
+            "type": "TextBlock",
+            "text": "아래 질문에 대해 아는 내용이 있다면 **이 메시지에 답글**로 남겨주세요.\n답글은 AI 지식베이스 학습에 자동 반영됩니다.",
+            "wrap": True,
+            "isSubtle": True,
+            "spacing": "Small",
+        },
+        {"type": "Separator"},
+        # ── [질문] ────────────────────────────────────────────────
+        {
+            "type": "TextBlock",
+            "text": "**[질문]**",
+            "weight": "Bolder",
+            "spacing": "Medium",
+        },
+        {
+            "type": "TextBlock",
+            "text": first_question,
+            "wrap": True,
+            "spacing": "Small",
         },
     ]
 
     if summary:
-        body_blocks.append({
-            "type": "TextBlock",
-            "text": f"📝 {summary}",
-            "wrap": True,
-            "spacing": "Medium",
-        })
+        body_blocks += [
+            {
+                "type": "TextBlock",
+                "text": "**[대화 맥락 요약]**",
+                "weight": "Bolder",
+                "spacing": "Medium",
+            },
+            {
+                "type": "TextBlock",
+                "text": summary,
+                "wrap": True,
+                "isSubtle": True,
+                "spacing": "Small",
+            },
+        ]
 
-    body_blocks.append({
-        "type": "TextBlock",
-        "text": "💬 위 질문에 대한 내용이나 보충설명은 답변 부탁드립니다. 이 채널의 대화는 AI 학습에 활용됩니다.",
-        "wrap": True,
-        "isSubtle": True,
-        "spacing": "Medium",
-    })
+    body_blocks += [
+        {"type": "Separator"},
+        {
+            "type": "TextBlock",
+            "text": "**[답변]** ← 답글로 작성해 주세요",
+            "weight": "Bolder",
+            "color": "Good",
+            "spacing": "Medium",
+        },
+        {
+            "type": "TextBlock",
+            "text": "정확한 정보, 참고 문서 링크, 담당자 안내 등 어떤 내용이든 환영합니다.",
+            "wrap": True,
+            "isSubtle": True,
+            "spacing": "Small",
+        },
+    ]
 
     payload = {
         "type": "message",
@@ -139,6 +182,13 @@ def is_inquiry_configured() -> bool:
 def send_feedback_alert_to_teams(question: str, answer: str) -> bool:
     """
     👎 피드백 수신 시 Teams 채널에 알림을 전송합니다.
+    메시지는 Knowledge Hub 수집 시 명확한 Q&A 레코드로 활용될 수 있도록 구조화됩니다.
+
+    메시지 구조 (AI 학습용):
+      [유형] 불만족 피드백
+      [질문] 사용자 질문
+      [AI 답변] AI가 생성한 답변
+      [올바른 답변] ← 팀원이 이 메시지에 답글로 작성하는 영역
 
     Args:
         question: 사용자 질문
@@ -150,7 +200,8 @@ def send_feedback_alert_to_teams(question: str, answer: str) -> bool:
     if not settings.TEAMS_INQUIRY_WEBHOOK_URL:
         return False
 
-    answer_preview = answer[:300] + "…" if len(answer) > 300 else answer
+    answer_text = answer[:500] + "…" if len(answer) > 500 else answer
+    ai_name = settings.AI_NAME or "오사장AI"
 
     payload = {
         "type": "message",
@@ -162,32 +213,65 @@ def send_feedback_alert_to_teams(question: str, answer: str) -> bool:
                     "type": "AdaptiveCard",
                     "version": "1.2",
                     "body": [
+                        # ── 헤더 ──────────────────────────────────────
                         {
                             "type": "TextBlock",
-                            "text": "👎 AI 답변에 불만족 피드백이 접수됐습니다.",
+                            "text": f"👎 [{ai_name}] 불만족 피드백 접수",
                             "weight": "Bolder",
                             "color": "Attention",
                             "wrap": True,
                         },
                         {
                             "type": "TextBlock",
-                            "text": f"❓ 질문: {question}",
-                            "wrap": True,
-                            "spacing": "Medium",
-                        },
-                        {
-                            "type": "TextBlock",
-                            "text": f"🤖 AI 답변: {answer_preview}",
+                            "text": "아래 내용을 확인하고, 더 정확한 답변을 **이 메시지에 답글**로 남겨주세요.\n답글은 AI 지식베이스 학습에 자동 반영됩니다.",
                             "wrap": True,
                             "isSubtle": True,
                             "spacing": "Small",
                         },
+                        # ── 구분선 ────────────────────────────────────
+                        {"type": "Separator"},
+                        # ── [질문] ────────────────────────────────────
                         {
                             "type": "TextBlock",
-                            "text": "💬 더 나은 답변이 있다면 이 채널에 남겨주세요. 내용은 AI 학습에 활용됩니다.",
+                            "text": "**[질문]**",
+                            "weight": "Bolder",
+                            "spacing": "Medium",
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": question,
+                            "wrap": True,
+                            "spacing": "Small",
+                        },
+                        # ── [AI 답변] ─────────────────────────────────
+                        {
+                            "type": "TextBlock",
+                            "text": f"**[{ai_name} 답변]**",
+                            "weight": "Bolder",
+                            "spacing": "Medium",
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": answer_text,
                             "wrap": True,
                             "isSubtle": True,
+                            "spacing": "Small",
+                        },
+                        # ── [올바른 답변] 안내 ─────────────────────────
+                        {"type": "Separator"},
+                        {
+                            "type": "TextBlock",
+                            "text": "**[올바른 답변]** ← 답글로 작성해 주세요",
+                            "weight": "Bolder",
+                            "color": "Good",
                             "spacing": "Medium",
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": "정확한 정보, 참고 문서 링크, 담당자 안내 등 어떤 내용이든 환영합니다.",
+                            "wrap": True,
+                            "isSubtle": True,
+                            "spacing": "Small",
                         },
                     ],
                 },

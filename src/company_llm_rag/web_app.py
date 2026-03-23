@@ -204,9 +204,11 @@ async def feedback(req: FeedbackRequest):
 
     ok = save_feedback(req.record_id, req.rating)
 
-    # 👎인 경우 Teams 알림
+    # 👎인 경우 Teams 알림 — DB에서 question/answer 직접 조회 (클라이언트 전달값 미사용)
     if ok and req.rating == -1 and is_inquiry_configured():
-        send_feedback_alert_to_teams(req.question, req.answer)
+        record = get_record_detail(req.record_id)
+        if record:
+            send_feedback_alert_to_teams(record["question"], record["answer"])
 
     return {"success": ok}
 
