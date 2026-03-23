@@ -386,13 +386,13 @@
         <thead>
           <tr>
             <th style="width:40px">#</th>
-            <th style="width:130px">일시</th>
+            <th style="width:110px">일시</th>
             <th>질문</th>
-            <th style="width:80px">소스</th>
+            <th style="width:80px">참고문서</th>
             <th style="width:80px">응답시간</th>
             <th style="width:60px">피드백</th>
-            <th style="width:70px">답변</th>
-            <th style="width:70px">조사</th>
+            <th style="width:60px">답변</th>
+            <th style="width:60px">조사</th>
           </tr>
         </thead>
         <tbody id="history-tbody">
@@ -427,26 +427,14 @@
 
 </main>
 
-<!-- ── 상세 모달 ── -->
+<!-- ── 모달 (공용) ── -->
 <div class="modal-backdrop" id="modal-backdrop" onclick="closeModal(event)">
   <div class="modal" id="modal-content">
     <div class="modal-header">
-      <h3 id="modal-title">질문 상세</h3>
+      <h3 id="modal-title"></h3>
       <button class="modal-close" onclick="closeModalDirect()">✕</button>
     </div>
-    <div class="modal-meta" id="modal-meta"></div>
-    <div class="modal-section">
-      <label>질문</label>
-      <div class="content-box" id="modal-question"></div>
-    </div>
-    <div class="modal-section">
-      <label>답변</label>
-      <div class="content-box" id="modal-answer"></div>
-    </div>
-    <div class="modal-section" id="modal-analysis-section" style="display:none;">
-      <label>🔍 답변없음 조사 결과</label>
-      <div class="analysis-box" id="modal-analysis"></div>
-    </div>
+    <div id="modal-body"></div>
   </div>
 </div>
 
@@ -492,6 +480,24 @@
   function fmtTsFull(iso) {
     const d = new Date(iso);
     return d.toLocaleString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false });
+  }
+
+  // 오늘이면 HH:MM:SS, 어제 이전이면 상대 시간 (N일전 / N주전 / N달전 / N년전)
+  function fmtRelative(iso) {
+    const now  = new Date();
+    const d    = new Date(iso);
+    const todayStr = now.toLocaleDateString('ko-KR');
+    const dStr     = d.toLocaleDateString('ko-KR');
+    if (todayStr === dStr) {
+      // 오늘 → HH:MM:SS
+      return d.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false });
+    }
+    const diffMs   = now - d;
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffDays < 7)   return diffDays + '일전';
+    if (diffDays < 30)  return Math.floor(diffDays / 7) + '주전';
+    if (diffDays < 365) return Math.floor(diffDays / 30) + '달전';
+    return Math.floor(diffDays / 365) + '년전';
   }
 
   // ── 대시보드 ──────────────────────────────────────────────────────────────
@@ -618,9 +624,7 @@
     } else {
       for (const row of data.items) {
         const tr = document.createElement('tr');
-        tr.classList.add('clickable');
         if (row.is_no_answer) tr.classList.add('no-answer-row');
-        tr.onclick = () => openModal(row.id);
 
         const feedbackBadge = row.feedback === 1
           ? '<span class="badge badge-up">👍</span>'
@@ -628,18 +632,33 @@
           ? '<span class="badge badge-down">👎</span>'
           : '—';
 
+        // 답변 셀: 클릭 시 상세 모달
         const answerBadge = row.is_no_answer
-          ? '<span class="badge badge-no-answer">없음</span>'
-          : '<span class="badge badge-ok">있음</span>';
+          ? `<span class="badge badge-no-answer" style="cursor:pointer" onclick="openDetailModal(${row.id})">없음</span>`
+          : `<span class="badge badge-ok" style="cursor:pointer" onclick="openDetailModal(${row.id})">있음</span>`;
 
+        // 참고문서 셀: 참고문서가 있을 때만 클릭 가능
+        const refCell = row.ref_count > 0
+          ? `<span class="badge badge-ok" style="cursor:pointer" onclick="openRefsModal(${row.id})">${row.ref_count}건</span>`
+          : '<span style="color:#ccc">—</span>';
+
+        // 응답시간 셀: 클릭 시 단계별 타이밍
+        const perfCell = row.response_time_ms != null
+          ? `<span class="ts-text" style="cursor:pointer;text-decoration:underline dotted" onclick="openPerfModal(${row.id})">${row.response_time_ms}ms</span>`
+          : '—';
+
+        // 조사 셀
         const analysisBadge = buildAnalysisBadge(row);
+
+        // 질문 셀: 클릭 시 상세 모달
+        const questionCell = `<span style="cursor:pointer" onclick="openDetailModal(${row.id})">${escHtml(row.question.substring(0, 80))}${row.question.length > 80 ? '…' : ''}</span>`;
 
         tr.innerHTML = `
           <td class="ts-text">${row.id}</td>
-          <td class="ts-text">${fmtTs(row.created_at)}</td>
-          <td class="q-text">${escHtml(row.question.substring(0, 80))}${row.question.length > 80 ? '…' : ''}</td>
-          <td class="ts-text">${escHtml((row.ref_sources || []).join(', ') || '—')}</td>
-          <td class="ts-text">${row.response_time_ms != null ? row.response_time_ms + 'ms' : '—'}</td>
+          <td class="ts-text" title="${fmtTsFull(row.created_at)}">${fmtRelative(row.created_at)}</td>
+          <td class="q-text">${questionCell}</td>
+          <td>${refCell}</td>
+          <td>${perfCell}</td>
           <td>${feedbackBadge}</td>
           <td>${answerBadge}</td>
           <td>${analysisBadge}</td>`;
@@ -675,8 +694,21 @@
     loadHistory(1);
   }
 
-  // ── 모달 ──────────────────────────────────────────────────────────────────
-  async function openModal(recordId) {
+  // ── 모달 공용 ─────────────────────────────────────────────────────────────
+  function showModal(title, bodyHtml) {
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').innerHTML = bodyHtml;
+    document.getElementById('modal-backdrop').classList.add('open');
+  }
+  function closeModal(e) {
+    if (e.target === document.getElementById('modal-backdrop')) closeModalDirect();
+  }
+  function closeModalDirect() {
+    document.getElementById('modal-backdrop').classList.remove('open');
+  }
+
+  // 답변 상세 모달
+  async function openDetailModal(recordId) {
     let data;
     try {
       const res = await fetch(`/admin/history/${recordId}/detail`);
@@ -684,28 +716,86 @@
       data = await res.json();
     } catch(e) { return; }
 
-    document.getElementById('modal-title').textContent = `질문 #${data.id}`;
-    document.getElementById('modal-meta').innerHTML = `
+    const meta = `<div class="modal-meta">
       <span>🕐 ${fmtTsFull(data.created_at)}</span>
       <span>⏱ ${data.response_time_ms != null ? data.response_time_ms + 'ms' : '—'}</span>
-      <span>📂 ${escHtml((data.ref_sources || []).join(', ') || '소스 없음')}</span>
       ${data.is_no_answer ? '<span style="color:#c62828">⚠️ 답변없음</span>' : ''}
       ${data.feedback === 1 ? '<span>👍 만족</span>' : data.feedback === -1 ? '<span>👎 불만족</span>' : ''}
-    `;
-    document.getElementById('modal-question').textContent = data.question;
-    document.getElementById('modal-answer').textContent   = data.answer;
+    </div>`;
 
-    const analysisSection = document.getElementById('modal-analysis-section');
-    if (data.analysis_status === 'done' && data.no_answer_analysis) {
-      document.getElementById('modal-analysis').textContent = data.no_answer_analysis;
-      analysisSection.style.display = '';
-    } else {
-      analysisSection.style.display = 'none';
-    }
+    let html = meta
+      + `<div class="modal-section"><label>질문</label><div class="content-box">${escHtml(data.question)}</div></div>`
+      + `<div class="modal-section"><label>답변</label><div class="content-box">${escHtml(data.answer)}</div></div>`;
 
-    document.getElementById('modal-backdrop').classList.add('open');
+    showModal(`질문 #${data.id}`, html);
   }
 
+  // 참고문서 모달
+  async function openRefsModal(recordId) {
+    let data;
+    try {
+      const res = await fetch(`/admin/history/${recordId}/detail`);
+      if (!res.ok) return;
+      data = await res.json();
+    } catch(e) { return; }
+
+    const refs = data.references || [];
+    if (refs.length === 0) { showModal('참고문서', '<p class="empty">참고 문서 없음</p>'); return; }
+
+    const rows = refs.map((r, i) => {
+      const src = r.source || '';
+      const badge = src === 'jira' ? '<span class="src-badge jira">J</span>'
+        : src === 'confluence' ? '<span class="src-badge confluence">C</span>'
+        : src === 'teams'      ? '<span class="src-badge teams">T</span>'
+        : src === 'sharepoint' ? '<span class="src-badge sharepoint">S</span>'
+        : '';
+      const label = r.title || r.url || '—';
+      return `<div class="ref-item">${badge}<a href="${escHtml(r.url)}" target="_blank" rel="noopener noreferrer">${escHtml(label)}</a></div>`;
+    }).join('');
+
+    showModal(`참고문서 (${refs.length}건)`, `<div class="refs" style="padding:8px 0">${rows}</div>`);
+  }
+
+  // 응답시간 상세 모달
+  async function openPerfModal(recordId) {
+    let data;
+    try {
+      const res = await fetch(`/admin/history/${recordId}/detail`);
+      if (!res.ok) return;
+      data = await res.json();
+    } catch(e) { return; }
+
+    const p = data.perf;
+    let html;
+    if (!p) {
+      html = `<div style="padding:8px 0;color:#888">이전 기록은 단계별 시간이 없습니다. (총 ${data.response_time_ms ?? '—'}ms)</div>`;
+    } else {
+      const bar = (ms, total) => {
+        const pct = total > 0 ? Math.round(ms / total * 100) : 0;
+        return `<div style="height:8px;background:#e8e8f0;border-radius:4px;margin-top:4px">
+          <div style="height:100%;width:${pct}%;background:#6264a7;border-radius:4px"></div></div>`;
+      };
+      html = `<table style="width:100%;border-collapse:collapse;font-size:.9rem">
+        <tr><td style="padding:10px 0;border-bottom:1px solid #eee;width:50%">
+          <div style="color:#888;font-size:.78rem">검색 (ChromaDB)</div>
+          <div style="font-size:1.4rem;font-weight:700;color:#1a1a2e">${p.retrieval_ms}<small style="font-size:.7em;color:#888">ms</small></div>
+          ${bar(p.retrieval_ms, p.total_ms)}
+        </td><td style="padding:10px 0 10px 20px;border-bottom:1px solid #eee">
+          <div style="color:#888;font-size:.78rem">LLM 생성 (OpenAI)</div>
+          <div style="font-size:1.4rem;font-weight:700;color:#1a1a2e">${p.llm_ms}<small style="font-size:.7em;color:#888">ms</small></div>
+          ${bar(p.llm_ms, p.total_ms)}
+        </td></tr>
+        <tr><td colspan="2" style="padding:12px 0 0">
+          <div style="color:#888;font-size:.78rem">총 응답시간</div>
+          <div style="font-size:1.6rem;font-weight:700;color:#6264a7">${p.total_ms}<small style="font-size:.7em;color:#888">ms</small></div>
+          <div style="font-size:.8rem;color:#aaa;margin-top:4px">검색 문서 ${p.doc_count}개</div>
+        </td></tr>
+      </table>`;
+    }
+    showModal(`응답시간 상세 #${recordId}`, html);
+  }
+
+  // 조사 결과 모달
   async function openAnalysisModal(recordId) {
     let data;
     try {
@@ -714,25 +804,9 @@
       data = await res.json();
     } catch(e) { return; }
 
-    document.getElementById('modal-title').textContent = `조사 결과 #${recordId}`;
-    document.getElementById('modal-meta').innerHTML = '';
-    document.getElementById('modal-question').textContent = '';
-    document.getElementById('modal-answer').textContent   = '';
-    document.getElementById('modal-analysis').textContent = data.no_answer_analysis || '내용 없음';
-    document.getElementById('modal-analysis-section').style.display = '';
-    document.querySelector('#modal-content .modal-section:nth-child(3)').style.display = 'none';
-    document.querySelector('#modal-content .modal-section:nth-child(4)').style.display = 'none';
-
-    document.getElementById('modal-backdrop').classList.add('open');
-  }
-
-  function closeModal(e) {
-    if (e.target === document.getElementById('modal-backdrop')) closeModalDirect();
-  }
-  function closeModalDirect() {
-    document.getElementById('modal-backdrop').classList.remove('open');
-    // 숨겼던 섹션 복원
-    document.querySelectorAll('#modal-content .modal-section').forEach(s => s.style.display = '');
+    const content = data.no_answer_analysis || '조사 결과 없음';
+    showModal(`답변없음 조사 결과 #${recordId}`,
+      `<div class="analysis-box" style="margin-top:8px">${escHtml(content)}</div>`);
   }
 
   // ── 설정 ──────────────────────────────────────────────────────────────────

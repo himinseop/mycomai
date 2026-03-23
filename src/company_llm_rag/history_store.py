@@ -39,6 +39,7 @@ def _migrate_add_columns(con: sqlite3.Connection) -> None:
         ("feedback",           "INTEGER DEFAULT 0"),
         ("no_answer_analysis", "TEXT    DEFAULT NULL"),
         ("analysis_status",    "TEXT    DEFAULT NULL"),
+        ("perf_json",          "TEXT    DEFAULT NULL"),
     ]
     for col, definition in migrations:
         if col not in existing:
@@ -70,7 +71,8 @@ def init_db() -> None:
                 ref_sources_json  TEXT    DEFAULT '[]',
                 feedback          INTEGER DEFAULT 0,
                 no_answer_analysis TEXT   DEFAULT NULL,
-                analysis_status   TEXT    DEFAULT NULL
+                analysis_status   TEXT    DEFAULT NULL,
+                perf_json         TEXT    DEFAULT NULL
             )
         """)
         _migrate_add_columns(con)
@@ -100,6 +102,7 @@ def save(
     teams_sent: bool = False,
     response_time_ms: Optional[int] = None,
     is_no_answer: bool = False,
+    perf: Optional[Dict] = None,
 ) -> int:
     """Q&A 한 건을 저장하고 record_id를 반환합니다."""
     refs = references or []
@@ -109,8 +112,8 @@ def save(
         cur = con.execute(
             """INSERT INTO query_history
                (session_id, created_at, question, answer, references_json, teams_sent,
-                response_time_ms, is_no_answer, ref_count, ref_sources_json, feedback)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+                response_time_ms, is_no_answer, ref_count, ref_sources_json, feedback, perf_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
             (
                 session_id,
                 datetime.now(timezone.utc).isoformat(),
@@ -122,6 +125,7 @@ def save(
                 int(is_no_answer),
                 len(refs),
                 json.dumps(sources, ensure_ascii=False),
+                json.dumps(perf, ensure_ascii=False) if perf else None,
             ),
         )
         con.commit()
@@ -317,7 +321,7 @@ def get_history_page(
         rows = con.execute(
             f"""SELECT id, session_id, created_at, question, answer,
                        ref_count, ref_sources_json, response_time_ms,
-                       is_no_answer, feedback, analysis_status
+                       is_no_answer, feedback, analysis_status, perf_json
                 FROM query_history {where}
                 ORDER BY created_at DESC
                 LIMIT ? OFFSET ?""",
@@ -337,6 +341,7 @@ def get_history_page(
             "is_no_answer": bool(r["is_no_answer"]),
             "feedback": r["feedback"],
             "analysis_status": r["analysis_status"],
+            "perf": json.loads(r["perf_json"]) if r["perf_json"] else None,
         }
         for r in rows
     ]
@@ -357,7 +362,7 @@ def get_record_detail(record_id: int) -> Optional[Dict]:
             """SELECT id, session_id, created_at, question, answer,
                       references_json, ref_count, ref_sources_json,
                       response_time_ms, is_no_answer, feedback,
-                      no_answer_analysis, analysis_status
+                      no_answer_analysis, analysis_status, perf_json
                FROM query_history WHERE id = ?""",
             (record_id,),
         ).fetchone()
@@ -377,6 +382,7 @@ def get_record_detail(record_id: int) -> Optional[Dict]:
         "feedback": row["feedback"],
         "no_answer_analysis": row["no_answer_analysis"],
         "analysis_status": row["analysis_status"],
+        "perf": json.loads(row["perf_json"]) if row["perf_json"] else None,
     }
 
 

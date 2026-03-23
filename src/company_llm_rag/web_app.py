@@ -93,7 +93,7 @@ async def chat(req: ChatRequest):
     logger.info(f"[{req.session_id}] Query: {req.message}")
 
     t_start = time.monotonic()
-    answer, references = rag_query(req.message, conversation_history=history, return_refs=True)
+    answer, references, timing = rag_query(req.message, conversation_history=history, return_refs=True)
     response_time_ms = int((time.monotonic() - t_start) * 1000)
 
     is_no_answer = _NO_ANSWER_PHRASE in answer
@@ -113,6 +113,7 @@ async def chat(req: ChatRequest):
         req.session_id, req.message, answer, references,
         response_time_ms=response_time_ms,
         is_no_answer=is_no_answer,
+        perf=timing,
     )
 
     # 답변없음 조사: 설정 ON일 때만 백그라운드 실행

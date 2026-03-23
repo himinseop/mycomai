@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 from typing import List, Dict, Optional
 from urllib.parse import quote
@@ -258,6 +259,7 @@ def rag_query(
     Returns:
         str 또는 (str, List[Dict]) — return_refs=True일 때 참고 링크 포함
     """
+    t0 = time.monotonic()
     filters = _detect_filters(user_query)
     listing = _is_listing_query(user_query)
     effective_n = (n_results or settings.RETRIEVAL_TOP_K) * (3 if listing else 1)
@@ -267,20 +269,32 @@ def rag_query(
         source_filter=filters['sources'] or None,
         url_extensions=filters['extensions'] or None,
     )
+    t_retrieval = time.monotonic()
+    retrieval_ms = int((t_retrieval - t0) * 1000)
 
     if not retrieved_docs:
         answer = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
-        return (answer, []) if return_refs else answer
+        timing = {"retrieval_ms": retrieval_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0}
+        return (answer, [], timing) if return_refs else answer
 
     prompt = build_rag_prompt(user_query, retrieved_docs)
     llm_response = get_llm_response(prompt, conversation_history=conversation_history)
+    t_llm = time.monotonic()
+    llm_ms = int((t_llm - t_retrieval) * 1000)
+    total_ms = int((t_llm - t0) * 1000)
+
+    logger.info(
+        f"[RAG 성능] 검색={retrieval_ms}ms | LLM={llm_ms}ms | "
+        f"총={total_ms}ms | 문서={len(retrieved_docs)}개"
+    )
+    timing = {"retrieval_ms": retrieval_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs)}
 
     if not return_refs:
         return llm_response
 
     # 답변에 정보 없음 문구가 포함된 경우 참고 링크 없음
     if _NO_ANSWER_PHRASE in llm_response:
-        return llm_response, []
+        return llm_response, [], timing
 
     # URL이 있는 문서를 RRF 순위(상위) 기준으로 최대 _MAX_REFERENCES개 포함
     # 하이브리드 검색(키워드 매칭) 결과도 포함되도록 distance 임계값 대신 순위 기반 사용
@@ -348,7 +362,7 @@ def rag_query(
             "snippet": snippet,
         })
 
-    return llm_response, references
+    return llm_response, references, timing
 
 
 if __name__ == "__main__":
