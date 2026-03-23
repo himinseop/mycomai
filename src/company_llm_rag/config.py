@@ -5,7 +5,7 @@
 """
 
 import os
-from typing import Optional, List, Dict
+from typing import List, Dict
 from dotenv import load_dotenv
 
 # .env 파일 로드
@@ -63,10 +63,6 @@ class Settings:
     # 설정: Teams 채널 → ... → 커넥터 → Incoming Webhook → 구성 → URL 복사
     TEAMS_INQUIRY_WEBHOOK_URL: str = os.getenv("TEAMS_INQUIRY_WEBHOOK_URL", "")
 
-    # 데이터 수집 설정
-    LOOKBACK_DAYS: Optional[int] = (
-        int(os.getenv("LOOKBACK_DAYS")) if os.getenv("LOOKBACK_DAYS") else None
-    )
 
     # RAG 설정 (토큰 기준 — tiktoken 사용)
     # text-embedding-3-small 최대 컨텍스트: 8191 토큰

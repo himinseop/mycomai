@@ -102,10 +102,6 @@ def get_direct_chat_messages(chat_id: str, access_token: str) -> List[Dict]:
     all_messages = []
     endpoint = f"https://graph.microsoft.com/v1.0/chats/{chat_id}/messages"
 
-    if settings.LOOKBACK_DAYS:
-        lookback_date = (datetime.now(timezone.utc) - timedelta(days=settings.LOOKBACK_DAYS)).isoformat()
-        endpoint += f"?$filter=lastModifiedDateTime ge {lookback_date}"
-
     while endpoint:
         response_data = call_graph_api(endpoint, access_token)
         all_messages.extend(response_data.get('value', []))
@@ -131,10 +127,6 @@ def get_channel_messages(team_id: str, channel_id: str, access_token: str) -> Li
     """
     all_messages = []
     endpoint = f"https://graph.microsoft.com/v1.0/teams/{team_id}/channels/{channel_id}/messages?$expand=replies"
-
-    if settings.LOOKBACK_DAYS:
-        lookback_date = (datetime.now(timezone.utc) - timedelta(days=settings.LOOKBACK_DAYS)).isoformat()
-        endpoint += f"&$filter=lastModifiedDateTime ge {lookback_date}"
 
     while endpoint:
         response_data = call_graph_api(endpoint, access_token)

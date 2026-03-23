@@ -106,26 +106,14 @@ def get_confluence_pages_in_space(space_key):
     headers = settings.get_auth_header("confluence")
 
     while True:
-        if settings.LOOKBACK_DAYS:
-            # Use search API with CQL for date filtering
-            url = f"{settings.CONFLUENCE_BASE_URL}/rest/api/content/search"
-            cql = f"space = \"{space_key}\" AND type = \"page\" AND lastModified >= \"-{settings.LOOKBACK_DAYS}d\""
-            params = {
-                "cql": cql,
-                "expand": "body.storage,version,history,ancestors",
-                "start": start_at,
-                "limit": limit
-            }
-        else:
-            # Standard content API
-            url = f"{settings.CONFLUENCE_BASE_URL}/rest/api/content"
-            params = {
-                "spaceKey": space_key,
-                "expand": "body.storage,version,history,ancestors",
-                "start": start_at,
-                "limit": limit,
-                "type": "page"
-            }
+        url = f"{settings.CONFLUENCE_BASE_URL}/rest/api/content"
+        params = {
+            "spaceKey": space_key,
+            "expand": "body.storage,version,history,ancestors",
+            "start": start_at,
+            "limit": limit,
+            "type": "page"
+        }
 
         response = requests.get(url, headers=headers, params=params, timeout=30)
         response.raise_for_status()

@@ -48,10 +48,7 @@ def get_issues_for_project(project_key):
     all_issues = []
     max_results = settings.JIRA_MAX_RESULTS
 
-    jql = f"project = \"{project_key}\""
-    if settings.LOOKBACK_DAYS:
-        jql += f" AND updated >= \"-{settings.LOOKBACK_DAYS}d\""
-    jql += " ORDER BY updated DESC"
+    jql = f"project = \"{project_key}\" ORDER BY updated DESC"
 
     headers = settings.get_auth_header("jira")
     next_page_token = None
