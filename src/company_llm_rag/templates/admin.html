@@ -405,7 +405,7 @@
             <th style="width:80px">응답시간</th>
             <th style="width:60px">피드백</th>
             <th style="width:60px">답변</th>
-            <th style="width:60px">조사</th>
+            <th style="width:70px">결과분석</th>
           </tr>
         </thead>
         <tbody id="history-tbody">
@@ -427,8 +427,8 @@
       <h2>⚙️ 어드민 설정</h2>
       <div class="setting-row">
         <div>
-          <div class="setting-label">답변없음 조사</div>
-          <div class="setting-desc">답변을 찾지 못한 질문에 대해 AI가 자동으로 원인을 조사하고 기록합니다.</div>
+          <div class="setting-label">결과보고서 작성</div>
+          <div class="setting-desc">모든 답변에 대해 결과보고서를 자동으로 작성합니다. 답변이 있는 경우 답변·검색결과·첨부문서를, 답변이 없는 경우 원인 분석을 기록합니다.</div>
         </div>
         <label class="toggle">
           <input type="checkbox" id="toggle-analyze" onchange="updateSetting('analyze_no_answer', this.checked)">
@@ -706,9 +706,8 @@
   }
 
   function buildAnalysisBadge(row) {
-    if (!row.is_no_answer) return '—';
-    if (!row.analysis_status) return '<span class="badge" style="background:#eee;color:#999;">미조사</span>';
-    if (row.analysis_status === 'pending') return '<span class="badge badge-pending">조사중…</span>';
+    if (!row.analysis_status) return '<span style="color:#ccc">—</span>';
+    if (row.analysis_status === 'pending') return '<span class="badge badge-pending">작성중…</span>';
     if (row.analysis_status === 'done')
       return `<span class="badge badge-done" onclick="event.stopPropagation();openAnalysisModal(${row.id})">📋 보기</span>`;
     if (row.analysis_status === 'error') return '<span class="badge badge-error">오류</span>';
@@ -954,8 +953,8 @@
       data = await res.json();
     } catch(e) { return; }
 
-    const content = data.no_answer_analysis || '<p style="color:#888">조사 결과 없음</p>';
-    showModal(`답변없음 조사 결과 #${recordId}`,
+    const content = data.no_answer_analysis || '<p style="color:#888">분석 결과 없음</p>';
+    showModal(`결과분석 #${recordId}`,
       `<div class="analysis-box">${content}</div>`);
   }
 

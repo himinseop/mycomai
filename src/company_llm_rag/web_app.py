@@ -22,7 +22,7 @@ from company_llm_rag.history_store import (
     get_setting, set_setting,
     get_history_page, get_record_detail,
 )
-from company_llm_rag.no_answer_analyzer import analyze_no_answer
+from company_llm_rag.no_answer_analyzer import analyze_no_answer, analyze_with_answer
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
@@ -117,9 +117,12 @@ async def chat(req: ChatRequest):
         perf=timing,
     )
 
-    # 답변없음 조사: 설정 ON일 때만 백그라운드 실행
-    if is_no_answer and get_setting("analyze_no_answer", "0") == "1":
-        asyncio.create_task(analyze_no_answer(record_id, req.message))
+    # 결과보고서 작성: 설정 ON일 때만 백그라운드 실행
+    if get_setting("analyze_no_answer", "0") == "1":
+        if is_no_answer:
+            asyncio.create_task(analyze_no_answer(record_id, req.message))
+        else:
+            asyncio.create_task(analyze_with_answer(record_id, req.message, answer, references))
 
     return ChatResponse(
         answer=answer,
@@ -187,8 +190,12 @@ async def chat_stream(req: ChatRequest):
             }
             yield f"data: {json.dumps(meta_ev, ensure_ascii=False)}\n\n"
 
-            if is_no_answer and get_setting("analyze_no_answer", "0") == "1":
-                asyncio.create_task(analyze_no_answer(record_id, req.message))
+            # 결과보고서 작성: 설정 ON일 때만 백그라운드 실행
+            if get_setting("analyze_no_answer", "0") == "1":
+                if is_no_answer:
+                    asyncio.create_task(analyze_no_answer(record_id, req.message))
+                else:
+                    asyncio.create_task(analyze_with_answer(record_id, req.message, answer, references))
 
     return StreamingResponse(
         generate(),

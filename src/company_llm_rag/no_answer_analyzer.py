@@ -1,7 +1,8 @@
 """
-답변없음 원인 자동 조사 모듈
+결과분석 모듈
 
-is_no_answer=True인 질문에 대해 백그라운드에서 LLM 조사를 수행합니다.
+- 답변 있음: 답변 내용 + 검색결과 + 첨부문서를 HTML로 저장 (LLM 재호출 없음)
+- 답변 없음: LLM이 원인을 분석하여 HTML로 저장
 설정의 analyze_no_answer 플래그가 ON일 때만 트리거됩니다.
 """
 
@@ -186,4 +187,84 @@ async def analyze_no_answer(record_id: int, question: str) -> None:
     except Exception as e:
         logger.error(f"[NoAnswerAnalyzer] 조사 실패 record_id={record_id}: {e}", exc_info=True)
         err_html = f'<p style="color:#c62828">조사 중 오류 발생: {e}</p>'
+        save_analysis(record_id, err_html, status="error")
+
+
+async def analyze_with_answer(record_id: int, question: str, answer: str, references: list) -> None:
+    """
+    답변이 있는 경우의 결과분석 — LLM 재호출 없이 답변·검색결과·첨부문서를 HTML로 저장합니다.
+    """
+    try:
+        set_analysis_pending(record_id)
+        docs = retrieve_documents(question, n_results=15, return_scores=True)
+
+        q_esc = question.replace("<", "&lt;").replace(">", "&gt;")
+
+        # 답변 HTML
+        import re as _re
+        answer_html = answer if answer.strip().startswith('<') else answer.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+
+        # 첨부문서 (SharePoint 파일 소스만)
+        attachments = [r for r in references if r.get('source') == 'sharepoint' and r.get('content_type') == 'file']
+        attachments_html = ''
+        if attachments:
+            items = []
+            for a in attachments:
+                title = a.get('title', '')
+                url = a.get('url', '')
+                label = title or url
+                page_nums = a.get('page_nums', [])
+                suffix = ''
+                if page_nums:
+                    if any(title.lower().endswith(e) for e in ('.pptx', '.ppt')):
+                        suffix = f' <span style="color:#888;font-size:0.78rem">Slide {", ".join(str(n) for n in page_nums)}</span>'
+                    else:
+                        suffix = f' <span style="color:#888;font-size:0.78rem">p.{", ".join(str(n) for n in page_nums)}</span>'
+                items.append(
+                    f'<li style="margin-bottom:4px">'
+                    f'<a href="{url}" target="_blank" style="color:#038387;text-decoration:none">{label}</a>'
+                    f'{suffix}</li>'
+                )
+            attachments_html = (
+                '<div style="margin-top:14px;border-top:1px solid #eee;padding-top:12px">'
+                '<div style="font-size:0.72rem;color:#999;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">첨부문서</div>'
+                f'<ul style="margin:0;padding-left:18px;font-size:0.82rem">{"".join(items)}</ul>'
+                '</div>'
+            )
+
+        # 검색결과 테이블
+        docs_html = _build_docs_html(docs)
+        toggle_btn = (
+            f'<button onclick="var el=document.getElementById(\'ana-docs-{record_id}\');'
+            f'var btn=this;'
+            f'if(el.style.display===\'none\'){{el.style.display=\'\';btn.textContent=\'▲ 검색 결과 {len(docs)}건 접기\';}}'
+            f'else{{el.style.display=\'none\';btn.textContent=\'▼ 검색 결과 {len(docs)}건 펼치기\';}}" '
+            f'style="background:none;border:1px solid #ddd;border-radius:4px;padding:4px 10px;'
+            f'font-size:0.75rem;color:#666;cursor:pointer;margin-top:14px;width:100%;text-align:left">'
+            f'▼ 검색 결과 {len(docs)}건 펼치기'
+            f'</button>'
+        )
+
+        html = (
+            '<div style="font-family:inherit;font-size:0.85rem">'
+            '<div style="margin-bottom:14px">'
+            '<div style="font-size:0.72rem;color:#999;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">질문</div>'
+            f'<div style="background:#f8f8f8;border-left:3px solid #6264a7;padding:8px 12px;border-radius:0 4px 4px 0">{q_esc}</div>'
+            '</div>'
+            '<div style="border-top:1px solid #eee;padding-top:14px">'
+            '<div style="font-size:0.72rem;color:#999;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">답변</div>'
+            f'<div style="line-height:1.75;color:#333">{answer_html}</div>'
+            '</div>'
+            f'{attachments_html}'
+            f'{toggle_btn}'
+            f'<div id="ana-docs-{record_id}" style="display:none;margin-top:8px">{docs_html}</div>'
+            '</div>'
+        )
+
+        save_analysis(record_id, html, status="done")
+        logger.info(f"[Analyzer] 결과분석 저장 record_id={record_id}")
+
+    except Exception as e:
+        logger.error(f"[Analyzer] 결과분석 실패 record_id={record_id}: {e}", exc_info=True)
+        err_html = f'<p style="color:#c62828">분석 중 오류 발생: {e}</p>'
         save_analysis(record_id, err_html, status="error")
