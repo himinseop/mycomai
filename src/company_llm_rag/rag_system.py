@@ -219,20 +219,51 @@ _MAX_REFERENCES = 10   # 참고 링크 최대 표시 수
 _MAX_REF_DISTANCE = 0.5  # 벡터 거리 기준치 — 이 이상이면 참고문서에서 제외 (0.0=완전일치, 1.0=무관)
 _JIRA_KEY_RE = re.compile(r'\b([A-Z]+-\d+)\b')
 
+# 쓸모없는 문서 패턴 (검색 후 LLM 컨텍스트에서 제외)
+_EMPTY_CONTENT_PATTERNS = re.compile(
+    r'^(content not extracted'       # SharePoint 텍스트 추출 실패
+    r'|<systemEventMessage\s*/>'     # Teams 시스템 이벤트
+    r'|<p\s*/>'                      # Confluence 빈 HTML
+    r'|.*%%EOF\s*$'                  # PDF 바이너리 파편
+    r'|.*startxref\s+\d+\s*$'       # PDF 바이너리 파편
+    r')$',
+    re.IGNORECASE | re.DOTALL,
+)
+_MIN_CONTENT_LEN = 10  # 10자 미만은 제외
+
+
+def _is_usable_content(doc: Dict) -> bool:
+    """LLM 컨텍스트에 포함할 가치가 있는 문서인지 판단합니다."""
+    content = doc.get('content', '') or ''
+    stripped = content.strip()
+    if len(stripped) < _MIN_CONTENT_LEN:
+        return False
+    if _EMPTY_CONTENT_PATTERNS.match(stripped):
+        return False
+    return True
+
 
 def _inject_jira_docs(query: str, retrieved_docs: List[Dict]) -> List[Dict]:
-    """쿼리에 Jira 이슈 키(예: WMPO-10564)가 있으면 해당 청크를 앞에 삽입합니다."""
+    """쿼리에 Jira 이슈 키(예: WMPO-10564)가 있으면 해당 청크를 앞에 삽입합니다.
+    검색 결과에 이미 있는 경우 _injected 플래그만 추가합니다."""
     keys = _JIRA_KEY_RE.findall(query)
     if not keys:
         return retrieved_docs
 
+    keys_set = set(keys)
+
+    # 검색 결과에 이미 포함된 쿼리 키 문서는 _injected 마킹 (거리 필터 예외 처리용)
+    for doc in retrieved_docs:
+        if doc['metadata'].get('jira_issue_key', '') in keys_set:
+            doc['_injected'] = True
+
     from company_llm_rag.database import db_manager
     collection = db_manager.get_collection()
 
-    existing_ids = {d['metadata'].get('jira_issue_key', '') for d in retrieved_docs}
+    existing_keys = {d['metadata'].get('jira_issue_key', '') for d in retrieved_docs}
     injected: List[Dict] = []
     for key in keys:
-        if key in existing_ids:
+        if key in existing_keys:
             continue
         try:
             res = collection.get(
@@ -245,7 +276,7 @@ def _inject_jira_docs(query: str, retrieved_docs: List[Dict]) -> List[Dict]:
                     'content': res['documents'][i],
                     'metadata': res['metadatas'][i],
                     '_distance': 0.0,
-                    '_injected': True,  # 직접 조회된 문서 표시
+                    '_injected': True,
                 })
         except Exception as e:
             logger.debug(f"Jira 이슈 직접 조회 실패 ({key}): {e}")
@@ -293,9 +324,9 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False) -> List
     for doc in retrieved_docs:
         if len(references) >= max_refs:
             break
-        # 벡터 거리 기준치 초과 시 관련성 낮음으로 판단 → 제외
-        # 직접 주입된 문서(distance=0.0)는 항상 포함
-        if doc.get('_distance', 0.0) > _MAX_REF_DISTANCE:
+        # 쿼리에 명시된 Jira 키와 일치하는 문서(_injected)는 항상 포함
+        # 나머지는 벡터 거리 기준치 초과 시 제외 (키워드 전용 문서는 _distance=1.0이므로 주의)
+        if not doc.get('_injected', False) and doc.get('_distance', 0.0) > _MAX_REF_DISTANCE:
             continue
         meta = doc["metadata"]
         url = meta.get("url", "") or ""
@@ -410,9 +441,13 @@ def rag_query(
         source_filter=filters['sources'] or None,
         url_extensions=filters['extensions'] or None,
         return_timing=True,
+        return_scores=True,
     )
     t_retrieval = time.monotonic()
     retrieval_ms = int((t_retrieval - t0) * 1000)
+
+    # 쓸모없는 문서 제거 (빈 내용, PDF 바이너리, Teams 시스템 이벤트 등)
+    retrieved_docs = [d for d in retrieved_docs if _is_usable_content(d)]
 
     retrieved_docs = _inject_jira_docs(user_query, retrieved_docs)
 
@@ -473,9 +508,13 @@ def rag_query_stream(
         source_filter=filters['sources'] or None,
         url_extensions=filters['extensions'] or None,
         return_timing=True,
+        return_scores=True,
     )
     t_retrieval = time.monotonic()
     retrieval_ms = int((t_retrieval - t0) * 1000)
+
+    # 쓸모없는 문서 제거 (빈 내용, PDF 바이너리, Teams 시스템 이벤트 등)
+    retrieved_docs = [d for d in retrieved_docs if _is_usable_content(d)]
 
     retrieved_docs = _inject_jira_docs(user_query, retrieved_docs)
 

@@ -26,30 +26,69 @@ _STOPWORDS: Set[str] = {
     "뭐야", "뭔가", "무엇", "어떤", "어디",
     # 관계어
     "관련해서", "관련된", "관련", "대해서", "대한",
-    "연동건", "이슈", "건", "것", "거",
+    "이슈", "것", "거",
     # 빈출 일반명사 (검색 노이즈)
     "내용", "관련내용", "정보", "자료", "문서",
     "진행", "진행된", "진행했던", "진행중인",
     "관련자료", "내역", "현황", "결과",
+    # 문법/서술 표현
+    "하게된거야", "하게된", "된거야", "왜",
 }
 
 
 _MAX_KEYWORDS = 3  # 키워드 검색 최대 개수 (많을수록 $contains 풀스캔 반복)
+
+# 한국어 조사/어미 (길이 긴 것 먼저 매칭해야 올바르게 제거됨)
+_KO_SUFFIXES = sorted([
+    "에서부터", "에서는", "에서도", "에서의", "에서만",
+    "이었던", "이라는", "이라고", "이지만", "이므로", "이면서",
+    "으로서", "으로의", "대로의",
+    "에게서", "에서",
+    "부터", "까지", "라는", "라고", "지만", "므로", "면서",
+    "로서", "로의",
+    "았던", "었던",
+    "이야", "이에요", "이에서",
+    "를", "을", "은", "는", "이", "가", "의", "에", "도", "와", "과", "건",
+], key=len, reverse=True)
+
+_KEYWORD_ONLY_DISCOUNT = 0.5  # 키워드 전용 결과(벡터 미매칭) RRF 할인율
+
+
+def _strip_ko_suffix(word: str) -> str:
+    """한국어 조사/어미를 제거합니다. 제거 후 2자 미만이면 원본 반환."""
+    for suffix in _KO_SUFFIXES:
+        if word.endswith(suffix):
+            stem = word[:-len(suffix)]
+            return stem if len(stem) >= 2 else word
+    return word
 
 
 def _extract_keywords(query: str) -> List[str]:
     """쿼리에서 검색에 유효한 핵심 키워드를 추출합니다. 최대 _MAX_KEYWORDS개."""
     # Jira 이슈 키 패턴 우선 추출 (예: WMPO-10564, ERROR-42) — 하이픈 포함 통째로 유지
     jira_keys = re.findall(r'[A-Z]+-\d+', query)
+    jira_key_set = set(jira_keys)
 
     words = re.findall(r'[가-힣A-Za-z0-9]+', query)
-    filtered = [w for w in words if len(w) >= 2 and w not in _STOPWORDS]
+    # 조사 제거 (Jira 키는 건드리지 않음)
+    stripped = []
+    for w in words:
+        if w in jira_key_set:
+            continue
+        # 한글/영문으로 시작하지 않는 토큰 스킵 (버전 파편 "0의" 등)
+        if not re.match(r'[가-힣a-zA-Z]', w):
+            continue
+        s = _strip_ko_suffix(w)
+        # 조사 제거 후 한글/영문 없으면 스킵 (숫자 파편 등)
+        if len(s) >= 2 and s not in _STOPWORDS and re.search(r'[가-힣a-zA-Z]', s):
+            stripped.append(s)
+
     # 긴 단어일수록 고유성이 높음 → 길이 내림차순으로 상위 N개만 사용
-    filtered.sort(key=len, reverse=True)
+    stripped.sort(key=len, reverse=True)
 
     # Jira 키 우선, 나머지는 일반 키워드로 채움 (Jira 키 구성 파편 제외)
     jira_parts = {part for key in jira_keys for part in key.split('-')}
-    remaining = [w for w in filtered if w not in jira_parts and w not in jira_keys]
+    remaining = [w for w in stripped if w not in jira_parts and w not in jira_keys]
     result = jira_keys + remaining
     return result[:_MAX_KEYWORDS]
 
@@ -261,7 +300,10 @@ def retrieve_documents(
             k_rank = keyword_rank_map.get(doc_id)
             v_score = _rrf_score(v_rank) if v_rank is not None else 0.0
             k_score = _rrf_score(k_rank) if k_rank is not None else 0.0
-            rrf = v_score + k_score
+            if v_rank is None and k_rank is not None:
+                rrf = k_score * _KEYWORD_ONLY_DISCOUNT
+            else:
+                rrf = v_score + k_score
             # Knowledge Hub 팀 문서 우선순위 부스트
             if hub_teams:
                 team = doc_map[doc_id].get('metadata', {}).get('teams_team_name', '')

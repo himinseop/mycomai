@@ -23,8 +23,10 @@ SESSION_TTL_DAYS = 7    # 세션 유효 기간
 
 
 def _conn() -> sqlite3.Connection:
-    con = sqlite3.connect(str(_DB_PATH))
+    con = sqlite3.connect(str(_DB_PATH), timeout=30)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA synchronous=NORMAL")
     return con
 
 
