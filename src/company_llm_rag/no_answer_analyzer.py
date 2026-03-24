@@ -81,12 +81,21 @@ def _build_docs_html(docs: list) -> str:
             f'<span style="font-size:0.78rem;font-weight:600;color:{pct_color};white-space:nowrap">{pct:.0f}%</span>'
             f'</div>'
         )
+        url = meta.get("url") or ""
+        if not url and source == "teams":
+            from company_llm_rag.rag_system import _build_teams_url
+            url = _build_teams_url(meta)
+        if url:
+            title_cell = f'<a href="{url}" target="_blank" style="color:#0052cc;text-decoration:none" title="{title_esc}">{title_esc}</a>'
+        else:
+            title_cell = f'<span title="{title_esc}">{title_esc}</span>'
+
         bg = "#fffde7" if i <= 3 else ""
         rows.append(
             f'<tr style="background:{bg};border-bottom:1px solid #f0f0f0">'
             f'<td style="text-align:center;color:#999;font-size:0.78rem;padding:5px 4px">{i}</td>'
             f'<td style="padding:5px 4px">{_source_badge(source)}</td>'
-            f'<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 4px;max-width:320px" title="{title_esc}">{title_esc}</td>'
+            f'<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 4px;max-width:320px">{title_cell}</td>'
             f'<td style="padding:5px 8px;min-width:140px">{bar}</td>'
             f'<td style="text-align:center;font-size:0.78rem;padding:5px 4px">{v_cell}</td>'
             f'<td style="text-align:center;font-size:0.78rem;padding:5px 4px">{k_cell}</td>'
@@ -190,21 +199,56 @@ async def analyze_no_answer(record_id: int, question: str) -> None:
         save_analysis(record_id, err_html, status="error")
 
 
+def _build_refs_html(references: list) -> str:
+    """참고문서 리스트를 HTML 테이블로 변환합니다 (답변 있는 경우용)."""
+    if not references:
+        return '<p style="color:#888;font-size:0.85rem">참고문서 없음</p>'
+
+    rows = []
+    for i, ref in enumerate(references, 1):
+        source = ref.get('source', '?')
+        title = ref.get('title') or '제목 없음'
+        url = ref.get('url') or ''
+        title_esc = title.replace('<', '&lt;').replace('>', '&gt;')
+        if url:
+            title_cell = f'<a href="{url}" target="_blank" style="color:#0052cc;text-decoration:none" title="{title_esc}">{title_esc}</a>'
+        else:
+            title_cell = f'<span title="{title_esc}">{title_esc}</span>'
+        bg = "#fffde7" if i == 1 else ""
+        rows.append(
+            f'<tr style="background:{bg};border-bottom:1px solid #f0f0f0">'
+            f'<td style="text-align:center;color:#999;font-size:0.78rem;padding:5px 4px">{i}</td>'
+            f'<td style="padding:5px 4px">{_source_badge(source)}</td>'
+            f'<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 4px;max-width:380px">{title_cell}</td>'
+            f'</tr>'
+        )
+
+    th = 'style="padding:5px 4px;font-weight:600;font-size:0.73rem;color:#888;white-space:nowrap"'
+    header = (
+        f'<thead><tr style="background:#f7f7f7;border-bottom:2px solid #eee">'
+        f'<th {th}>#</th><th {th}>소스</th><th {th}>제목</th>'
+        f'</tr></thead>'
+    )
+    return (
+        '<div style="overflow-x:auto;border:1px solid #eee;border-radius:6px">'
+        '<table style="width:100%;border-collapse:collapse;font-size:0.8rem">'
+        f'{header}<tbody>{"".join(rows)}</tbody>'
+        '</table></div>'
+    )
+
+
 async def analyze_with_answer(record_id: int, question: str, answer: str, references: list) -> None:
     """
-    답변이 있는 경우의 결과분석 — LLM 재호출 없이 답변·검색결과·첨부문서를 HTML로 저장합니다.
+    답변이 있는 경우의 결과분석 — LLM 재호출 없이 답변·참고문서·첨부파일을 HTML로 저장합니다.
+    references는 실제 답변에 사용된 문서 목록이므로 재검색 없이 그대로 사용합니다.
     """
     try:
         set_analysis_pending(record_id)
-        docs = retrieve_documents(question, n_results=15, return_scores=True)
 
         q_esc = question.replace("<", "&lt;").replace(">", "&gt;")
-
-        # 답변 HTML
-        import re as _re
         answer_html = answer if answer.strip().startswith('<') else answer.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
-        # 첨부문서 (SharePoint 파일 소스만)
+        # 첨부문서 (SharePoint 파일만)
         attachments = [r for r in references if r.get('source') == 'sharepoint' and r.get('content_type') == 'file']
         attachments_html = ''
         if attachments:
@@ -232,16 +276,17 @@ async def analyze_with_answer(record_id: int, question: str, answer: str, refere
                 '</div>'
             )
 
-        # 검색결과 테이블
-        docs_html = _build_docs_html(docs)
+        # 참고문서 테이블 (실제 답변에 사용된 문서)
+        refs_html = _build_refs_html(references)
+        n_refs = len(references)
         toggle_btn = (
             f'<button onclick="var el=document.getElementById(\'ana-docs-{record_id}\');'
             f'var btn=this;'
-            f'if(el.style.display===\'none\'){{el.style.display=\'\';btn.textContent=\'▲ 검색 결과 {len(docs)}건 접기\';}}'
-            f'else{{el.style.display=\'none\';btn.textContent=\'▼ 검색 결과 {len(docs)}건 펼치기\';}}" '
+            f'if(el.style.display===\'none\'){{el.style.display=\'\';btn.textContent=\'▲ 참고문서 {n_refs}건 접기\';}}'
+            f'else{{el.style.display=\'none\';btn.textContent=\'▼ 참고문서 {n_refs}건 펼치기\';}}" '
             f'style="background:none;border:1px solid #ddd;border-radius:4px;padding:4px 10px;'
             f'font-size:0.75rem;color:#666;cursor:pointer;margin-top:14px;width:100%;text-align:left">'
-            f'▼ 검색 결과 {len(docs)}건 펼치기'
+            f'▼ 참고문서 {n_refs}건 펼치기'
             f'</button>'
         )
 
@@ -257,12 +302,12 @@ async def analyze_with_answer(record_id: int, question: str, answer: str, refere
             '</div>'
             f'{attachments_html}'
             f'{toggle_btn}'
-            f'<div id="ana-docs-{record_id}" style="display:none;margin-top:8px">{docs_html}</div>'
+            f'<div id="ana-docs-{record_id}" style="display:none;margin-top:8px">{refs_html}</div>'
             '</div>'
         )
 
         save_analysis(record_id, html, status="done")
-        logger.info(f"[Analyzer] 결과분석 저장 record_id={record_id}")
+        logger.info(f"[Analyzer] 결과분석 저장 record_id={record_id} refs={n_refs}")
 
     except Exception as e:
         logger.error(f"[Analyzer] 결과분석 실패 record_id={record_id}: {e}", exc_info=True)

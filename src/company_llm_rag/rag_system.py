@@ -88,8 +88,14 @@ def _build_teams_url(meta: dict) -> str:
             f"?tenantId={tenant_id}&groupId={team_id}"
             f"&parentMessageId={source_id}&teamName={team_name}&channelName={channel_name}"
         )
+    if chat_id and source_id:
+        # 일반 채팅 특정 메시지 딥링크
+        return (
+            f"https://teams.microsoft.com/l/message/{chat_id}/{source_id}"
+            f"?tenantId={tenant_id}&parentMessageId={source_id}"
+        )
     if chat_id:
-        # 대화방(채팅) 딥링크 — /l/chat/ 형식 사용 (팀 채널과 다름)
+        # 메시지 ID 없으면 채팅방 루트로
         return f"https://teams.microsoft.com/l/chat/{chat_id}/0?tenantId={tenant_id}"
     return ""
 
@@ -210,7 +216,7 @@ def _detect_filters(query: str) -> dict:
     return {'sources': sources, 'extensions': extensions}
 _NO_ANSWER_PHRASE = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
 _MAX_REFERENCES = 10   # 참고 링크 최대 표시 수
-_MAX_REF_DISTANCE = 0.6  # 벡터 거리 기준치 — 이 이상이면 참고문서에서 제외 (0.0=완전일치, 1.0=무관)
+_MAX_REF_DISTANCE = 0.5  # 벡터 거리 기준치 — 이 이상이면 참고문서에서 제외 (0.0=완전일치, 1.0=무관)
 _JIRA_KEY_RE = re.compile(r'\b([A-Z]+-\d+)\b')
 
 
