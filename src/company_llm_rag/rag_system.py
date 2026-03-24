@@ -449,14 +449,16 @@ def rag_query(
     # 쓸모없는 문서 제거 (빈 내용, PDF 바이너리, Teams 시스템 이벤트 등)
     retrieved_docs = [d for d in retrieved_docs if _is_usable_content(d)]
 
+    t_inject_start = time.monotonic()
     retrieved_docs = _inject_jira_docs(user_query, retrieved_docs)
+    inject_ms = int((time.monotonic() - t_inject_start) * 1000)
 
     if _docs_out is not None:
         _docs_out.extend(retrieved_docs)
 
     if not retrieved_docs:
         answer = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
-        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm._default_model}
+        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm._default_model}
         return (answer, [], timing) if return_refs else answer
 
     prompt = build_rag_prompt(user_query, retrieved_docs)
@@ -466,10 +468,10 @@ def rag_query(
     total_ms = int((t_llm - t0) * 1000)
 
     logger.info(
-        f"[RAG 성능] 검색={retrieval_ms}ms (벡터={ret_timing['vector_ms']}ms / FTS={ret_timing['keyword_ms']}ms) | LLM={llm_ms}ms | "
+        f"[RAG 성능] 검색={retrieval_ms}ms (벡터={ret_timing['vector_ms']}ms / FTS={ret_timing['keyword_ms']}ms) | 직접조회={inject_ms}ms | LLM={llm_ms}ms | "
         f"총={total_ms}ms | 문서={len(retrieved_docs)}개"
     )
-    timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm._default_model}
+    timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "inject_ms": inject_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm._default_model}
 
     if not return_refs:
         return llm_response
@@ -516,7 +518,9 @@ def rag_query_stream(
     # 쓸모없는 문서 제거 (빈 내용, PDF 바이너리, Teams 시스템 이벤트 등)
     retrieved_docs = [d for d in retrieved_docs if _is_usable_content(d)]
 
+    t_inject_start = time.monotonic()
     retrieved_docs = _inject_jira_docs(user_query, retrieved_docs)
+    inject_ms = int((time.monotonic() - t_inject_start) * 1000)
 
     # 호출자가 원할 경우 retrieved_docs를 외부로 노출 (분석용)
     if _docs_out is not None:
@@ -524,7 +528,7 @@ def rag_query_stream(
 
     if not retrieved_docs:
         answer = _NO_ANSWER_PHRASE
-        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm._default_model}
+        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm._default_model}
         yield {"type": "done", "answer": answer, "references": [], "timing": timing, "is_no_answer": True}
         return
 
@@ -549,9 +553,9 @@ def rag_query_stream(
     t_llm = time.monotonic()
     llm_ms = int((t_llm - t_llm_start) * 1000)
     total_ms = int((t_llm - t0) * 1000)
-    timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm._default_model}
+    timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "inject_ms": inject_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm._default_model}
     logger.info(
-        f"[RAG 스트리밍 성능] 검색={retrieval_ms}ms (벡터={ret_timing['vector_ms']}ms / FTS={ret_timing['keyword_ms']}ms) | LLM={llm_ms}ms | "
+        f"[RAG 스트리밍 성능] 검색={retrieval_ms}ms (벡터={ret_timing['vector_ms']}ms / FTS={ret_timing['keyword_ms']}ms) | 직접조회={inject_ms}ms | LLM={llm_ms}ms | "
         f"총={total_ms}ms | 문서={len(retrieved_docs)}개"
     )
 

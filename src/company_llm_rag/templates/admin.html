@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>오사장 어드민</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@13/marked.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f6fa; color: #333; }
@@ -293,6 +294,14 @@
   .analysis-box p { margin: 4px 0 10px; color: #444; }
   .analysis-box ul { margin: 4px 0 10px; padding-left: 18px; color: #444; }
   .analysis-box li { margin-bottom: 3px; }
+  .markdown-body { line-height: 1.6; }
+  .markdown-body h1,.markdown-body h2,.markdown-body h3 { margin: .6em 0 .3em; font-size: 1em; font-weight: 700; }
+  .markdown-body ul,.markdown-body ol { margin: .4em 0 .4em 1.4em; }
+  .markdown-body p { margin: .4em 0; }
+  .markdown-body code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: .88em; }
+  .markdown-body pre { background: #f5f5f5; padding: 10px; border-radius: 6px; overflow-x: auto; }
+  .markdown-body table { border-collapse: collapse; width: 100%; margin: .4em 0; }
+  .markdown-body td, .markdown-body th { border: 1px solid #ddd; padding: 5px 8px; }
 </style>
 </head>
 <body>
@@ -492,6 +501,15 @@
   function escHtml(str) {
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
+
+  // ── 마크다운 렌더링 ─────────────────────────────────────────────────────
+  const _mdRenderer = new marked.Renderer();
+  _mdRenderer.link = ({ href, title, text }) => {
+    const t = title ? ` title="${escHtml(title)}"` : '';
+    return `<a href="${escHtml(href)}"${t} target="_blank" rel="noopener noreferrer">${text}</a>`;
+  };
+  marked.setOptions({ renderer: _mdRenderer, breaks: false, gfm: true });
+  function renderMd(text) { return text ? marked.parse(text) : ''; }
 
   function fmtTs(iso) {
     const d = new Date(iso);
@@ -754,7 +772,7 @@
 
     let html = meta
       + `<div class="modal-section"><label>질문</label><div class="content-box">${escHtml(data.question)}</div></div>`
-      + `<div class="modal-section"><label>답변</label><div class="content-box">${escHtml(data.answer)}</div></div>`;
+      + `<div class="modal-section"><label>답변</label><div class="content-box markdown-body">${renderMd(data.answer)}</div></div>`;
 
     showModal(`질문 #${data.id}`, html);
   }
@@ -790,9 +808,14 @@
       }
       if (src === 'sharepoint') {
         try {
-          const segs = decodeURIComponent(r.url).split('/');
-          return segs[segs.length - 1].split('?')[0] || r.title;
-        } catch { return r.title; }
+          const u = new URL(r.url);
+          const fileParam = u.searchParams.get('file');
+          if (fileParam) return decodeURIComponent(fileParam);
+          const parts = u.pathname.split('/');
+          const lastSeg = decodeURIComponent(parts[parts.length - 1] || '');
+          if (lastSeg && !lastSeg.toLowerCase().endsWith('.aspx')) return lastSeg;
+        } catch (_) {}
+        return r.title;
       }
       if (src === 'teams') {
         const prefix = r.team_name && r.channel_name ? `[${r.team_name}/${r.channel_name}] `
@@ -864,15 +887,18 @@
       const total   = p.total_ms || 1;
       const vMs     = p.vector_ms  ?? null;
       const kMs     = p.keyword_ms ?? null;
+      const iMs     = p.inject_ms  ?? null;
       const hasSub  = vMs !== null && kMs !== null;
+      const hasInj  = iMs !== null && iMs > 0;
       const rMs     = p.retrieval_ms;
       const lMs     = p.llm_ms;
 
-      // 스택바 비율 (벡터/FTS 분리 or 검색 통합)
+      // 스택바 비율 (벡터/FTS 분리 or 검색 통합 + 직접조회)
       const vPct = hasSub ? Math.max(1, Math.round(vMs / total * 100)) : 0;
       const kPct = hasSub ? Math.max(1, Math.round(kMs / total * 100)) : 0;
+      const iPct = hasInj ? Math.max(1, Math.round(iMs / total * 100)) : 0;
       const rPct = hasSub ? Math.max(1, Math.round(rMs / total * 100)) : Math.max(1, Math.round(rMs / total * 100));
-      const lPct = Math.max(1, 100 - rPct);
+      const lPct = Math.max(1, 100 - rPct - iPct);
 
       const dot = (color) => `<span style="display:inline-block;width:9px;height:9px;background:${color};border-radius:2px;margin-right:5px;flex-shrink:0"></span>`;
 
@@ -892,6 +918,11 @@
               ${rPct >= 10 ? '검색' : ''}
             </div>
             `}
+            ${hasInj ? `
+            <div style="width:${iPct}%;background:#f59e0b;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="직접조회 ${fmtMs(iMs)}">
+              ${iPct >= 10 ? '직접조회' : ''}
+            </div>
+            ` : ''}
             <div style="width:${lPct}%;background:#0078d4;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="LLM ${fmtMs(lMs)}">
               ${lPct >= 10 ? 'LLM' : ''}
             </div>
@@ -902,6 +933,7 @@
             <span style="display:flex;align-items:center">${dot('#6264a7')}ChromaDB 벡터</span>
             <span style="display:flex;align-items:center">${dot('#8b5cf6')}FTS 키워드</span>
             ` : `<span style="display:flex;align-items:center">${dot('#6264a7')}검색</span>`}
+            ${hasInj ? `<span style="display:flex;align-items:center">${dot('#f59e0b')}Jira 직접조회</span>` : ''}
             <span style="display:flex;align-items:center">${dot('#0078d4')}LLM 생성</span>
           </div>
         </div>
@@ -929,6 +961,12 @@
               <td style="text-align:right;padding:8px;font-weight:700;color:#1a1a2e;border-bottom:1px solid #f0f0f0">${fmtMs(rMs)}</td>
             </tr>
             `}
+            ${hasInj ? `
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #f0f0f0">${dot('#f59e0b')}Jira 직접조회</td>
+              <td style="text-align:right;padding:8px;font-weight:700;color:#1a1a2e;border-bottom:1px solid #f0f0f0">${fmtMs(iMs)}</td>
+            </tr>
+            ` : ''}
             <tr>
               <td style="padding:8px">${dot('#0078d4')}LLM 생성 (OpenAI)</td>
               <td style="text-align:right;padding:8px;font-weight:700;color:#1a1a2e">${fmtMs(lMs)}</td>

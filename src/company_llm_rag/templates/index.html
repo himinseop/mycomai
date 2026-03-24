@@ -602,8 +602,10 @@
         const fileParam = u.searchParams.get('file');
         if (fileParam) return decodeURIComponent(fileParam);
         const parts = u.pathname.split('/');
-        return decodeURIComponent(parts[parts.length - 1] || '') || ref.title;
-      } catch (_) { return ref.title; }
+        const lastSeg = decodeURIComponent(parts[parts.length - 1] || '');
+        if (lastSeg && !lastSeg.toLowerCase().endsWith('.aspx')) return lastSeg;
+      } catch (_) {}
+      return ref.title;
     }
     if (ref.source === 'teams') {
       // 채널: [팀명/채널명]  일반채팅: [대화방명]
