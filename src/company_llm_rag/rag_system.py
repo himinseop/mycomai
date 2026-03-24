@@ -245,6 +245,7 @@ def _inject_jira_docs(query: str, retrieved_docs: List[Dict]) -> List[Dict]:
                     'content': res['documents'][i],
                     'metadata': res['metadatas'][i],
                     '_distance': 0.0,
+                    '_injected': True,  # 직접 조회된 문서 표시
                 })
         except Exception as e:
             logger.debug(f"Jira 이슈 직접 조회 실패 ({key}): {e}")

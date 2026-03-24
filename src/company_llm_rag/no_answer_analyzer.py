@@ -72,20 +72,36 @@ def _build_docs_html(docs: list, ref_urls: set = None) -> str:
         v_rank = doc.get("_vector_rank")
         k_rank = doc.get("_keyword_rank")
 
+        is_injected = doc.get("_injected", False)
         v_cell = f'<span style="color:#0052cc">#{v_rank + 1}</span>' if v_rank is not None else '<span style="color:#ccc">—</span>'
         k_cell = f'<span style="color:#038387">#{k_rank + 1}</span>' if k_rank is not None else '<span style="color:#ccc">—</span>'
-
-        pct = min(rrf / _RRF_MAX * 100, 100)
-        bar_pct = int(pct)
-        pct_color = "#2e7d32" if pct >= 60 else "#f57c00" if pct >= 30 else "#9e9e9e"
-        bar = (
-            f'<div style="display:flex;align-items:center;gap:6px">'
-            f'<div style="width:80px;height:5px;background:#eee;border-radius:3px;flex-shrink:0">'
-            f'<div style="width:{bar_pct}%;height:100%;background:{pct_color};border-radius:3px"></div>'
-            f'</div>'
-            f'<span style="font-size:0.78rem;font-weight:600;color:{pct_color};white-space:nowrap">{pct:.0f}%</span>'
-            f'</div>'
+        d_cell = (
+            '<span style="display:inline-block;padding:1px 5px;border-radius:3px;'
+            'font-size:0.68rem;font-weight:600;color:#fff;background:#6264a7">직접조회</span>'
+            if is_injected else '<span style="color:#ccc">—</span>'
         )
+
+        if is_injected:
+            bar = (
+                '<div style="display:flex;align-items:center;gap:6px">'
+                '<div style="width:80px;height:5px;background:#eee;border-radius:3px;flex-shrink:0">'
+                '<div style="width:100%;height:100%;background:#6264a7;border-radius:3px"></div>'
+                '</div>'
+                '<span style="font-size:0.78rem;font-weight:600;color:#6264a7;white-space:nowrap">직접조회</span>'
+                '</div>'
+            )
+        else:
+            pct = min(rrf / _RRF_MAX * 100, 100)
+            bar_pct = int(pct)
+            pct_color = "#2e7d32" if pct >= 60 else "#f57c00" if pct >= 30 else "#9e9e9e"
+            bar = (
+                f'<div style="display:flex;align-items:center;gap:6px">'
+                f'<div style="width:80px;height:5px;background:#eee;border-radius:3px;flex-shrink:0">'
+                f'<div style="width:{bar_pct}%;height:100%;background:{pct_color};border-radius:3px"></div>'
+                f'</div>'
+                f'<span style="font-size:0.78rem;font-weight:600;color:{pct_color};white-space:nowrap">{pct:.0f}%</span>'
+                f'</div>'
+            )
         url = meta.get("url") or ""
         if not url and source == "teams":
             from company_llm_rag.rag_system import _build_teams_url
@@ -107,10 +123,11 @@ def _build_docs_html(docs: list, ref_urls: set = None) -> str:
             f'<tr style="background:{bg};border-bottom:1px solid #f0f0f0">'
             f'<td style="text-align:center;color:#999;font-size:0.78rem;padding:5px 4px">{i}</td>'
             f'<td style="padding:5px 4px">{_source_badge(source)}</td>'
-            f'<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 4px;max-width:300px">{title_cell}{ref_badge}</td>'
+            f'<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 4px;max-width:280px">{title_cell}{ref_badge}</td>'
             f'<td style="padding:5px 8px;min-width:140px">{bar}</td>'
             f'<td style="text-align:center;font-size:0.78rem;padding:5px 4px">{v_cell}</td>'
             f'<td style="text-align:center;font-size:0.78rem;padding:5px 4px">{k_cell}</td>'
+            f'<td style="text-align:center;padding:5px 4px">{d_cell}</td>'
             f'</tr>'
         )
 
@@ -121,6 +138,7 @@ def _build_docs_html(docs: list, ref_urls: set = None) -> str:
         f'<th {th}>관련도</th>'
         f'<th {th} title="벡터 검색 순위">벡터</th>'
         f'<th {th} title="키워드 검색 순위">키워드</th>'
+        f'<th {th} title="이슈 키 직접 조회">직접조회</th>'
         f'</tr></thead>'
     )
     return (
