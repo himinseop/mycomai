@@ -94,7 +94,8 @@ async def chat(req: ChatRequest):
     logger.info(f"[{req.session_id}] Query: {req.message}")
 
     t_start = time.monotonic()
-    answer, references, timing = rag_query(req.message, conversation_history=history, return_refs=True)
+    docs_holder: list = []
+    answer, references, timing = rag_query(req.message, conversation_history=history, return_refs=True, _docs_out=docs_holder)
     response_time_ms = int((time.monotonic() - t_start) * 1000)
 
     is_no_answer = _NO_ANSWER_PHRASE in answer
@@ -122,7 +123,7 @@ async def chat(req: ChatRequest):
         if is_no_answer:
             asyncio.create_task(analyze_no_answer(record_id, req.message))
         else:
-            asyncio.create_task(analyze_with_answer(record_id, req.message, answer, references))
+            asyncio.create_task(analyze_with_answer(record_id, req.message, answer, references, list(docs_holder)))
 
     return ChatResponse(
         answer=answer,
@@ -139,10 +140,11 @@ async def chat_stream(req: ChatRequest):
     history = _sessions.setdefault(req.session_id, [])
     loop = asyncio.get_event_loop()
     queue: asyncio.Queue = asyncio.Queue()
+    docs_holder: list = []  # 검색된 전체 문서 캡처 (결과분석용)
 
     def _run():
         try:
-            for ev in rag_query_stream(req.message, conversation_history=history):
+            for ev in rag_query_stream(req.message, conversation_history=history, _docs_out=docs_holder):
                 loop.call_soon_threadsafe(queue.put_nowait, ev)
         except Exception as e:
             loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "message": str(e)})
@@ -195,7 +197,7 @@ async def chat_stream(req: ChatRequest):
                 if is_no_answer:
                     asyncio.create_task(analyze_no_answer(record_id, req.message))
                 else:
-                    asyncio.create_task(analyze_with_answer(record_id, req.message, answer, references))
+                    asyncio.create_task(analyze_with_answer(record_id, req.message, answer, references, list(docs_holder)))
 
     return StreamingResponse(
         generate(),

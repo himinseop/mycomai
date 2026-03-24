@@ -53,9 +53,14 @@ def _source_badge(source: str) -> str:
 _RRF_MAX = 2 / 61  # rank=0 벡터+키워드 동시 1위일 때 최대값 ≈ 0.03279
 
 
-def _build_docs_html(docs: list) -> str:
+def _build_docs_html(docs: list, ref_urls: set = None) -> str:
+    """검색 결과를 HTML 테이블로 변환합니다.
+    ref_urls: 실제 답변에 참고문서로 제공된 URL 집합. 해당 행은 강조 표시합니다.
+    """
     if not docs:
         return '<p style="color:#888;font-size:0.85rem">검색된 문서 없음</p>'
+
+    ref_urls = ref_urls or set()
 
     rows = []
     for i, doc in enumerate(docs, 1):
@@ -90,12 +95,19 @@ def _build_docs_html(docs: list) -> str:
         else:
             title_cell = f'<span title="{title_esc}">{title_esc}</span>'
 
-        bg = "#fffde7" if i <= 3 else ""
+        is_ref = url in ref_urls
+        if is_ref:
+            bg = "#e8f5e9"  # 연초록 — 참고문서로 제공된 항목
+            ref_badge = '<span style="display:inline-block;margin-left:6px;padding:1px 5px;border-radius:3px;font-size:0.68rem;font-weight:600;color:#fff;background:#2e7d32;vertical-align:middle">참고문서</span>'
+        else:
+            bg = "#fffde7" if i <= 3 else ""
+            ref_badge = ""
+
         rows.append(
             f'<tr style="background:{bg};border-bottom:1px solid #f0f0f0">'
             f'<td style="text-align:center;color:#999;font-size:0.78rem;padding:5px 4px">{i}</td>'
             f'<td style="padding:5px 4px">{_source_badge(source)}</td>'
-            f'<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 4px;max-width:320px">{title_cell}</td>'
+            f'<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 4px;max-width:300px">{title_cell}{ref_badge}</td>'
             f'<td style="padding:5px 8px;min-width:140px">{bar}</td>'
             f'<td style="text-align:center;font-size:0.78rem;padding:5px 4px">{v_cell}</td>'
             f'<td style="text-align:center;font-size:0.78rem;padding:5px 4px">{k_cell}</td>'
@@ -199,51 +211,17 @@ async def analyze_no_answer(record_id: int, question: str) -> None:
         save_analysis(record_id, err_html, status="error")
 
 
-def _build_refs_html(references: list) -> str:
-    """참고문서 리스트를 HTML 테이블로 변환합니다 (답변 있는 경우용)."""
-    if not references:
-        return '<p style="color:#888;font-size:0.85rem">참고문서 없음</p>'
-
-    rows = []
-    for i, ref in enumerate(references, 1):
-        source = ref.get('source', '?')
-        title = ref.get('title') or '제목 없음'
-        url = ref.get('url') or ''
-        title_esc = title.replace('<', '&lt;').replace('>', '&gt;')
-        if url:
-            title_cell = f'<a href="{url}" target="_blank" style="color:#0052cc;text-decoration:none" title="{title_esc}">{title_esc}</a>'
-        else:
-            title_cell = f'<span title="{title_esc}">{title_esc}</span>'
-        bg = "#fffde7" if i == 1 else ""
-        rows.append(
-            f'<tr style="background:{bg};border-bottom:1px solid #f0f0f0">'
-            f'<td style="text-align:center;color:#999;font-size:0.78rem;padding:5px 4px">{i}</td>'
-            f'<td style="padding:5px 4px">{_source_badge(source)}</td>'
-            f'<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 4px;max-width:380px">{title_cell}</td>'
-            f'</tr>'
-        )
-
-    th = 'style="padding:5px 4px;font-weight:600;font-size:0.73rem;color:#888;white-space:nowrap"'
-    header = (
-        f'<thead><tr style="background:#f7f7f7;border-bottom:2px solid #eee">'
-        f'<th {th}>#</th><th {th}>소스</th><th {th}>제목</th>'
-        f'</tr></thead>'
-    )
-    return (
-        '<div style="overflow-x:auto;border:1px solid #eee;border-radius:6px">'
-        '<table style="width:100%;border-collapse:collapse;font-size:0.8rem">'
-        f'{header}<tbody>{"".join(rows)}</tbody>'
-        '</table></div>'
-    )
-
-
-async def analyze_with_answer(record_id: int, question: str, answer: str, references: list) -> None:
+async def analyze_with_answer(record_id: int, question: str, answer: str, references: list, docs: list) -> None:
     """
-    답변이 있는 경우의 결과분석 — LLM 재호출 없이 답변·참고문서·첨부파일을 HTML로 저장합니다.
-    references는 실제 답변에 사용된 문서 목록이므로 재검색 없이 그대로 사용합니다.
+    답변이 있는 경우의 결과분석.
+    - 최초 검색 당시의 retrieved_docs를 그대로 사용 (재검색 없음)
+    - 실제 참고문서로 제공된 항목은 녹색 배경 + '참고문서' 배지로 강조
     """
     try:
         set_analysis_pending(record_id)
+
+        # 실제 참고문서 URL 집합 (하이라이트용)
+        ref_urls = {r.get('url', '') for r in references if r.get('url')}
 
         q_esc = question.replace("<", "&lt;").replace(">", "&gt;")
         answer_html = answer if answer.strip().startswith('<') else answer.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
@@ -276,17 +254,19 @@ async def analyze_with_answer(record_id: int, question: str, answer: str, refere
                 '</div>'
             )
 
-        # 참고문서 테이블 (실제 답변에 사용된 문서)
-        refs_html = _build_refs_html(references)
-        n_refs = len(references)
+        # 전체 검색결과 테이블 (참고문서 하이라이트 포함)
+        docs_html = _build_docs_html(docs, ref_urls=ref_urls)
+        n_docs = len(docs)
+        n_refs = len(ref_urls)
         toggle_btn = (
             f'<button onclick="var el=document.getElementById(\'ana-docs-{record_id}\');'
             f'var btn=this;'
-            f'if(el.style.display===\'none\'){{el.style.display=\'\';btn.textContent=\'▲ 참고문서 {n_refs}건 접기\';}}'
-            f'else{{el.style.display=\'none\';btn.textContent=\'▼ 참고문서 {n_refs}건 펼치기\';}}" '
+            f'if(el.style.display===\'none\'){{el.style.display=\'\';btn.textContent=\'▲ 검색 결과 {n_docs}건 접기\';}}'
+            f'else{{el.style.display=\'none\';btn.textContent=\'▼ 검색 결과 {n_docs}건 펼치기\';}}" '
             f'style="background:none;border:1px solid #ddd;border-radius:4px;padding:4px 10px;'
             f'font-size:0.75rem;color:#666;cursor:pointer;margin-top:14px;width:100%;text-align:left">'
-            f'▼ 참고문서 {n_refs}건 펼치기'
+            f'▼ 검색 결과 {n_docs}건 펼치기'
+            f'<span style="margin-left:8px;font-size:0.7rem;color:#2e7d32">■ 참고문서 {n_refs}건 포함</span>'
             f'</button>'
         )
 
@@ -302,12 +282,12 @@ async def analyze_with_answer(record_id: int, question: str, answer: str, refere
             '</div>'
             f'{attachments_html}'
             f'{toggle_btn}'
-            f'<div id="ana-docs-{record_id}" style="display:none;margin-top:8px">{refs_html}</div>'
+            f'<div id="ana-docs-{record_id}" style="display:none;margin-top:8px">{docs_html}</div>'
             '</div>'
         )
 
         save_analysis(record_id, html, status="done")
-        logger.info(f"[Analyzer] 결과분석 저장 record_id={record_id} refs={n_refs}")
+        logger.info(f"[Analyzer] 결과분석 저장 record_id={record_id} docs={n_docs} refs={n_refs}")
 
     except Exception as e:
         logger.error(f"[Analyzer] 결과분석 실패 record_id={record_id}: {e}", exc_info=True)

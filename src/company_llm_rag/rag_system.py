@@ -385,6 +385,7 @@ def rag_query(
     conversation_history: Optional[List[Dict]] = None,
     n_results: Optional[int] = None,
     return_refs: bool = False,
+    _docs_out: Optional[List] = None,
 ):
     """
     RAG 쿼리 실행: 문서를 검색하고 LLM 응답을 생성합니다.
@@ -413,6 +414,9 @@ def rag_query(
     retrieval_ms = int((t_retrieval - t0) * 1000)
 
     retrieved_docs = _inject_jira_docs(user_query, retrieved_docs)
+
+    if _docs_out is not None:
+        _docs_out.extend(retrieved_docs)
 
     if not retrieved_docs:
         answer = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
@@ -446,6 +450,7 @@ def rag_query_stream(
     user_query: str,
     conversation_history: Optional[List[Dict]] = None,
     n_results: Optional[int] = None,
+    _docs_out: Optional[List] = None,
 ):
     """
     RAG 스트리밍: 검색 후 LLM 응답을 토큰 단위로 yield합니다.
@@ -472,6 +477,10 @@ def rag_query_stream(
     retrieval_ms = int((t_retrieval - t0) * 1000)
 
     retrieved_docs = _inject_jira_docs(user_query, retrieved_docs)
+
+    # 호출자가 원할 경우 retrieved_docs를 외부로 노출 (분석용)
+    if _docs_out is not None:
+        _docs_out.extend(retrieved_docs)
 
     if not retrieved_docs:
         answer = _NO_ANSWER_PHRASE
