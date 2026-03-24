@@ -503,19 +503,25 @@
     return d.toLocaleString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false });
   }
 
-  // 오늘이면 HH:MM:SS, 어제 이전이면 상대 시간 (N일전 / N주전 / N달전 / N년전)
+  // 오늘이면 HH:MM, 1주일 이내면 요일+시간, 이후 상대 시간 (N주전 / N달전 / N년전)
   function fmtRelative(iso) {
     const now  = new Date();
     const d    = new Date(iso);
     const todayStr = now.toLocaleDateString('ko-KR');
     const dStr     = d.toLocaleDateString('ko-KR');
     if (todayStr === dStr) {
-      // 오늘 → HH:MM:SS
-      return d.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false });
+      // 오늘 → HH:MM
+      return d.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', hour12: false });
     }
     const diffMs   = now - d;
     const diffDays = Math.floor(diffMs / 86400000);
-    if (diffDays < 7)   return diffDays + '일전';
+    if (diffDays < 7) {
+      // 1주일 이내 → 요일 HH:MM
+      const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+      const day = dayNames[d.getDay()];
+      const time = d.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', hour12: false });
+      return day + '요일 ' + time;
+    }
     if (diffDays < 30)  return Math.floor(diffDays / 7) + '주전';
     if (diffDays < 365) return Math.floor(diffDays / 30) + '달전';
     return Math.floor(diffDays / 365) + '년전';

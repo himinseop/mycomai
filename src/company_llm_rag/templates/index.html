@@ -151,16 +151,37 @@
       padding: 12px 16px;
       border-radius: 12px;
       font-size: 14px;
-      line-height: 1.6;
-      white-space: pre-wrap;
+      line-height: 1.5;
       word-break: break-word;
     }
+    .msg.user .bubble { white-space: pre-wrap; }
     .bubble a { color: #4f46e5; text-decoration: none; }
     .bubble a:hover { text-decoration: underline; }
     .msg.user .bubble { background: #4f46e5; color: white; border-bottom-right-radius: 4px; }
     .msg.user .bubble a { color: #c7d2fe; }
     .msg.assistant .bubble { background: white; color: #1a1a2e; border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .msg.assistant .bubble p { margin: 0 0 4px; }
+    .msg.assistant .bubble p:last-child { margin-bottom: 0; }
+    .msg.assistant .bubble h1,.msg.assistant .bubble h2,.msg.assistant .bubble h3 { font-size: 1em; font-weight: 700; margin: 8px 0 2px; }
+    .msg.assistant .bubble h1:first-child,.msg.assistant .bubble h2:first-child,.msg.assistant .bubble h3:first-child { margin-top: 0; }
+    .msg.assistant .bubble ul,.msg.assistant .bubble ol { padding-left: 1.4em; margin: 2px 0 4px; }
+    .msg.assistant .bubble li { margin-bottom: 2px; }
+    .msg.assistant .bubble code { background: #f1f1f7; border-radius: 3px; padding: 1px 5px; font-size: 0.88em; font-family: monospace; }
+    .msg.assistant .bubble pre { background: #f1f1f7; border-radius: 6px; padding: 10px 12px; overflow-x: auto; margin: 8px 0; }
+    .msg.assistant .bubble pre code { background: none; padding: 0; }
+    .msg.assistant .bubble strong { font-weight: 700; }
+    .msg.assistant .bubble em { font-style: italic; }
+    .msg.assistant .bubble hr { border: none; border-top: 1px solid #e5e7eb; margin: 10px 0; }
+    .msg.assistant .bubble table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 0.9em; }
+    .msg.assistant .bubble th,.msg.assistant .bubble td { border: 1px solid #e5e7eb; padding: 5px 8px; text-align: left; }
+    .msg.assistant .bubble th { background: #f8f8fc; font-weight: 600; }
     .typing .bubble { color: #888; font-style: italic; }
+    .loading-msg {
+      font-size: 12px; color: #c4c9d4; font-style: italic;
+      margin-top: 6px; margin-left: 2px;
+      min-height: 18px;
+      transition: opacity 0.35s ease;
+    }
     .stream-cursor {
       display: inline-block; width: 2px; height: 1em;
       background: #4f46e5; margin-left: 2px; vertical-align: text-bottom;
@@ -385,6 +406,7 @@
   Teams에 문의하기
 </button>
 
+<script src="https://cdn.jsdelivr.net/npm/marked@13/marked.min.js"></script>
 <script>
   // ── 세션 목록 (localStorage) ─────────────────────────────────────
   const LS_KEY = 'chat_session_list';
@@ -535,26 +557,17 @@
     return String(text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  // marked 설정: 링크는 새 탭으로
+  const _renderer = new marked.Renderer();
+  _renderer.link = ({ href, title, text }) => {
+    const t = title ? ` title="${escapeHtml(title)}"` : '';
+    return `<a href="${escapeHtml(href)}"${t} target="_blank" rel="noopener noreferrer">${text}</a>`;
+  };
+  marked.setOptions({ renderer: _renderer, breaks: false, gfm: true });
+
   function renderText(text) {
-    const pattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"')\[]+)/g;
-    const parts = [];
-    let lastIndex = 0, match;
-    while ((match = pattern.exec(text)) !== null) {
-      parts.push(escapeHtml(text.slice(lastIndex, match.index)));
-      if (match[1] !== undefined) {
-        parts.push(`<a href="${escapeHtml(match[2])}" target="_blank" rel="noopener noreferrer">${escapeHtml(match[1])} 🔗</a>`);
-      } else {
-        let url = match[3];
-        const tr = url.match(/[.,;:!?)\]]+$/);
-        const trailing = tr ? tr[0] : '';
-        if (trailing) url = url.slice(0, -trailing.length);
-        parts.push(`<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">🔗</a>`);
-        if (trailing) parts.push(escapeHtml(trailing));
-      }
-      lastIndex = match.index + match[0].length;
-    }
-    parts.push(escapeHtml(text.slice(lastIndex)));
-    return parts.join('');
+    if (!text) return '';
+    return marked.parse(text);
   }
 
   function getSourceBadge(source, url) {
@@ -583,11 +596,13 @@
       return parts.join(' / ');
     }
     if (ref.source === 'sharepoint') {
-      // 파일명 (확장자 포함) — URL 마지막 세그먼트
+      // Doc.aspx?...&file=파일명.pptx 형태 URL에서 file= 파라미터 우선 추출
       try {
-        const parts = decodeURIComponent(ref.url).split('/');
-        const filename = parts[parts.length - 1].split('?')[0];
-        return filename || ref.title;
+        const u = new URL(ref.url);
+        const fileParam = u.searchParams.get('file');
+        if (fileParam) return decodeURIComponent(fileParam);
+        const parts = u.pathname.split('/');
+        return decodeURIComponent(parts[parts.length - 1] || '') || ref.title;
       } catch (_) { return ref.title; }
     }
     if (ref.source === 'teams') {
@@ -605,7 +620,7 @@
     return ref.title || ref.url;
   }
 
-  // 날짜/시간 (Teams만 — 링크 뒤에 표시)
+  // 날짜/시간 또는 슬라이드/페이지 번호 (링크 뒤에 표시)
   function getRefMeta(ref) {
     if (ref.source === 'teams' && ref.created_at) {
       try {
@@ -613,6 +628,13 @@
         const str = `${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
         return `<span class="ref-time">${str}</span>`;
       } catch (_) {}
+    }
+    if (ref.page_nums && ref.page_nums.length > 0) {
+      const title = (ref.title || '').toLowerCase();
+      const isPpt = title.endsWith('.pptx') || title.endsWith('.ppt');
+      const label = isPpt ? 'Slide' : 'p.';
+      const nums = ref.page_nums.map(n => isPpt ? `${label} ${n}` : `${label}${n}`).join(', ');
+      return `<span class="ref-time">${nums}</span>`;
     }
     return '';
   }
@@ -685,6 +707,54 @@
     setTimeout(() => imgEl.remove(), 520);
   }
 
+  // ── 로딩 메시지 로테이션 ─────────────────────────────────────────
+  const _LOADING_MSGS = [
+    '질문을 이해하고 있어요.',
+    '적당한 문서를 찾고 있어요.',
+    '자료를 가지러 뛰어가고 있어요.',
+    '관련 내용을 꼼꼼히 읽고 있어요.',
+    '답변을 정리하고 있어요.',
+    '혹시 더 좋은 자료가 없나 살펴보는 중이에요.',
+    '아, 이게 맞는 것 같은데... 조금만요.',
+    '서랍 다 뒤지고 있어요. 잠깐만요.',
+    '거의 다 됐어요. 진짜로요.',
+    '좋은 답변을 쓰려고 고심 중이에요.',
+    '문서들 사이에서 보물찾기 중이에요.',
+    '뇌를 풀가동 중이에요. 잠시만요.',
+    '이 질문, 제가 잘 알고 있는 분야예요. 금방 찾을게요.',
+    '어디서 봤는데... 분명히 있었는데...',
+    '최대한 정확하게 답하려고 신중하게 살펴보고 있어요.',
+    '열심히 찾고 있으니 조금만 기다려 주세요!',
+    '관련 문서가 꽤 많네요. 제일 좋은 걸로 골라볼게요.',
+    '잠깐, 더 나은 자료가 있을 것 같아서요.',
+    '내부 자료를 샅샅이 뒤지는 중이에요.',
+    '답변 초안 작성 중... 퇴고 중... 거의 완성이에요.',
+  ];
+
+  function _startLoadingMsg(el) {
+    let prev = -1;
+    function pickRandom() {
+      let idx;
+      do { idx = Math.floor(Math.random() * _LOADING_MSGS.length); } while (idx === prev);
+      prev = idx;
+      return idx;
+    }
+    el.textContent = '(' + _LOADING_MSGS[pickRandom()] + ')';
+    el.style.opacity = '1';
+    return setInterval(() => {
+      el.style.opacity = '0';
+      setTimeout(() => {
+        el.textContent = '(' + _LOADING_MSGS[pickRandom()] + ')';
+        el.style.opacity = '1';
+      }, 350);
+    }, 5000);
+  }
+
+  function _stopLoadingMsg(el, timerId) {
+    clearInterval(timerId);
+    el.style.opacity = '0';
+  }
+
   // ── 메시지 전송 (SSE 스트리밍) ──────────────────────────────────
   async function sendMessage() {
     const text = input.value.trim();
@@ -702,9 +772,15 @@
 
     appendUserMessage(text);
 
-    // 빈 버블 생성 (스트리밍용) + 글쓰기 이미지 (맨 아래 인라인)
+    // 빈 버블 생성 (스트리밍용) + 로딩 메시지 + 글쓰기 이미지 (맨 아래 인라인)
     const { div: msgDiv, bubble, msgBody } = _createAssistantBubble();
-    bubble.innerHTML = '<span class="stream-cursor"></span>';
+    const streamCursor = document.createElement('span');
+    streamCursor.className = 'stream-cursor';
+    bubble.appendChild(streamCursor);
+    const loadingMsgEl = document.createElement('div');
+    loadingMsgEl.className = 'loading-msg';
+    msgBody.appendChild(loadingMsgEl);
+    const loadingTimer = _startLoadingMsg(loadingMsgEl);
     const writingImg = document.createElement('img');
     writingImg.src = '/static/osajang-writing.png';
     writingImg.className = 'writing-img';
@@ -740,8 +816,13 @@
           try { ev = JSON.parse(line.slice(6)); } catch { continue; }
 
           if (ev.type === 'token') {
+            if (loadingMsgEl.parentNode) {
+              _stopLoadingMsg(loadingMsgEl, loadingTimer);
+              setTimeout(() => loadingMsgEl.remove(), 350);
+            }
             fullText += ev.text;
-            bubble.innerHTML = renderText(fullText) + '<span class="stream-cursor"></span>';
+            bubble.innerHTML = renderText(fullText);
+            bubble.appendChild(streamCursor);
             chatWindow.scrollTop = chatWindow.scrollHeight;
           } else if (ev.type === 'done') {
             finalRefs = ev.references || [];
@@ -755,12 +836,16 @@
             if (ev.inquiry_available) teamsFloatBtn.classList.add('visible');
             hideWriting(writingImg); // 스트리밍 완료 → 자연스럽게 페이드아웃
           } else if (ev.type === 'error') {
+            _stopLoadingMsg(loadingMsgEl, loadingTimer);
+            loadingMsgEl.remove();
             bubble.innerHTML = renderText('오류가 발생했습니다. 다시 시도해주세요.');
             hideWriting(writingImg);
           }
         }
       }
     } catch (_) {
+      _stopLoadingMsg(loadingMsgEl, loadingTimer);
+      loadingMsgEl.remove();
       bubble.innerHTML = renderText('오류가 발생했습니다. 다시 시도해주세요.');
       hideWriting(writingImg);
     }

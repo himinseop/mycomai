@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -208,17 +209,87 @@ def _detect_filters(query: str) -> dict:
 
     return {'sources': sources, 'extensions': extensions}
 _NO_ANSWER_PHRASE = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
-_MAX_REFERENCES = 5  # 참고 링크 최대 표시 수 (RRF 순위 기준 상위 N개)
+_MAX_REFERENCES = 10   # 참고 링크 최대 표시 수
+_MAX_REF_DISTANCE = 0.6  # 벡터 거리 기준치 — 이 이상이면 참고문서에서 제외 (0.0=완전일치, 1.0=무관)
+_JIRA_KEY_RE = re.compile(r'\b([A-Z]+-\d+)\b')
+
+
+def _inject_jira_docs(query: str, retrieved_docs: List[Dict]) -> List[Dict]:
+    """쿼리에 Jira 이슈 키(예: WMPO-10564)가 있으면 해당 청크를 앞에 삽입합니다."""
+    keys = _JIRA_KEY_RE.findall(query)
+    if not keys:
+        return retrieved_docs
+
+    from company_llm_rag.database import db_manager
+    collection = db_manager.get_collection()
+
+    existing_ids = {d['metadata'].get('jira_issue_key', '') for d in retrieved_docs}
+    injected: List[Dict] = []
+    for key in keys:
+        if key in existing_ids:
+            continue
+        try:
+            res = collection.get(
+                where={'jira_issue_key': {'$eq': key}},
+                include=['documents', 'metadatas'],
+                limit=5,
+            )
+            for i, doc_id in enumerate(res.get('ids', [])):
+                injected.append({
+                    'content': res['documents'][i],
+                    'metadata': res['metadatas'][i],
+                    '_distance': 0.0,
+                })
+        except Exception as e:
+            logger.debug(f"Jira 이슈 직접 조회 실패 ({key}): {e}")
+
+    if injected:
+        logger.info(f"[Jira 직접 주입] {keys} → {len(injected)}개 청크 삽입")
+    return injected + retrieved_docs
+
+
+_SLIDE_RE = re.compile(r'\[Slide (\d+)\]')
+_PAGE_RE  = re.compile(r'\[Page (\d+)\]')
+_PPT_EXTS = {'.pptx', '.ppt'}
+_PDF_EXTS = {'.pdf'}
+
+
+def _extract_page_nums(content: str, pattern: re.Pattern) -> List[int]:
+    """청크 텍스트에서 슬라이드/페이지 번호 목록을 추출합니다."""
+    return sorted({int(m) for m in pattern.findall(content)})
 
 
 def _build_references(retrieved_docs: List[Dict], listing: bool = False) -> List[Dict]:
     """retrieved_docs에서 참고 링크 목록을 생성합니다."""
+    # URL별 슬라이드/페이지 번호 사전 수집 (같은 파일의 여러 청크에서 합산)
+    url_slides: dict = {}
+    for doc in retrieved_docs:
+        meta = doc["metadata"]
+        url = meta.get("url", "") or ""
+        if not url:
+            continue
+        content = doc.get("content", "") or ""
+        title_lower = meta.get("title", "").lower()
+        ext = next((e for e in _PPT_EXTS | _PDF_EXTS if title_lower.endswith(e)), None)
+        if ext in _PPT_EXTS:
+            nums = _extract_page_nums(content, _SLIDE_RE)
+            if nums:
+                url_slides.setdefault(url, set()).update(nums)
+        elif ext in _PDF_EXTS:
+            nums = _extract_page_nums(content, _PAGE_RE)
+            if nums:
+                url_slides.setdefault(url, set()).update(nums)
+
     max_refs = _MAX_REFERENCES * (2 if listing else 1)
     seen = set()
     references = []
     for doc in retrieved_docs:
         if len(references) >= max_refs:
             break
+        # 벡터 거리 기준치 초과 시 관련성 낮음으로 판단 → 제외
+        # 직접 주입된 문서(distance=0.0)는 항상 포함
+        if doc.get('_distance', 0.0) > _MAX_REF_DISTANCE:
+            continue
         meta = doc["metadata"]
         url = meta.get("url", "") or ""
         if not url or url == "None":
@@ -252,6 +323,7 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False) -> List
                 chat_topic = ""
             created_at = meta.get("created_at", "") or ""
             snippet = (doc.get("content") or "").strip()[:90]
+        page_nums = sorted(url_slides.get(url, set()))
         references.append({
             "title": title,
             "url": url,
@@ -266,6 +338,7 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False) -> List
             "author": author,
             "created_at": created_at,
             "snippet": snippet,
+            "page_nums": page_nums,
         })
     return references
 
@@ -333,6 +406,8 @@ def rag_query(
     t_retrieval = time.monotonic()
     retrieval_ms = int((t_retrieval - t0) * 1000)
 
+    retrieved_docs = _inject_jira_docs(user_query, retrieved_docs)
+
     if not retrieved_docs:
         answer = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
         timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm._default_model}
@@ -389,6 +464,8 @@ def rag_query_stream(
     )
     t_retrieval = time.monotonic()
     retrieval_ms = int((t_retrieval - t0) * 1000)
+
+    retrieved_docs = _inject_jira_docs(user_query, retrieved_docs)
 
     if not retrieved_docs:
         answer = _NO_ANSWER_PHRASE

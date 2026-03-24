@@ -192,12 +192,13 @@ def main():
                             content_parts.append('\n\n'.join(comment_blocks))
                         content = '\n\n'.join(content_parts)
 
+                        issue_key = issue.get('key', '')
                         extracted_data_schema = {
                             "id": f"jira-{issue.get('id')}",
                             "source": "jira",
                             "source_id": issue.get('id'),
-                            "url": f"{settings.JIRA_BASE_URL}/browse/{issue.get('key')}",
-                            "title": fields.get('summary', 'No Summary'),
+                            "url": f"{settings.JIRA_BASE_URL}/browse/{issue_key}",
+                            "title": f"[{issue_key}] {fields.get('summary', 'No Summary')}",
                             "content": content,
                             "content_type": "issue",
                             "created_at": fields.get('created'),
