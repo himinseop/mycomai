@@ -7,6 +7,7 @@ TTL: 히스토리 14일, 세션 만료 기준 7일
 
 import json
 import sqlite3
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -21,12 +22,24 @@ _DB_PATH = Path(settings.CHROMA_DB_PATH).parent / "query_history.db"
 HISTORY_TTL_DAYS = 14   # 이력 보관 기간
 SESSION_TTL_DAYS = 7    # 세션 유효 기간
 
+_local = threading.local()  # 스레드별 연결 캐시
+
 
 def _conn() -> sqlite3.Connection:
+    """스레드별 SQLite 연결을 캐싱하여 반환합니다. PRAGMA는 최초 1회만 실행됩니다."""
+    con = getattr(_local, 'con', None)
+    if con is not None:
+        try:
+            con.execute("SELECT 1")
+            return con
+        except Exception:
+            _local.con = None
+
     con = sqlite3.connect(str(_DB_PATH), timeout=30)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
+    _local.con = con
     return con
 
 
@@ -458,8 +471,18 @@ def fts_search(keywords: List[str], limit: int = 21) -> List[str]:
         return []
 
 
+def fts_exists() -> bool:
+    """FTS 인덱스에 데이터가 있으면 True를 반환합니다. COUNT(*) 대신 LIMIT 1로 O(1) 확인."""
+    try:
+        with _conn() as con:
+            row = con.execute("SELECT 1 FROM doc_fts LIMIT 1").fetchone()
+            return row is not None
+    except Exception:
+        return False
+
+
 def fts_count() -> int:
-    """FTS 인덱스의 청크 수를 반환합니다."""
+    """FTS 인덱스의 청크 수를 반환합니다. (모니터링/관리 목적)"""
     try:
         with _conn() as con:
             return con.execute("SELECT COUNT(*) FROM doc_fts").fetchone()[0]
