@@ -93,7 +93,7 @@ def _build_docs_html(docs: list, ref_urls: set = None) -> str:
         else:
             pct = min(rrf / _RRF_MAX * 100, 100)
             bar_pct = int(pct)
-            pct_color = "#2e7d32" if pct >= 60 else "#f57c00" if pct >= 30 else "#9e9e9e"
+            pct_color = "#2e7d32" if pct >= 80 else "#f57c00" if pct >= 10 else "#9e9e9e"
             bar = (
                 f'<div style="display:flex;align-items:center;gap:6px">'
                 f'<div style="width:80px;height:5px;background:#eee;border-radius:3px;flex-shrink:0">'

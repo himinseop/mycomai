@@ -181,6 +181,8 @@ def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
 _MAX_HISTORY_TURNS = 10  # 최대 유지할 대화 턴 수 (초과 시 오래된 것부터 제거)
 
 
+_RECENCY_KEYWORDS = ['최근', '최신', '가장 최근', '요즘', '이번 주', '이번달', '이번 분기', '최근에 등록', '새로 등록']
+
 def _is_listing_query(query: str) -> bool:
     """목록/현황/집계를 요청하는 쿼리인지 감지합니다."""
     q = query.lower()
@@ -189,6 +191,18 @@ def _is_listing_query(query: str) -> bool:
         '진행중', '진행 중', '완료된', '대기중', '대기 중',
         '최근', '이번 주', '이번달', '이번 분기',
     ])
+
+def _is_recency_query(query: str) -> bool:
+    """최신/최근 항목을 요청하는 쿼리인지 감지합니다."""
+    q = query.lower()
+    return any(k in q for k in _RECENCY_KEYWORDS)
+
+def _sort_by_recency(docs: List[Dict]) -> List[Dict]:
+    """docs를 created_at 내림차순으로 정렬합니다. 날짜 없는 항목은 뒤로 이동."""
+    def _date_key(doc: Dict) -> str:
+        meta = doc.get("metadata", {})
+        return meta.get("created_at") or meta.get("updated_at") or ""
+    return sorted(docs, key=_date_key, reverse=True)
 
 
 def _detect_filters(query: str) -> dict:
@@ -318,8 +332,9 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False) -> List
             if nums:
                 url_slides.setdefault(url, set()).update(nums)
 
-    max_refs = _MAX_REFERENCES * (2 if listing else 1)
-    seen = set()
+    max_refs = int(_MAX_REFERENCES * 1.5) if listing else _MAX_REFERENCES
+    seen: set = set()          # URL 기반 중복 제거
+    seen_issue_keys: set = set()  # Jira issue_key 기반 중복 제거
     references = []
     for doc in retrieved_docs:
         if len(references) >= max_refs:
@@ -336,11 +351,16 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False) -> List
             continue
         if url in seen:
             continue
-        seen.add(url)
         source = meta.get("source", "")
         title = meta.get("title", "")
         author = meta.get("author", "") or ""
         issue_key = meta.get("jira_issue_key", "") if source == "jira" else ""
+        # Jira: 동일 이슈키의 다른 청크(댓글 등 다른 URL)도 중복 제거
+        if source == "jira" and issue_key and issue_key in seen_issue_keys:
+            continue
+        seen.add(url)
+        if source == "jira" and issue_key:
+            seen_issue_keys.add(issue_key)
         space_name = ""
         ancestors = ""
         if source == "confluence":
@@ -434,6 +454,7 @@ def rag_query(
     t0 = time.monotonic()
     filters = _detect_filters(user_query)
     listing = _is_listing_query(user_query)
+    recency = _is_recency_query(user_query)
     effective_n = (n_results or settings.RETRIEVAL_TOP_K) * (3 if listing else 1)
     retrieved_docs, ret_timing = retrieve_documents(
         user_query,
@@ -448,6 +469,10 @@ def rag_query(
 
     # 쓸모없는 문서 제거 (빈 내용, PDF 바이너리, Teams 시스템 이벤트 등)
     retrieved_docs = [d for d in retrieved_docs if _is_usable_content(d)]
+
+    # 최신/최근 쿼리 → 날짜 내림차순 재정렬
+    if recency:
+        retrieved_docs = _sort_by_recency(retrieved_docs)
 
     t_inject_start = time.monotonic()
     retrieved_docs = _inject_jira_docs(user_query, retrieved_docs)
@@ -503,6 +528,7 @@ def rag_query_stream(
     t0 = time.monotonic()
     filters = _detect_filters(user_query)
     listing = _is_listing_query(user_query)
+    recency = _is_recency_query(user_query)
     effective_n = (n_results or settings.RETRIEVAL_TOP_K) * (3 if listing else 1)
     retrieved_docs, ret_timing = retrieve_documents(
         user_query,
@@ -517,6 +543,10 @@ def rag_query_stream(
 
     # 쓸모없는 문서 제거 (빈 내용, PDF 바이너리, Teams 시스템 이벤트 등)
     retrieved_docs = [d for d in retrieved_docs if _is_usable_content(d)]
+
+    # 최신/최근 쿼리 → 날짜 내림차순 재정렬
+    if recency:
+        retrieved_docs = _sort_by_recency(retrieved_docs)
 
     t_inject_start = time.monotonic()
     retrieved_docs = _inject_jira_docs(user_query, retrieved_docs)

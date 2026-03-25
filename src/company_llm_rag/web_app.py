@@ -84,8 +84,10 @@ def _check_admin_auth(request: Request) -> bool:
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
+    company_name = settings.COMPANY_NAME or "오사장"
     with open("/app/company_llm_rag/templates/index.html", encoding="utf-8") as f:
-        return f.read()
+        html = f.read()
+    return html.replace("{{ company_name }}", company_name)
 
 
 @app.post("/chat", response_model=ChatResponse)
