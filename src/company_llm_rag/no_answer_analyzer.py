@@ -13,24 +13,59 @@ from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
 
-_ANALYSIS_PROMPT = """\
-사용자가 다음 질문을 했지만 AI가 답변을 찾지 못했습니다.
+_ANALYSIS_PROMPT_NO_ANSWER = """\
+당신은 AI 검색 시스템의 품질 분석가입니다.
+사용자가 아래 질문을 했지만 AI가 답변을 찾지 못했고, 사용자가 불만족 피드백을 남겼습니다.
 
 [사용자 질문]
 {question}
 
-[검색된 관련 문서 {n}건 — 순위/소스/제목/관련도/내용]
+[재검색 결과 {n}건 — 순위/소스/제목/관련도/내용]
 {docs}
 
-위 검색 결과를 바탕으로 아래 항목을 분석해 주세요.
-반드시 HTML 형식으로만 작성하세요 (마크다운 사용 금지).
-<h4>답변 불가 이유</h4>
-<p>검색된 문서들이 질문에 답하기에 충분하지 않은 이유를 구체적으로 서술하세요.</p>
-<h4>부족한 정보</h4>
-<p>어떤 정보가 데이터베이스에 없거나 부족한지 서술하세요.</p>
-<h4>개선 제안</h4>
-<ul><li>향후 답변 품질 개선을 위해 추가 수집이 필요한 데이터</li></ul>
+다음 순서로 분석 작업을 수행하고 결과를 HTML로 작성하세요 (마크다운 사용 금지).
+
+<h4>1. 질문 분석</h4>
+<p>질문의 핵심 의도, 키워드, 요구하는 정보 유형을 분석합니다.</p>
+<h4>2. 검색 결과 검토</h4>
+<p>검색된 {n}건의 문서가 질문에 얼마나 관련이 있는지 검토합니다. 상위 문서의 내용과 질문의 연관성을 평가합니다.</p>
+<h4>3. 답변 불가 원인</h4>
+<p>AI가 답변하지 못한 구체적인 이유를 서술합니다. (정보 부재, 검색 정확도 문제, 질문 모호성 등)</p>
+<h4>4. 부족한 정보</h4>
+<p>데이터베이스에 없거나 부족한 정보가 무엇인지 구체적으로 서술합니다.</p>
+<h4>5. 개선 제안</h4>
+<ul><li>답변 품질 개선을 위해 추가 수집이 필요한 데이터 또는 시스템 개선 방안을 제안합니다.</li></ul>
 """
+
+_ANALYSIS_PROMPT_WITH_ANSWER = """\
+당신은 AI 검색 시스템의 품질 분석가입니다.
+사용자가 아래 질문에 대한 답변을 받았지만 불만족 피드백을 남겼습니다.
+
+[사용자 질문]
+{question}
+
+[AI가 제공한 답변 (일부)]
+{answer}
+
+[재검색 결과 {n}건 — 순위/소스/제목/관련도/내용]
+{docs}
+
+다음 순서로 분석 작업을 수행하고 결과를 HTML로 작성하세요 (마크다운 사용 금지).
+
+<h4>1. 질문 분석</h4>
+<p>질문의 핵심 의도, 키워드, 사용자가 기대했을 정보를 분석합니다.</p>
+<h4>2. 답변 적절성 검토</h4>
+<p>제공된 답변이 질문에 충분히 답했는지, 부정확하거나 누락된 내용은 없는지 검토합니다.</p>
+<h4>3. 검색 결과 분석</h4>
+<p>재검색된 문서들이 질문에 적합했는지, 더 관련성 높은 문서가 누락됐는지 분석합니다.</p>
+<h4>4. 불만족 원인 추정</h4>
+<p>사용자가 불만족한 이유를 구체적으로 추정합니다. (답변 부정확, 정보 부족, 관련 없는 내용 포함 등)</p>
+<h4>5. 개선 제안</h4>
+<ul><li>답변 품질 및 검색 정확도 개선을 위한 구체적인 방안을 제안합니다.</li></ul>
+"""
+
+# 하위 호환: 기존 코드에서 _ANALYSIS_PROMPT 참조 시 no_answer 프롬프트 사용
+_ANALYSIS_PROMPT = _ANALYSIS_PROMPT_NO_ANSWER
 
 _SOURCE_COLORS = {
     "jira": "#0052cc",
@@ -149,42 +184,51 @@ def _build_docs_html(docs: list, ref_urls: set = None) -> str:
     )
 
 
-async def analyze_no_answer(record_id: int, question: str) -> None:
+def _build_docs_text(docs: list) -> str:
+    """LLM 프롬프트용 문서 목록 텍스트를 구성합니다."""
+    if not docs:
+        return "관련 문서를 전혀 찾을 수 없습니다."
+    lines = []
+    for i, doc in enumerate(docs, 1):
+        meta = doc.get("metadata", {})
+        source = meta.get("source", "?")
+        title = meta.get("title") or "제목 없음"
+        rrf = doc.get("_rrf", 0)
+        v_rank = doc.get("_vector_rank")
+        k_rank = doc.get("_keyword_rank")
+        preview = (doc.get("content") or "")[:200].replace("\n", " ")
+        v_str = f"벡터#{v_rank+1}" if v_rank is not None else ""
+        k_str = f"키워드#{k_rank+1}" if k_rank is not None else ""
+        match_info = ", ".join(filter(None, [v_str, k_str])) or "없음"
+        lines.append(
+            f"{i}. [{source}] {title} | RRF={rrf:.5f} | 매칭={match_info}\n   {preview}"
+        )
+    return "\n\n".join(lines)
+
+
+async def analyze_bad_feedback(record_id: int, question: str, answer: str, is_no_answer: bool) -> None:
     """
-    백그라운드에서 답변없음 원인을 LLM으로 조사하고 DB에 저장합니다.
-    결과는 HTML로 저장됩니다.
+    👎 피드백을 받은 대화에 대해 LLM 분석을 수행하고 DB에 저장합니다.
+    질문을 재검색한 후, 답변 유무에 따라 적합한 프롬프트로 분석합니다.
     """
     try:
         set_analysis_pending(record_id)
-        logger.info(f"[NoAnswerAnalyzer] 조사 시작 record_id={record_id}")
+        logger.info(f"[Analyzer] 분석 시작 record_id={record_id} no_answer={is_no_answer}")
 
         docs = retrieve_documents(question, n_results=15, return_scores=True)
+        docs_text = _build_docs_text(docs)
 
-        if docs:
-            doc_lines = []
-            for i, doc in enumerate(docs, 1):
-                meta = doc.get("metadata", {})
-                source = meta.get("source", "?")
-                title = meta.get("title") or "제목 없음"
-                rrf = doc.get("_rrf", 0)
-                v_rank = doc.get("_vector_rank")
-                k_rank = doc.get("_keyword_rank")
-                preview = (doc.get("content") or "")[:200].replace("\n", " ")
-                v_str = f"벡터#{v_rank+1}" if v_rank is not None else ""
-                k_str = f"키워드#{k_rank+1}" if k_rank is not None else ""
-                match_info = ", ".join(filter(None, [v_str, k_str])) or "없음"
-                doc_lines.append(
-                    f"{i}. [{source}] {title} | RRF={rrf:.5f} | 매칭={match_info}\n   {preview}"
-                )
-            docs_text = "\n\n".join(doc_lines)
+        if is_no_answer:
+            prompt = _ANALYSIS_PROMPT_NO_ANSWER.format(
+                question=question, n=len(docs), docs=docs_text,
+            )
         else:
-            docs_text = "관련 문서를 전혀 찾을 수 없습니다."
-
-        prompt = _ANALYSIS_PROMPT.format(
-            question=question,
-            n=len(docs),
-            docs=docs_text,
-        )
+            prompt = _ANALYSIS_PROMPT_WITH_ANSWER.format(
+                question=question,
+                answer=(answer or "")[:500],
+                n=len(docs),
+                docs=docs_text,
+            )
 
         llm_html = default_llm.chat(
             messages=[{"role": "user", "content": prompt}],
@@ -195,96 +239,13 @@ async def analyze_no_answer(record_id: int, question: str) -> None:
         q_esc = question.replace("<", "&lt;").replace(">", "&gt;")
 
         toggle_btn = (
-            f'<button onclick="var el=document.getElementById(\'ana-docs\');'
-            f'var btn=this;'
-            f'if(el.style.display===\'none\'){{el.style.display=\'\';btn.textContent=\'▲ 검색 결과 {len(docs)}건 접기\';}}'
-            f'else{{el.style.display=\'none\';btn.textContent=\'▼ 검색 결과 {len(docs)}건 펼치기\';}}" '
-            f'style="background:none;border:1px solid #ddd;border-radius:4px;padding:4px 10px;'
-            f'font-size:0.75rem;color:#666;cursor:pointer;margin-top:14px;width:100%;text-align:left">'
-            f'▼ 검색 결과 {len(docs)}건 펼치기'
-            f'</button>'
-        )
-
-        html = (
-            '<div style="font-family:inherit;font-size:0.85rem">'
-            '<div style="margin-bottom:14px">'
-            '<div style="font-size:0.72rem;color:#999;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">질문</div>'
-            f'<div style="background:#f8f8f8;border-left:3px solid #6264a7;padding:8px 12px;border-radius:0 4px 4px 0">{q_esc}</div>'
-            '</div>'
-            '<div style="border-top:1px solid #eee;padding-top:14px">'
-            '<div style="font-size:0.72rem;color:#999;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">AI 분석</div>'
-            f'<div style="line-height:1.75;color:#333">{llm_html}</div>'
-            '</div>'
-            f'{toggle_btn}'
-            f'<div id="ana-docs" style="display:none;margin-top:8px">{docs_html}</div>'
-            '</div>'
-        )
-
-        save_analysis(record_id, html, status="done")
-        logger.info(f"[NoAnswerAnalyzer] 조사 완료 record_id={record_id}")
-
-    except Exception as e:
-        logger.error(f"[NoAnswerAnalyzer] 조사 실패 record_id={record_id}: {e}", exc_info=True)
-        err_html = f'<p style="color:#c62828">조사 중 오류 발생: {e}</p>'
-        save_analysis(record_id, err_html, status="error")
-
-
-async def analyze_with_answer(record_id: int, question: str, answer: str, references: list, docs: list) -> None:
-    """
-    답변이 있는 경우의 결과분석.
-    - 최초 검색 당시의 retrieved_docs를 그대로 사용 (재검색 없음)
-    - 실제 참고문서로 제공된 항목은 녹색 배경 + '참고문서' 배지로 강조
-    """
-    try:
-        set_analysis_pending(record_id)
-
-        # 실제 참고문서 URL 집합 (하이라이트용)
-        ref_urls = {r.get('url', '') for r in references if r.get('url')}
-
-        q_esc = question.replace("<", "&lt;").replace(">", "&gt;")
-        answer_html = answer if answer.strip().startswith('<') else answer.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
-
-        # 첨부문서 (SharePoint 파일만)
-        attachments = [r for r in references if r.get('source') == 'sharepoint' and r.get('content_type') == 'file']
-        attachments_html = ''
-        if attachments:
-            items = []
-            for a in attachments:
-                title = a.get('title', '')
-                url = a.get('url', '')
-                label = title or url
-                page_nums = a.get('page_nums', [])
-                suffix = ''
-                if page_nums:
-                    if any(title.lower().endswith(e) for e in ('.pptx', '.ppt')):
-                        suffix = f' <span style="color:#888;font-size:0.78rem">Slide {", ".join(str(n) for n in page_nums)}</span>'
-                    else:
-                        suffix = f' <span style="color:#888;font-size:0.78rem">p.{", ".join(str(n) for n in page_nums)}</span>'
-                items.append(
-                    f'<li style="margin-bottom:4px">'
-                    f'<a href="{url}" target="_blank" style="color:#038387;text-decoration:none">{label}</a>'
-                    f'{suffix}</li>'
-                )
-            attachments_html = (
-                '<div style="margin-top:14px;border-top:1px solid #eee;padding-top:12px">'
-                '<div style="font-size:0.72rem;color:#999;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">첨부문서</div>'
-                f'<ul style="margin:0;padding-left:18px;font-size:0.82rem">{"".join(items)}</ul>'
-                '</div>'
-            )
-
-        # 전체 검색결과 테이블 (참고문서 하이라이트 포함)
-        docs_html = _build_docs_html(docs, ref_urls=ref_urls)
-        n_docs = len(docs)
-        n_refs = len(ref_urls)
-        toggle_btn = (
             f'<button onclick="var el=document.getElementById(\'ana-docs-{record_id}\');'
             f'var btn=this;'
-            f'if(el.style.display===\'none\'){{el.style.display=\'\';btn.textContent=\'▲ 검색 결과 {n_docs}건 접기\';}}'
-            f'else{{el.style.display=\'none\';btn.textContent=\'▼ 검색 결과 {n_docs}건 펼치기\';}}" '
+            f'if(el.style.display===\'none\'){{el.style.display=\'\';btn.textContent=\'▲ 재검색 결과 {len(docs)}건 접기\';}}'
+            f'else{{el.style.display=\'none\';btn.textContent=\'▼ 재검색 결과 {len(docs)}건 펼치기\';}}" '
             f'style="background:none;border:1px solid #ddd;border-radius:4px;padding:4px 10px;'
             f'font-size:0.75rem;color:#666;cursor:pointer;margin-top:14px;width:100%;text-align:left">'
-            f'▼ 검색 결과 {n_docs}건 펼치기'
-            f'<span style="margin-left:8px;font-size:0.7rem;color:#2e7d32">■ 참고문서 {n_refs}건 포함</span>'
+            f'▼ 재검색 결과 {len(docs)}건 펼치기'
             f'</button>'
         )
 
@@ -295,19 +256,25 @@ async def analyze_with_answer(record_id: int, question: str, answer: str, refere
             f'<div style="background:#f8f8f8;border-left:3px solid #6264a7;padding:8px 12px;border-radius:0 4px 4px 0">{q_esc}</div>'
             '</div>'
             '<div style="border-top:1px solid #eee;padding-top:14px">'
-            '<div style="font-size:0.72rem;color:#999;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">답변</div>'
-            f'<div style="line-height:1.75;color:#333">{answer_html}</div>'
+            '<div style="font-size:0.72rem;color:#999;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">분석 작업 보고서</div>'
+            f'<div style="line-height:1.75;color:#333">{llm_html}</div>'
             '</div>'
-            f'{attachments_html}'
             f'{toggle_btn}'
             f'<div id="ana-docs-{record_id}" style="display:none;margin-top:8px">{docs_html}</div>'
             '</div>'
         )
 
         save_analysis(record_id, html, status="done")
-        logger.info(f"[Analyzer] 결과분석 저장 record_id={record_id} docs={n_docs} refs={n_refs}")
+        logger.info(f"[Analyzer] 분석 완료 record_id={record_id} docs={len(docs)}")
 
     except Exception as e:
-        logger.error(f"[Analyzer] 결과분석 실패 record_id={record_id}: {e}", exc_info=True)
+        logger.error(f"[Analyzer] 분석 실패 record_id={record_id}: {e}", exc_info=True)
         err_html = f'<p style="color:#c62828">분석 중 오류 발생: {e}</p>'
         save_analysis(record_id, err_html, status="error")
+
+
+# 하위 호환: 기존 코드에서 참조할 수 있는 함수 (deprecated → analyze_bad_feedback 사용 권장)
+async def analyze_no_answer(record_id: int, question: str) -> None:
+    await analyze_bad_feedback(record_id, question, "", True)
+
+

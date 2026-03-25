@@ -202,6 +202,12 @@ def get_stats(days: int = 14) -> Dict:
     """어드민 대시보드용 통계를 반환합니다."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
+    # 오늘(KST) 기준 시작 시간 계산
+    _kst = timezone(timedelta(hours=9))
+    _now_kst = datetime.now(_kst)
+    _today_kst_start = _now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_cutoff = _today_kst_start.astimezone(timezone.utc).isoformat()
+
     with _conn() as con:
         total = con.execute(
             "SELECT COUNT(*) FROM query_history WHERE created_at >= ?", (cutoff,)
@@ -234,11 +240,48 @@ def get_stats(days: int = 14) -> Dict:
 
         # 시간대별 분포 (UTC 기준 → JS에서 KST 변환)
         hourly_rows = con.execute(
-            """SELECT substr(created_at, 12, 2) as hour, COUNT(*)
+            """SELECT substr(created_at, 12, 2) as hour,
+                      COUNT(*) as total,
+                      SUM(CASE WHEN is_no_answer = 0 THEN 1 ELSE 0 END) as answered
                FROM query_history WHERE created_at >= ?
                GROUP BY hour ORDER BY hour""",
             (cutoff,)
         ).fetchall()
+
+        # 일자별 분포 (UTC 날짜 기준)
+        daily_rows = con.execute(
+            """SELECT substr(created_at, 1, 10) as day,
+                      COUNT(*) as total,
+                      SUM(CASE WHEN is_no_answer = 0 THEN 1 ELSE 0 END) as answered
+               FROM query_history WHERE created_at >= ?
+               GROUP BY day ORDER BY day""",
+            (cutoff,)
+        ).fetchall()
+
+        # 오늘 통계 (KST 기준)
+        today_total = con.execute(
+            "SELECT COUNT(*) FROM query_history WHERE created_at >= ?", (today_cutoff,)
+        ).fetchone()[0]
+
+        today_avg_ms = con.execute(
+            "SELECT AVG(response_time_ms) FROM query_history WHERE created_at >= ? AND response_time_ms IS NOT NULL",
+            (today_cutoff,)
+        ).fetchone()[0]
+
+        today_no_answer = con.execute(
+            "SELECT COUNT(*) FROM query_history WHERE created_at >= ? AND is_no_answer = 1",
+            (today_cutoff,)
+        ).fetchone()[0]
+
+        today_up = con.execute(
+            "SELECT COUNT(*) FROM query_history WHERE created_at >= ? AND feedback = 1",
+            (today_cutoff,)
+        ).fetchone()[0]
+
+        today_down = con.execute(
+            "SELECT COUNT(*) FROM query_history WHERE created_at >= ? AND feedback = -1",
+            (today_cutoff,)
+        ).fetchone()[0]
 
         # 최근 👎 질문 (최대 20건)
         bad_rows = con.execute(
@@ -267,7 +310,13 @@ def get_stats(days: int = 14) -> Dict:
             if (thumbs_up + thumbs_down) else None
         ),
         "source_counts": source_counts,
-        "hourly": [{"hour": row[0], "count": row[1]} for row in hourly_rows],
+        "hourly": [{"hour": row[0], "total": row[1], "answered": row[2]} for row in hourly_rows],
+        "daily": [{"day": row[0], "total": row[1], "answered": row[2]} for row in daily_rows],
+        "today_total": today_total,
+        "today_success_rate": round((today_total - today_no_answer) / today_total * 100, 1) if today_total else 0,
+        "today_avg_response_ms": round(today_avg_ms or 0),
+        "today_thumbs_up": today_up,
+        "today_thumbs_down": today_down,
         "recent_thumbs_down": [
             {
                 "id": r["id"],

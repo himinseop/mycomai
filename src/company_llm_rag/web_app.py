@@ -22,7 +22,7 @@ from company_llm_rag.history_store import (
     get_setting, set_setting,
     get_history_page, get_record_detail,
 )
-from company_llm_rag.no_answer_analyzer import analyze_no_answer, analyze_with_answer
+from company_llm_rag.no_answer_analyzer import analyze_bad_feedback
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
@@ -120,13 +120,6 @@ async def chat(req: ChatRequest):
         perf=timing,
     )
 
-    # 결과보고서 작성: 설정 ON일 때만 백그라운드 실행
-    if get_setting("analyze_no_answer", "0") == "1":
-        if is_no_answer:
-            asyncio.create_task(analyze_no_answer(record_id, req.message))
-        else:
-            asyncio.create_task(analyze_with_answer(record_id, req.message, answer, references, list(docs_holder)))
-
     return ChatResponse(
         answer=answer,
         session_id=req.session_id,
@@ -194,12 +187,6 @@ async def chat_stream(req: ChatRequest):
             }
             yield f"data: {json.dumps(meta_ev, ensure_ascii=False)}\n\n"
 
-            # 결과보고서 작성: 설정 ON일 때만 백그라운드 실행
-            if get_setting("analyze_no_answer", "0") == "1":
-                if is_no_answer:
-                    asyncio.create_task(analyze_no_answer(record_id, req.message))
-                else:
-                    asyncio.create_task(analyze_with_answer(record_id, req.message, answer, references, list(docs_holder)))
 
     return StreamingResponse(
         generate(),
@@ -215,11 +202,23 @@ async def feedback(req: FeedbackRequest):
 
     ok = save_feedback(req.record_id, req.rating)
 
-    # 👎인 경우 Teams 알림 — DB에서 question/answer 직접 조회 (클라이언트 전달값 미사용)
-    if ok and req.rating == -1 and is_inquiry_configured():
+    if ok and req.rating == -1:
+        # DB에서 question/answer 직접 조회 (클라이언트 전달값 미사용)
         record = get_record_detail(req.record_id)
         if record:
-            send_feedback_alert_to_teams(record["question"], record["answer"])
+            # Teams 알림
+            if is_inquiry_configured():
+                send_feedback_alert_to_teams(record["question"], record["answer"])
+            # 결과보고서: 설정 ON이고 👎일 때만 백그라운드 분석
+            if get_setting("analyze_no_answer", "0") == "1":
+                asyncio.create_task(
+                    analyze_bad_feedback(
+                        req.record_id,
+                        record["question"],
+                        record["answer"],
+                        bool(record["is_no_answer"]),
+                    )
+                )
 
     return {"success": ok}
 
@@ -257,6 +256,10 @@ async def clear_session(session_id: str):
 
 # ── 어드민 대시보드 ──────────────────────────────────────────────────────────
 
+_db_stats_cache: dict = {}
+_db_stats_cache_time: float = 0.0
+
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
     if not _check_admin_auth(request):
@@ -265,8 +268,40 @@ async def admin_page(request: Request):
             (b"www-authenticate", 'Basic realm="오사장 어드민"'.encode("utf-8"))
         )
         return response
+    company_name = settings.COMPANY_NAME or "오사장"
     with open("/app/company_llm_rag/templates/admin.html", encoding="utf-8") as f:
-        return f.read()
+        html = f.read()
+    return html.replace("{{ company_name }}", company_name)
+
+
+@app.get("/admin/db-stats")
+async def admin_db_stats(request: Request):
+    """ChromaDB 소스별 문서 수 + 최근 수집일자를 반환합니다. 24시간 캐싱."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    global _db_stats_cache, _db_stats_cache_time
+    if _db_stats_cache_time > 0 and time.monotonic() - _db_stats_cache_time < 86400:
+        return _db_stats_cache
+    from company_llm_rag.database import db_manager
+    collection = db_manager.get_collection()
+    total = collection.count()
+    sources = ["jira", "confluence", "sharepoint", "teams", "local"]
+    source_stats: dict = {}
+    for src in sources:
+        result = collection.get(where={"source": src}, include=["metadatas"])
+        cnt = len(result["ids"])
+        if cnt > 0:
+            dates = [m.get("created_at", "") for m in result["metadatas"] if m.get("created_at")]
+            latest = max(dates) if dates else None
+            source_stats[src] = {"count": cnt, "latest": latest}
+    import datetime as _dt
+    _db_stats_cache = {
+        "total": total,
+        "sources": source_stats,
+        "cached_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+    }
+    _db_stats_cache_time = time.monotonic()
+    return _db_stats_cache
 
 
 @app.get("/admin/stats")

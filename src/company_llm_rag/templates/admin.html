@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>오사장 어드민</title>
+<title>{{ company_name }} 지식허브 어드민</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@13/marked.min.js"></script>
 <style>
@@ -50,24 +50,6 @@
   .tab-btn:hover { color: #ddd; }
   .tab-btn.active { color: #fff; border-bottom-color: #6264a7; }
 
-  .header-right {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.85rem;
-    padding: 16px 0;
-  }
-  .header-right select {
-    padding: 4px 8px;
-    border-radius: 6px;
-    border: 1px solid #555;
-    background: #2a2a4e;
-    color: #fff;
-    font-size: 0.85rem;
-    cursor: pointer;
-  }
-
   main { padding: 24px; max-width: 1200px; margin: 0 auto; }
 
   /* 탭 패널 */
@@ -88,16 +70,44 @@
   .card.green .value { color: #2e7d32; }
   .card.red   .value { color: #c62828; }
 
-  .charts { display: grid; grid-template-columns: 1fr 2fr; gap: 16px; margin-bottom: 24px; }
-  @media (max-width: 768px) { .charts { grid-template-columns: 1fr; } }
+  .charts { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 24px; }
   .chart-card {
     background: #fff;
     border-radius: 12px;
     padding: 20px;
     box-shadow: 0 1px 4px rgba(0,0,0,.08);
   }
-  .chart-card h2 { font-size: 0.9rem; color: #555; margin-bottom: 16px; }
+  .chart-card h2 { font-size: 0.9rem; color: #555; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
   .chart-wrap { position: relative; height: 220px; }
+
+  /* DB 현황 */
+  .db-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
+  @media (max-width: 900px) { .db-stats { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 600px) { .db-stats { grid-template-columns: repeat(2, 1fr); } }
+  .db-card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 14px 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    border-left: 4px solid #ccc;
+    min-width: 0;
+  }
+  .db-card .db-label { font-size: 0.75rem; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
+  .db-card .db-value { font-size: 1.4rem; font-weight: 700; color: #1a1a2e; line-height: 1.1; }
+  .db-card .db-sub { font-size: 0.7rem; color: #bbb; margin-top: 3px; }
+  .db-card .db-date { font-size: 0.7rem; color: #aaa; margin-top: 4px; }
+  .db-card.jira       { border-left-color: #0052cc; }
+  .db-card.confluence { border-left-color: #0065ff; }
+  .db-card.sharepoint { border-left-color: #038387; }
+  .db-card.teams      { border-left-color: #6264a7; }
+  .db-card.total      { border-left-color: #555; }
+
+  /* 차트 탭 */
+  .chart-tab-btn {
+    padding: 3px 10px; border-radius: 4px; font-size: 0.78rem; cursor: pointer;
+    border: 1px solid #ddd; background: #fff; color: #888;
+  }
+  .chart-tab-btn.active { background: #6264a7; color: #fff; border-color: #6264a7; }
 
   .bad-list-card {
     background: #fff;
@@ -309,63 +319,99 @@
 <header>
   <div class="header-title">
     <span style="font-size:1.4rem;">📊</span>
-    오사장 어드민
+    {{ company_name }} 지식허브 어드민
   </div>
   <nav class="tabs">
     <button class="tab-btn active" onclick="switchTab('dashboard', this)">대시보드</button>
     <button class="tab-btn" onclick="switchTab('history', this)">이력 조회</button>
     <button class="tab-btn" onclick="switchTab('settings', this)">설정</button>
   </nav>
-  <div class="header-right" id="period-wrap">
-    <label for="period">기간:</label>
-    <select id="period" onchange="loadStats()">
-      <option value="7">최근 7일</option>
-      <option value="14" selected>최근 14일</option>
-      <option value="30">최근 30일</option>
-    </select>
-  </div>
 </header>
 
 <main>
 
   <!-- ── 대시보드 탭 ── -->
   <div class="tab-panel active" id="tab-dashboard">
+    <!-- 오늘 기준 지표 -->
     <div class="metrics">
       <div class="card">
-        <div class="label">총 질문 수</div>
+        <div class="label">오늘 질문 수</div>
         <div class="value" id="m-total">—</div>
-        <div class="sub" id="m-period"></div>
+        <div class="sub">오늘(KST) 기준</div>
       </div>
       <div class="card green">
-        <div class="label">답변 성공률</div>
+        <div class="label">오늘 답변 성공률</div>
         <div class="value" id="m-success">—</div>
         <div class="sub">답변 찾음 비율</div>
       </div>
-      <div class="card">
-        <div class="label">평균 응답시간</div>
-        <div class="value" id="m-avg-ms">—</div>
-        <div class="sub">검색+LLM 합산</div>
-      </div>
       <div class="card green">
-        <div class="label">👍 만족</div>
+        <div class="label">오늘 👍 만족</div>
         <div class="value" id="m-up">—</div>
         <div class="sub" id="m-satis"></div>
       </div>
       <div class="card red">
-        <div class="label">👎 불만족</div>
+        <div class="label">오늘 👎 불만족</div>
         <div class="value" id="m-down">—</div>
         <div class="sub">피드백 받음</div>
       </div>
     </div>
 
+    <!-- DB 현황 -->
+    <div style="font-size:0.78rem;color:#aaa;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+      <span>데이터베이스 현황</span>
+      <span id="db-stats-ts" style="font-size:0.72rem;color:#ccc"></span>
+    </div>
+    <div class="db-stats" id="db-stats-grid">
+      <div class="db-card total">
+        <div class="db-label">전체</div>
+        <div class="db-value" id="db-total">—</div>
+        <div class="db-sub">총 청크 수</div>
+      </div>
+      <div class="db-card jira">
+        <div class="db-label">Jira</div>
+        <div class="db-value" id="db-jira">—</div>
+        <div class="db-sub">이슈/댓글</div>
+        <div class="db-date" id="db-jira-date"></div>
+      </div>
+      <div class="db-card confluence">
+        <div class="db-label">Confluence</div>
+        <div class="db-value" id="db-confluence">—</div>
+        <div class="db-sub">페이지</div>
+        <div class="db-date" id="db-confluence-date"></div>
+      </div>
+      <div class="db-card sharepoint">
+        <div class="db-label">SharePoint</div>
+        <div class="db-value" id="db-sharepoint">—</div>
+        <div class="db-sub">파일/페이지</div>
+        <div class="db-date" id="db-sharepoint-date"></div>
+      </div>
+      <div class="db-card teams">
+        <div class="db-label">Teams</div>
+        <div class="db-value" id="db-teams">—</div>
+        <div class="db-sub">채널/채팅</div>
+        <div class="db-date" id="db-teams-date"></div>
+      </div>
+    </div>
+
+    <!-- 질문 추이 차트 -->
     <div class="charts">
       <div class="chart-card">
-        <h2>소스 분포</h2>
-        <div class="chart-wrap"><canvas id="chart-source"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <h2>시간대별 질문 수 (KST)</h2>
-        <div class="chart-wrap"><canvas id="chart-hourly"></canvas></div>
+        <h2>
+          질문 추이
+          <span style="margin-left:auto;display:flex;align-items:center;gap:8px">
+            <select id="period" onchange="loadStats()" style="padding:3px 8px;border-radius:4px;border:1px solid #ddd;font-size:0.78rem;color:#555;background:#fff;cursor:pointer">
+              <option value="7">최근 7일</option>
+              <option value="14" selected>최근 14일</option>
+              <option value="30">최근 30일</option>
+            </select>
+            <button class="chart-tab-btn active" id="chart-tab-daily" onclick="switchChartTab('daily')">일별</button>
+            <button class="chart-tab-btn" id="chart-tab-hourly" onclick="switchChartTab('hourly')">시간대별</button>
+          </span>
+        </h2>
+        <div class="chart-wrap">
+          <canvas id="chart-daily"></canvas>
+          <canvas id="chart-hourly" style="display:none"></canvas>
+        </div>
       </div>
     </div>
 
@@ -437,7 +483,7 @@
       <div class="setting-row">
         <div>
           <div class="setting-label">결과보고서 작성</div>
-          <div class="setting-desc">모든 답변에 대해 결과보고서를 자동으로 작성합니다. 답변이 있는 경우 답변·검색결과·첨부문서를, 답변이 없는 경우 원인 분석을 기록합니다.</div>
+          <div class="setting-desc">👎 불만족 피드백을 받은 대화에 대해 AI 분석 보고서를 자동으로 작성합니다. 질문을 재분석하고 원인을 파악하여 개선 방안을 제안합니다.</div>
         </div>
         <label class="toggle">
           <input type="checkbox" id="toggle-analyze" onchange="updateSetting('analyze_no_answer', this.checked)">
@@ -461,10 +507,12 @@
 </div>
 
 <script>
-  let sourceChart = null;
+  let dailyChart = null;
   let hourlyChart = null;
   let currentPage = 1;
   let totalPages = 1;
+  let _activeChartTab = 'daily';
+  let _lastStatsData = null;
 
   const SOURCE_COLORS = {
     jira:       '#0052cc',
@@ -480,8 +528,7 @@
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
     btn.classList.add('active');
-    document.getElementById('period-wrap').style.display = name === 'dashboard' ? '' : 'none';
-
+    if (name === 'dashboard') { loadStats(); loadDbStats(); }
     if (name === 'history' && document.getElementById('history-tbody').children.length === 1
         && document.getElementById('history-tbody').children[0].children[0].colSpan > 1) {
       loadHistory(1);
@@ -548,7 +595,6 @@
   // ── 대시보드 ──────────────────────────────────────────────────────────────
   async function loadStats() {
     const days = document.getElementById('period').value;
-    document.getElementById('m-period').textContent = `최근 ${days}일`;
 
     let data;
     try {
@@ -559,57 +605,18 @@
       alert('네트워크 오류: ' + e.message);
       return;
     }
+    _lastStatsData = data;
 
-    document.getElementById('m-total').textContent   = data.total.toLocaleString();
-    document.getElementById('m-success').textContent = data.success_rate + '%';
-    document.getElementById('m-avg-ms').textContent  = fmtMs(data.avg_response_ms);
-    document.getElementById('m-up').textContent      = data.thumbs_up.toLocaleString();
-    document.getElementById('m-down').textContent    = data.thumbs_down.toLocaleString();
+    // 오늘 기준 지표
+    document.getElementById('m-total').textContent   = data.today_total.toLocaleString();
+    document.getElementById('m-success').textContent = data.today_success_rate + '%';
+    document.getElementById('m-up').textContent      = data.today_thumbs_up.toLocaleString();
+    document.getElementById('m-down').textContent    = data.today_thumbs_down.toLocaleString();
+    const todayFb = data.today_thumbs_up + data.today_thumbs_down;
     document.getElementById('m-satis').textContent   =
-      data.satisfaction_rate !== null ? `만족도 ${data.satisfaction_rate}%` : '피드백 없음';
+      todayFb > 0 ? `만족도 ${Math.round(data.today_thumbs_up / todayFb * 100)}%` : '피드백 없음';
 
-    const srcLabels = Object.keys(data.source_counts);
-    const srcValues = Object.values(data.source_counts);
-    const srcColors = srcLabels.map(s => SOURCE_COLORS[s] || '#999');
-
-    if (sourceChart) sourceChart.destroy();
-    if (srcLabels.length === 0) {
-      document.getElementById('chart-source').parentElement.innerHTML = '<p class="empty">데이터 없음</p>';
-    } else {
-      sourceChart = new Chart(document.getElementById('chart-source'), {
-        type: 'doughnut',
-        data: { labels: srcLabels, datasets: [{ data: srcValues, backgroundColor: srcColors, borderWidth: 2 }] },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 12 } } },
-        },
-      });
-    }
-
-    const hourlyMap = {};
-    for (const h of data.hourly) {
-      const kstHour = (parseInt(h.hour, 10) + 9) % 24;
-      hourlyMap[kstHour] = (hourlyMap[kstHour] || 0) + h.count;
-    }
-    const allHours = Array.from({ length: 24 }, (_, i) => i);
-    const hourlyValues = allHours.map(h => hourlyMap[h] || 0);
-
-    if (hourlyChart) hourlyChart.destroy();
-    hourlyChart = new Chart(document.getElementById('chart-hourly'), {
-      type: 'bar',
-      data: {
-        labels: allHours.map(h => `${String(h).padStart(2,'0')}시`),
-        datasets: [{ label: '질문 수', data: hourlyValues, backgroundColor: '#6264a7', borderRadius: 4 }],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
-          y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 10 } } },
-        },
-      },
-    });
+    renderActiveChart(data);
 
     const tbody = document.getElementById('bad-tbody');
     tbody.innerHTML = '';
@@ -630,6 +637,115 @@
         tbody.appendChild(tr);
       }
     }
+  }
+
+  function switchChartTab(tab) {
+    _activeChartTab = tab;
+    document.getElementById('chart-tab-daily').classList.toggle('active', tab === 'daily');
+    document.getElementById('chart-tab-hourly').classList.toggle('active', tab === 'hourly');
+    document.getElementById('chart-daily').style.display  = tab === 'daily'  ? '' : 'none';
+    document.getElementById('chart-hourly').style.display = tab === 'hourly' ? '' : 'none';
+    if (_lastStatsData) renderActiveChart(_lastStatsData);
+  }
+
+  function renderActiveChart(data) {
+    if (_activeChartTab === 'daily') {
+      renderDailyChart(data);
+    } else {
+      renderHourlyChart(data);
+    }
+  }
+
+  const _CHART_OPTS = {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 12, boxWidth: 12 } },
+    },
+    scales: {
+      x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 45 } },
+      y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1, font: { size: 10 } } },
+    },
+  };
+
+  function _mixedDatasets(totals, answered) {
+    const noAnswer = totals.map((t, i) => t - answered[i]);
+    return [
+      { type: 'bar',  label: '답변 성공', data: answered, backgroundColor: 'rgba(46,125,50,.55)',  borderRadius: 0, stack: 'q', order: 2 },
+      { type: 'bar',  label: '답변 없음', data: noAnswer,  backgroundColor: 'rgba(198,40,40,.45)',  borderRadius: 0, stack: 'q', order: 2 },
+      { type: 'line', label: '전체 질문', data: totals,    borderColor: '#6264a7', backgroundColor: 'transparent',
+        borderWidth: 2, pointRadius: 3, pointBackgroundColor: '#6264a7', fill: false, tension: 0.3, order: 1 },
+    ];
+  }
+
+  function renderDailyChart(data) {
+    const days = parseInt(document.getElementById('period').value, 10);
+    const totalMap = {}, answeredMap = {};
+    for (const d of (data.daily || [])) { totalMap[d.day] = d.total; answeredMap[d.day] = d.answered; }
+    const labels = [], totals = [], answered = [];
+    const now = new Date();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now);
+      d.setUTCDate(d.getUTCDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      labels.push(key.slice(5));
+      totals.push(totalMap[key] || 0);
+      answered.push(answeredMap[key] || 0);
+    }
+    if (dailyChart) dailyChart.destroy();
+    dailyChart = new Chart(document.getElementById('chart-daily'), {
+      data: { labels, datasets: _mixedDatasets(totals, answered) },
+      options: _CHART_OPTS,
+    });
+  }
+
+  function renderHourlyChart(data) {
+    const totalMap = {}, answeredMap = {};
+    for (const h of (data.hourly || [])) {
+      const kst = (parseInt(h.hour, 10) + 9) % 24;
+      totalMap[kst]    = (totalMap[kst]    || 0) + h.total;
+      answeredMap[kst] = (answeredMap[kst] || 0) + h.answered;
+    }
+    const allHours = Array.from({ length: 24 }, (_, i) => i);
+    const totals   = allHours.map(h => totalMap[h]    || 0);
+    const answered = allHours.map(h => answeredMap[h] || 0);
+    if (hourlyChart) hourlyChart.destroy();
+    hourlyChart = new Chart(document.getElementById('chart-hourly'), {
+      data: { labels: allHours.map(h => `${String(h).padStart(2,'0')}시`), datasets: _mixedDatasets(totals, answered) },
+      options: _CHART_OPTS,
+    });
+  }
+
+  function fmtDateShort(iso) {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      return `수집 ${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+    } catch { return ''; }
+  }
+
+  async function loadDbStats() {
+    try {
+      const res = await fetch('/admin/db-stats');
+      if (!res.ok) return;
+      const data = await res.json();
+      const fmt = n => n != null ? n.toLocaleString() : '—';
+      const src = data.sources || {};
+      document.getElementById('db-total').textContent           = fmt(data.total);
+      document.getElementById('db-jira').textContent            = fmt(src.jira?.count);
+      document.getElementById('db-confluence').textContent      = fmt(src.confluence?.count);
+      document.getElementById('db-sharepoint').textContent      = fmt(src.sharepoint?.count);
+      document.getElementById('db-teams').textContent           = fmt(src.teams?.count);
+      document.getElementById('db-jira-date').textContent       = fmtDateShort(src.jira?.latest);
+      document.getElementById('db-confluence-date').textContent = fmtDateShort(src.confluence?.latest);
+      document.getElementById('db-sharepoint-date').textContent = fmtDateShort(src.sharepoint?.latest);
+      document.getElementById('db-teams-date').textContent      = fmtDateShort(src.teams?.latest);
+      if (data.cached_at) {
+        const d = new Date(data.cached_at);
+        const ts = d.toLocaleString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12: false });
+        document.getElementById('db-stats-ts').textContent = `(${ts} 기준)`;
+      }
+    } catch(e) {}
   }
 
   // ── 이력 조회 ─────────────────────────────────────────────────────────────
@@ -1020,6 +1136,7 @@
 
   // ── 초기화 ────────────────────────────────────────────────────────────────
   loadStats();
+  loadDbStats();
 </script>
 </body>
 </html>
