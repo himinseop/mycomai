@@ -1,7 +1,9 @@
 import json
+import math
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from typing import List, Dict, Set
 
 from company_llm_rag.config import settings
@@ -52,6 +54,29 @@ _KO_SUFFIXES = sorted([
 ], key=len, reverse=True)
 
 _KEYWORD_ONLY_DISCOUNT = 0.5  # 키워드 전용 결과(벡터 미매칭) RRF 할인율
+
+# 최신성 부스트 설정
+_RECENCY_HALF_LIFE_DAYS = 30   # 30일마다 점수 절반 감소 (일반)
+_RECENCY_JIRA_SCALE = 0.5      # Jira는 절반 반감기 → 더 빠르게 감소 (오래된 이슈 억제)
+
+
+def _recency_score(metadata: Dict, jira_scale: bool = False) -> float:
+    """created_at 기반 최신성 점수 (0~1, 최신일수록 높음).
+    날짜 없는 문서는 중립값(0.5) 반환.
+    """
+    date_str = metadata.get("created_at") or metadata.get("updated_at") or ""
+    if not date_str:
+        return 0.5
+    try:
+        dt = datetime.fromisoformat(date_str.rstrip("Z"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        days_ago = max((now - dt).days, 0)
+        half_life = _RECENCY_HALF_LIFE_DAYS * (_RECENCY_JIRA_SCALE if jira_scale else 1.0)
+        return math.exp(-days_ago * math.log(2) / half_life)
+    except Exception:
+        return 0.5
 
 
 def _strip_ko_suffix(word: str) -> str:
@@ -205,6 +230,7 @@ def retrieve_documents(
     url_extensions: List[str] = None,
     return_timing: bool = False,
     return_scores: bool = False,
+    recency_boost: bool = False,
 ):
     """
     ChromaDB에서 하이브리드 검색(벡터 + 키워드 RRF)으로 관련 문서를 검색합니다.
@@ -218,6 +244,10 @@ def retrieve_documents(
 
     Returns:
         검색된 문서 리스트, 또는 return_timing=True이면 (리스트, timing dict)
+
+    Note:
+        recency_boost=True이면 RRF 점수에 created_at 기반 최신성 가중치를 곱합니다.
+        Jira 소스는 반감기가 절반으로 더 강하게 적용됩니다.
     """
     if n_results is None:
         n_results = settings.RETRIEVAL_TOP_K
@@ -308,6 +338,12 @@ def retrieve_documents(
                 team = doc_map[doc_id].get('metadata', {}).get('teams_team_name', '')
                 if team in hub_teams:
                     rrf *= hub_rrf_boost
+            # 최신성 부스트: created_at 기반 가중치 적용
+            if recency_boost:
+                meta = doc_map[doc_id].get('metadata', {})
+                is_jira = meta.get('source', '') == 'jira'
+                r_score = _recency_score(meta, jira_scale=is_jira)
+                rrf = rrf * (1.0 + r_score)
             scored.append({**doc_map[doc_id], '_rrf': rrf, '_doc_id': doc_id,
                            '_vector_rank': v_rank, '_keyword_rank': k_rank})
 

@@ -136,8 +136,7 @@
     .src-badge.local      { background: #6B7280; }
 
     /* ── 피드백 ── */
-    .feedback-bar { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
-    .feedback-label { font-size: 12px; color: #ccc; }
+    .feedback-label { font-size: 12px; color: #bbb; }
     .feedback-btn {
       background: none; border: 1px solid #ebebeb; border-radius: 14px;
       padding: 2px 10px; cursor: pointer; font-size: 13px; color: #888;
@@ -148,17 +147,7 @@
     .feedback-btn.active-down { background: #fce4ec; border-color: #ef9a9a; color: #c62828; }
     .feedback-btn:disabled { cursor: default; opacity: 0.7; }
 
-    /* ── 접기 버튼 ── */
-    .context-body-header {
-      display: flex; justify-content: flex-end; padding: 4px 12px 0;
-    }
-    .ctx-collapse-btn {
-      background: none; border: none; color: #ccc; font-size: 11px;
-      cursor: pointer; padding: 2px 6px; border-radius: 4px; line-height: 1.6;
-    }
-    .ctx-collapse-btn:hover { background: #f5f5f5; color: #888; }
-
-    /* ── 컨텍스트 푸터 (Teams + 이어서 질문) ── */
+    /* ── 컨텍스트 푸터 (이어서 질문 + 액션 바) ── */
     .context-footer { border-top: 2px solid #f0f0f5; background: #fafafa; }
 
     /* 이어서 질문 — 답변 완료 전까지 숨김 */
@@ -179,9 +168,16 @@
     .followup-btn:hover { background: #4338ca; }
     .followup-btn:disabled { background: #c5c5c5; cursor: not-allowed; }
 
-    /* Teams 문의 버튼 (인라인, 컨텍스트당) */
-    .teams-inquiry-bar { padding: 0 12px 10px; display: none; }
-    .teams-inquiry-bar.visible { display: block; }
+    /* ── 하단 액션 바 (피드백 + Teams + 접기) ── */
+    .ctx-action-bar {
+      display: none; align-items: center; justify-content: flex-end;
+      padding: 0 12px 10px; gap: 8px;
+    }
+    .ctx-action-bar.visible { display: flex; }
+    .ctx-feedback-inline { display: flex; align-items: center; gap: 6px; margin-right: 4px; }
+    /* Teams 문의 버튼 */
+    .teams-inquiry-bar { display: none; }
+    .teams-inquiry-bar.visible { display: flex; align-items: center; }
     .teams-inquiry-btn {
       background: none; border: 1px solid #d0d1ed; color: #6264A7;
       border-radius: 20px; padding: 5px 14px; cursor: pointer;
@@ -190,6 +186,12 @@
     }
     .teams-inquiry-btn:hover { background: #f0f0fa; }
     .teams-inquiry-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    /* 접기 버튼 */
+    .ctx-collapse-btn {
+      background: none; border: none; color: #ccc; font-size: 11px;
+      cursor: pointer; padding: 2px 6px; border-radius: 4px; line-height: 1.6;
+    }
+    .ctx-collapse-btn:hover { background: #f5f5f5; color: #888; }
 
     /* ── 하단 새 질문 입력창 ── */
     #input-wrapper {
@@ -376,28 +378,29 @@
         <span class="context-expand-hint">펼치기 ▾</span>
       </div>
       <div class="context-body">
-        <div class="context-body-header">
-          <button class="ctx-collapse-btn" onclick="collapseContext('${ctxId}')">접기 ▲</button>
-        </div>
         <div class="context-turns"></div>
         <div class="context-footer">
-          <div class="teams-inquiry-bar" id="teams-bar-${ctxId}">
-            <button class="teams-inquiry-btn" onclick="sendInquiry(this,'${ctxId}')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                <circle cx="16.5" cy="5.5" r="3"/>
-                <path d="M14 10h5a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-1v-5a3 3 0 0 0-3-3h-1z"/>
-                <circle cx="8" cy="6" r="3.5"/>
-                <path d="M3 14a5 5 0 0 1 5-5h0a5 5 0 0 1 5 5v4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-4z"/>
-              </svg>
-              Teams에 문의하기
-            </button>
-          </div>
           <div class="followup-area" id="followup-area-${ctxId}">
             <textarea class="followup-input" id="followup-${ctxId}"
               placeholder="이어서 질문하세요..." rows="1"
               onkeydown="handleFollowupKey(event,'${ctxId}')"
               oninput="autoResize(this)"></textarea>
             <button class="followup-btn" id="followup-btn-${ctxId}" onclick="sendFollowup('${ctxId}')">전송</button>
+          </div>
+          <div class="ctx-action-bar" id="action-bar-${ctxId}">
+            <div class="ctx-feedback-inline" id="feedback-inline-${ctxId}"></div>
+            <div class="teams-inquiry-bar" id="teams-bar-${ctxId}">
+              <button class="teams-inquiry-btn" onclick="sendInquiry(this,'${ctxId}')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="16.5" cy="5.5" r="3"/>
+                  <path d="M14 10h5a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-1v-5a3 3 0 0 0-3-3h-1z"/>
+                  <circle cx="8" cy="6" r="3.5"/>
+                  <path d="M3 14a5 5 0 0 1 5-5h0a5 5 0 0 1 5 5v4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-4z"/>
+                </svg>
+                Teams에 문의하기
+              </button>
+            </div>
+            <button class="ctx-collapse-btn" onclick="collapseContext('${ctxId}')">접기 ▲</button>
           </div>
         </div>
       </div>
@@ -441,7 +444,7 @@
     return turn;
   }
 
-  function finalizeTurnEl(turnEl, fullText, references, recordId) {
+  function finalizeTurnEl(turnEl, fullText, references) {
     const textEl = turnEl.querySelector('.qa-a-content');
     textEl.innerHTML = renderText(fullText);
     const body = turnEl.querySelector('.qa-a-body');
@@ -458,16 +461,15 @@
       });
       body.appendChild(refsDiv);
     }
+  }
 
-    if (recordId) {
-      const bar = document.createElement('div');
-      bar.className = 'feedback-bar';
-      bar.innerHTML = `
-        <span class="feedback-label">도움이 됐나요?</span>
-        <button class="feedback-btn" data-rating="1" onclick="sendFeedback(this,${recordId},1)">👍</button>
-        <button class="feedback-btn" data-rating="-1" onclick="sendFeedback(this,${recordId},-1)">👎</button>`;
-      body.appendChild(bar);
-    }
+  function updateCtxFeedback(ctxId, recordId) {
+    const bar = document.getElementById(`feedback-inline-${ctxId}`);
+    if (!bar) return;
+    bar.innerHTML = `
+      <span class="feedback-label">도움이 됐나요?</span>
+      <button class="feedback-btn" data-rating="1" onclick="sendFeedback(this,${recordId},1,'${ctxId}')">👍</button>
+      <button class="feedback-btn" data-rating="-1" onclick="sendFeedback(this,${recordId},-1,'${ctxId}')">👎</button>`;
   }
 
   // ── 새 질문 전송 ─────────────────────────────────────────────────────
@@ -579,11 +581,15 @@
             cursor.remove();
             writeEl.style.opacity = '0';
             setTimeout(() => writeEl.remove(), 520);
-            finalizeTurnEl(turnEl, fullText, finalRefs, ev.record_id);
+            finalizeTurnEl(turnEl, fullText, finalRefs);
             ctxTurns[ctxId].push({ question: text, answer: fullText });
             if (ev.inquiry_available) {
               document.getElementById(`teams-bar-${ctxId}`).classList.add('visible');
             }
+            // 하단 피드백 업데이트
+            if (ev.record_id) updateCtxFeedback(ctxId, ev.record_id);
+            // 액션 바 표시
+            document.getElementById(`action-bar-${ctxId}`)?.classList.add('visible');
             // 답변 완료 후 이어서 질문 입력창 표시
             const fa = document.getElementById(`followup-area-${ctxId}`);
             if (fa) {
@@ -629,14 +635,23 @@
   }
 
   // ── 피드백 ──────────────────────────────────────────────────────────
-  async function sendFeedback(btn, recordId, rating) {
-    const bar  = btn.closest('.feedback-bar');
+  async function sendFeedback(btn, recordId, rating, ctxId) {
+    const bar  = btn.closest('.ctx-feedback-inline');
     const btns = bar.querySelectorAll('.feedback-btn');
     btns.forEach(b => b.disabled = true);
+    const conversationHistory = [];
+    (ctxTurns[ctxId] || []).forEach(t => {
+      conversationHistory.push({ role: 'user',      content: t.question });
+      conversationHistory.push({ role: 'assistant', content: t.answer   });
+    });
     try {
       const res  = await fetch('/feedback', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ record_id: recordId, rating, session_id: '' }),
+        body: JSON.stringify({
+          record_id: recordId, rating,
+          session_id: ctxSessions[ctxId] || '',
+          conversation_history: conversationHistory,
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -675,6 +690,8 @@
         if (bar) {
           bar.innerHTML = '<span style="font-size:12px;color:#6264A7;padding:0 2px">✅ 팀즈로 전송이 완료되었습니다.</span>';
         }
+        const fa = document.getElementById(`followup-area-${ctxId}`);
+        if (fa) fa.remove();
       } else {
         btn.textContent = '❌ 전송 실패';
         setTimeout(() => { btn.innerHTML = originalHtml; btn.disabled = false; }, 3000);

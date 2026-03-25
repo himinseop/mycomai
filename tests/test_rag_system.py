@@ -1,8 +1,5 @@
-"""
-RAG 시스템 테스트
-"""
+"""RAG 시스템 테스트"""
 
-import pytest
 from company_llm_rag.rag_system import build_rag_prompt
 
 
@@ -40,7 +37,7 @@ class TestBuildRAGPrompt:
         assert "This is test content" in result
         assert "Test Document" in result
         assert "http://test.com" in result
-        assert "Document 1" in result
+        assert "문서 1" in result
 
     def test_build_prompt_multiple_docs(self):
         """여러 문서로 프롬프트 생성 테스트"""
@@ -68,8 +65,8 @@ class TestBuildRAGPrompt:
 
         assert "Content 1" in result
         assert "Content 2" in result
-        assert "Document 1" in result
-        assert "Document 2" in result
+        assert "문서 1" in result
+        assert "문서 2" in result
 
     def test_build_prompt_with_jira_comments(self):
         """Jira 댓글이 포함된 문서 테스트"""
@@ -124,3 +121,31 @@ class TestBuildRAGPrompt:
         assert "Original message" in result
         assert "Reply by Alice" in result
         assert "Reply message" in result
+
+    def test_build_prompt_with_automatic_recency_hint(self):
+        """자동 최신성 기간 힌트가 프롬프트에 포함되는지 테스트"""
+        result = build_rag_prompt(
+            "최근 등록된 지라 일감 보여줘",
+            [],
+            recency_window=30,
+            recency_explicit=False,
+        )
+
+        assert "[검색 기준: 최근 30일 이내 등록/수정된 Jira 일감을 우선 표시합니다]" in result
+
+    def test_build_prompt_with_explicit_recency_hint(self):
+        """사용자 지정 기간 힌트가 프롬프트에 포함되는지 테스트"""
+        result = build_rag_prompt(
+            "최근 7일 지라 일감 보여줘",
+            [],
+            recency_window=7,
+            recency_explicit=True,
+        )
+
+        assert "[검색 기준: 사용자 지정 최근 7일 이내 Jira 일감을 표시합니다]" in result
+
+    def test_build_prompt_includes_jira_listing_format_instruction(self):
+        """Jira 목록 응답 포맷 지침이 프롬프트에 유지되는지 테스트"""
+        result = build_rag_prompt("최근 등록된 지라 일감 보여줘", [])
+
+        assert "**[이슈키] 제목** | 상태: OOO | 담당자: OOO | 생성일: YYYY-MM-DD" in result

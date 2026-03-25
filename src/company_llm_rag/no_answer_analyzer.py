@@ -206,10 +206,17 @@ def _build_docs_text(docs: list) -> str:
     return "\n\n".join(lines)
 
 
-async def analyze_bad_feedback(record_id: int, question: str, answer: str, is_no_answer: bool) -> None:
+async def analyze_bad_feedback(
+    record_id: int,
+    question: str,
+    answer: str,
+    is_no_answer: bool,
+    conversation_history=None,
+) -> None:
     """
     👎 피드백을 받은 대화에 대해 LLM 분석을 수행하고 DB에 저장합니다.
     질문을 재검색한 후, 답변 유무에 따라 적합한 프롬프트로 분석합니다.
+    conversation_history가 제공되면 전체 대화 맥락을 프롬프트에 포함합니다.
     """
     try:
         set_analysis_pending(record_id)
@@ -218,12 +225,30 @@ async def analyze_bad_feedback(record_id: int, question: str, answer: str, is_no
         docs = retrieve_documents(question, n_results=15, return_scores=True)
         docs_text = _build_docs_text(docs)
 
+        # 전체 대화 컨텍스트 섹션 구성 (2턴 이상일 때만)
+        history_prefix = ""
+        if conversation_history and len(conversation_history) > 2:
+            turns = []
+            i = 0
+            while i < len(conversation_history) - 1:
+                if conversation_history[i]["role"] == "user" and conversation_history[i + 1]["role"] == "assistant":
+                    turns.append(
+                        f"Q: {conversation_history[i]['content']}\n"
+                        f"A: {(conversation_history[i + 1]['content'] or '')[:300]}"
+                    )
+                    i += 2
+                else:
+                    i += 1
+            if len(turns) > 1:  # 마지막 턴은 질문/답변으로 별도 제공되므로 앞 턴들만 포함
+                ctx = "\n\n".join(turns[:-1])
+                history_prefix = f"[이전 대화 컨텍스트 — 사용자가 이 대화에서 나눈 이전 턴들]\n{ctx}\n\n"
+
         if is_no_answer:
-            prompt = _ANALYSIS_PROMPT_NO_ANSWER.format(
+            prompt = history_prefix + _ANALYSIS_PROMPT_NO_ANSWER.format(
                 question=question, n=len(docs), docs=docs_text,
             )
         else:
-            prompt = _ANALYSIS_PROMPT_WITH_ANSWER.format(
+            prompt = history_prefix + _ANALYSIS_PROMPT_WITH_ANSWER.format(
                 question=question,
                 answer=(answer or "")[:500],
                 n=len(docs),
