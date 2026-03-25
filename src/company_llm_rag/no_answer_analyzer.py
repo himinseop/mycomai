@@ -148,6 +148,8 @@ def _build_ref_link_html(meta: dict, title_esc: str, url: str) -> str:
     elif source == "sharepoint":
         site_name = meta.get("sharepoint_site_name", "")
         file_path = meta.get("sharepoint_file_path", "")
+        if "/root:" in file_path:
+            file_path = file_path.split("/root:", 1)[1].lstrip("/")
         try:
             parsed = urlparse(url)
             segs = [s for s in parsed.path.split("/") if s]

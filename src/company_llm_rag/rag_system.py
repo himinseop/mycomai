@@ -715,9 +715,8 @@ def rag_query(
     if _NO_ANSWER_PHRASE in llm_response:
         return llm_response, [], timing
 
-    # 인용된 문서만 참고문서로 표시 (인용 없으면 거리 필터 결과 전체)
-    ref_docs = [retrieved_docs[i] for i in sorted(cited)] if cited else retrieved_docs
-    references = _build_references(ref_docs, listing)
+    # [REFn] 인용 제거 이후: 검색된 전체 문서를 참고문서로 표시 (거리 필터는 _build_references 내부)
+    references = _build_references(retrieved_docs, listing)
     return llm_response, references, timing
 
 
@@ -813,8 +812,8 @@ def rag_query_stream(
     if is_no_answer:
         references = []
     else:
-        ref_docs = [retrieved_docs[i] for i in sorted(cited)] if cited else retrieved_docs
-        references = _build_references(ref_docs, listing)
+        # [REFn] 인용 제거 이후: 검색된 전체 문서를 참고문서로 표시 (거리 필터는 _build_references 내부)
+        references = _build_references(retrieved_docs, listing)
     yield {"type": "done", "answer": full_answer, "references": references, "timing": timing, "is_no_answer": is_no_answer}
 
 

@@ -1206,7 +1206,8 @@
 
       } else if (src === 'sharepoint') {
         const siteName = r.site_name || '';
-        const filePath = r.file_path || '';
+        let filePath = r.file_path || '';
+        if (filePath.includes('/root:')) filePath = filePath.split('/root:').pop().replace(/^\//, '');
         let siteUrl = '', folderUrl = '', docName = r.title, folderName = '';
         if (r.url) {
           try {
