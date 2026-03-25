@@ -8,6 +8,7 @@
 # Data files
 *.jsonl
 *.log
+data/
 
 # Database
 chroma_db/
