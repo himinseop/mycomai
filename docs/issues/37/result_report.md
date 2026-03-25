@@ -140,5 +140,5 @@ scope=record:       save_record_feedback(record_id, rating)
 
 ## 관련 문서
 
-- 설계 문서: `docs/issues/37_question_group_session_redesign_2026-03-25.md`
+- 설계 문서: `docs/issues/37/design.md`
 - 테스트 케이스: `docs/issues/37/checklist.md`

@@ -97,4 +97,4 @@ PYTHONPATH=src python3 -c "from company_llm_rag.config import settings; print(se
 - `REFACTORING_PLAN.md` - 전체 리팩토링 로드맵 및 진행 상황
 - `DEDUPLICATION_STRATEGIES.md` - 중복 수집 최소화 전략
 - `docker/docker_compose_instructions.md` - Docker 실행 가이드
-- `docs/issues/37_question_group_session_redesign_2026-03-25.md` - Issue #37 설계 문서 및 TC
+- `docs/issues/37/design.md` - Issue #37 설계 문서 및 TC
