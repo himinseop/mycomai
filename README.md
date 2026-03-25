@@ -13,10 +13,10 @@
 문서는 모두 [`docs`](./docs) 아래로 정리했습니다.
 
 - [`docs/README.md`](./docs/README.md): 문서 목차
-- [`docs/01_시스템_소개.md`](./docs/01_시스템_소개.md): 아키텍처와 핵심 동작
-- [`docs/02_운영_가이드.md`](./docs/02_운영_가이드.md): 실행, 운영, 점검 절차
-- [`docs/03_프로젝트_구조.md`](./docs/03_프로젝트_구조.md): 디렉토리와 모듈 분석
-- [`docs/04_도커_배포_가이드.md`](./docs/04_도커_배포_가이드.md): Docker/Docker Compose 사용법
+- [`docs/01_system_overview.md`](./docs/01_system_overview.md): 아키텍처와 핵심 동작
+- [`docs/02_operations_guide.md`](./docs/02_operations_guide.md): 실행, 운영, 점검 절차
+- [`docs/03_project_structure.md`](./docs/03_project_structure.md): 디렉토리와 모듈 분석
+- [`docs/04_docker_deployment_guide.md`](./docs/04_docker_deployment_guide.md): Docker/Docker Compose 사용법
 
 빠르게 시작하려면:
 
@@ -29,3 +29,13 @@ docker compose -f docker/docker-compose.yml up -d web
 ```
 
 웹 UI는 `http://localhost:8000` 에서 확인할 수 있습니다.
+
+질의 이력을 로컬에서 바로 확인하려면:
+
+```bash
+python3 scripts/query_history.py 83
+python3 scripts/query_history.py --tail 10
+```
+
+`query_history.db` 본파일만 직접 확인하고 싶다면 SQLite 저널 모드를 `DELETE`로 유지해야 합니다.
+현재 Docker Compose 기본값도 `DELETE`로 맞춰 두었습니다.

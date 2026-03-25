@@ -15,7 +15,8 @@ except ImportError:
 
 from company_llm_rag.config import settings
 from company_llm_rag.database import db_manager
-from company_llm_rag.history_store import fts_bulk_upsert, init_db as _init_db
+from company_llm_rag.fts_store import fts_bulk_upsert
+from company_llm_rag.history_store import init_db as _init_db, invalidate_stats_cache, set_collection_date
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
@@ -272,6 +273,7 @@ def load_data_to_chromadb(data_stream):
     collection = db_manager.get_collection()
     stats = {"new": 0, "updated": 0, "skipped": 0}
     fts_buffer: list = []  # FTS 일괄 저장 버퍼
+    collected_sources: set = set()  # 수집된 소스 추적
 
     logger.info("문서 로드 시작 (스트리밍 처리).")
     start_time = time.time()
@@ -285,6 +287,8 @@ def load_data_to_chromadb(data_stream):
             document = json.loads(line)
             doc_id = document.get("id")
             source = document.get("source")
+            if source:
+                collected_sources.add(source)
             title = document.get("title", "")
             content = document.get("content", "")
             url = document.get("url", "")
@@ -390,6 +394,9 @@ def load_data_to_chromadb(data_stream):
         f"(new {stats['new']:,} | updated {stats['updated']:,} | skipped {stats['skipped']:,} | failed {failed:,}) "
         f"| 총 소요: {_fmt_elapsed(elapsed)}"
     )
+    for src in collected_sources:
+        set_collection_date(src)
+    invalidate_stats_cache()
 
 
 if __name__ == "__main__":

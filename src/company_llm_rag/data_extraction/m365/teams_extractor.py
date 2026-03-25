@@ -206,11 +206,14 @@ def main():
                         if reply_blocks:
                             content = body_text + '\n\n' + '\n\n'.join(reply_blocks)
 
+                        msg_id = message.get('id')
+                        channel_url = f"https://teams.microsoft.com/l/message/{channel_id}/{msg_id}" if channel_id and msg_id else None
+
                         extracted_data_schema = {
-                            "id": f"teams-{message.get('id')}",
+                            "id": f"teams-{msg_id}",
                             "source": "teams",
-                            "source_id": message.get('id'),
-                            "url": None,
+                            "source_id": msg_id,
+                            "url": channel_url,
                             "title": message.get('subject') or f"Teams Message in {channel_display_name}",
                             "content": content,
                             "content_type": "message",
@@ -270,11 +273,14 @@ def main():
                         if len(chat_body_text.strip()) < 50:
                             continue
 
+                        chat_msg_id = message.get('id')
+                        chat_url = f"https://teams.microsoft.com/l/message/{chat_id}/{chat_msg_id}" if chat_id and chat_msg_id else None
+
                         extracted_data_schema = {
-                            "id": f"teams-chat-{message.get('id')}",
+                            "id": f"teams-chat-{chat_msg_id}",
                             "source": "teams",
-                            "source_id": message.get('id'),
-                            "url": None,
+                            "source_id": chat_msg_id,
+                            "url": chat_url,
                             "title": f"[{chat_topic}] {author_name}의 메시지",
                             "content": chat_body_text,
                             "content_type": "chat_message",

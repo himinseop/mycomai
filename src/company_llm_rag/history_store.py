@@ -1,8 +1,13 @@
 """
-질문 이력 저장소 (SQLite)
+애플리케이션 운영 데이터 저장소 (app_data.db)
 
-세션별 Q&A 이력을 저장하고 조회합니다.
-TTL: 히스토리 14일, 세션 만료 기준 7일
+웹 서비스 운영에 직접 연결된 데이터를 저장하고 조회합니다.
+- chat_history: 사용자 질문/답변 이력
+- app_settings: 웹/어드민 운영 설정
+
+검색 인덱스(doc_fts)는 fts_store.py (search_index.db)에서 별도 관리합니다.
+
+TTL: 이력 14일, 세션 만료 기준 7일
 """
 
 import json
@@ -17,12 +22,16 @@ from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
 
-_DB_PATH = Path(settings.CHROMA_DB_PATH).parent / "query_history.db"
+_DB_PATH = Path(settings.APP_DATA_DB_PATH)
 
 HISTORY_TTL_DAYS = 14   # 이력 보관 기간
 SESSION_TTL_DAYS = 7    # 세션 유효 기간
 
 _local = threading.local()  # 스레드별 연결 캐시
+
+# get_stats 영구 캐시 (수집 완료 또는 명시적 무효화 시까지 유지)
+_stats_cache: Dict[int, Dict] = {}
+_stats_cache_lock = threading.Lock()
 
 
 def _conn() -> sqlite3.Connection:
@@ -35,17 +44,20 @@ def _conn() -> sqlite3.Connection:
         except Exception:
             _local.con = None
 
+    _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(_DB_PATH), timeout=30)
     con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")
+    journal_mode = settings.SQLITE_JOURNAL_MODE
+    actual_journal_mode = con.execute(f"PRAGMA journal_mode={journal_mode}").fetchone()[0]
     con.execute("PRAGMA synchronous=NORMAL")
+    logger.info(f"[History] SQLite journal_mode={actual_journal_mode}")
     _local.con = con
     return con
 
 
 def _migrate_add_columns(con: sqlite3.Connection) -> None:
     """기존 DB에 신규 컬럼을 추가합니다 (idempotent)."""
-    existing = {row[1] for row in con.execute("PRAGMA table_info(query_history)")}
+    existing = {row[1] for row in con.execute("PRAGMA table_info(chat_history)")}
     migrations = [
         ("response_time_ms",   "INTEGER DEFAULT NULL"),
         ("is_no_answer",       "INTEGER DEFAULT 0"),
@@ -58,12 +70,13 @@ def _migrate_add_columns(con: sqlite3.Connection) -> None:
     ]
     for col, definition in migrations:
         if col not in existing:
-            con.execute(f"ALTER TABLE query_history ADD COLUMN {col} {definition}")
+            con.execute(f"ALTER TABLE chat_history ADD COLUMN {col} {definition}")
             logger.info(f"[History] 컬럼 추가: {col}")
 
 
 def init_db() -> None:
     """DB 초기화 및 만료 레코드 정리."""
+    from company_llm_rag.fts_store import init_fts_db
     with _conn() as con:
         con.execute("""
             CREATE TABLE IF NOT EXISTS app_settings (
@@ -71,16 +84,13 @@ def init_db() -> None:
                 value TEXT NOT NULL
             )
         """)
-        # FTS5 역인덱스 — ChromaDB $contains 대체 (O(N) → O(log N))
+        # legacy: query_history → chat_history 마이그레이션
+        tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "query_history" in tables and "chat_history" not in tables:
+            con.execute("ALTER TABLE query_history RENAME TO chat_history")
+            logger.info("[History] query_history → chat_history 테이블 마이그레이션 완료")
         con.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS doc_fts USING fts5(
-                chunk_id UNINDEXED,
-                content,
-                tokenize='unicode61 remove_diacritics 1'
-            )
-        """)
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS query_history (
+            CREATE TABLE IF NOT EXISTS chat_history (
                 id                INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id        TEXT    NOT NULL,
                 created_at        TEXT    NOT NULL,
@@ -99,11 +109,12 @@ def init_db() -> None:
             )
         """)
         _migrate_add_columns(con)
-        con.execute("CREATE INDEX IF NOT EXISTS idx_session ON query_history(session_id)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_created ON query_history(created_at)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_no_answer ON query_history(is_no_answer)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_session ON chat_history(session_id)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_created ON chat_history(created_at)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_no_answer ON chat_history(is_no_answer)")
         con.commit()
 
+    init_fts_db()
     _purge_expired()
 
 
@@ -111,7 +122,7 @@ def _purge_expired() -> None:
     """14일 초과 레코드 삭제."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=HISTORY_TTL_DAYS)).isoformat()
     with _conn() as con:
-        cur = con.execute("DELETE FROM query_history WHERE created_at < ?", (cutoff,))
+        cur = con.execute("DELETE FROM chat_history WHERE created_at < ?", (cutoff,))
         if cur.rowcount:
             logger.info(f"[History] 만료 레코드 {cur.rowcount}건 삭제 (>{HISTORY_TTL_DAYS}일)")
         con.commit()
@@ -133,7 +144,7 @@ def save(
 
     with _conn() as con:
         cur = con.execute(
-            """INSERT INTO query_history
+            """INSERT INTO chat_history
                (session_id, created_at, question, answer, references_json, teams_sent,
                 response_time_ms, is_no_answer, ref_count, ref_sources_json, feedback, perf_json)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
@@ -168,7 +179,7 @@ def save_feedback(record_id: int, rating: int) -> bool:
     """
     with _conn() as con:
         cur = con.execute(
-            "UPDATE query_history SET feedback = ? WHERE id = ?",
+            "UPDATE chat_history SET feedback = ? WHERE id = ?",
             (rating, record_id),
         )
         con.commit()
@@ -180,7 +191,7 @@ def get_session_history(session_id: str) -> List[Dict]:
     with _conn() as con:
         rows = con.execute(
             """SELECT created_at, question, answer, references_json, teams_sent
-               FROM query_history
+               FROM chat_history
                WHERE session_id = ?
                ORDER BY created_at ASC""",
             (session_id,),
@@ -198,8 +209,19 @@ def get_session_history(session_id: str) -> List[Dict]:
     ]
 
 
+def invalidate_stats_cache() -> None:
+    """통계 캐시를 무효화합니다. 수집 완료 후 호출하면 다음 조회 시 재계산됩니다."""
+    with _stats_cache_lock:
+        _stats_cache.clear()
+    logger.info("[History] 통계 캐시 무효화")
+
+
 def get_stats(days: int = 14) -> Dict:
-    """어드민 대시보드용 통계를 반환합니다."""
+    """어드민 대시보드용 통계를 반환합니다. 영구 캐싱 (invalidate_stats_cache() 호출 전까지)."""
+    with _stats_cache_lock:
+        if days in _stats_cache:
+            return _stats_cache[days]
+
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
     # 오늘(KST) 기준 시작 시간 계산
@@ -210,31 +232,31 @@ def get_stats(days: int = 14) -> Dict:
 
     with _conn() as con:
         total = con.execute(
-            "SELECT COUNT(*) FROM query_history WHERE created_at >= ?", (cutoff,)
+            "SELECT COUNT(*) FROM chat_history WHERE created_at >= ?", (cutoff,)
         ).fetchone()[0]
 
         avg_ms = con.execute(
-            "SELECT AVG(response_time_ms) FROM query_history WHERE created_at >= ? AND response_time_ms IS NOT NULL",
+            "SELECT AVG(response_time_ms) FROM chat_history WHERE created_at >= ? AND response_time_ms IS NOT NULL",
             (cutoff,)
         ).fetchone()[0]
 
         no_answer_count = con.execute(
-            "SELECT COUNT(*) FROM query_history WHERE created_at >= ? AND is_no_answer = 1",
+            "SELECT COUNT(*) FROM chat_history WHERE created_at >= ? AND is_no_answer = 1",
             (cutoff,)
         ).fetchone()[0]
 
         thumbs_up = con.execute(
-            "SELECT COUNT(*) FROM query_history WHERE created_at >= ? AND feedback = 1",
+            "SELECT COUNT(*) FROM chat_history WHERE created_at >= ? AND feedback = 1",
             (cutoff,)
         ).fetchone()[0]
 
         thumbs_down = con.execute(
-            "SELECT COUNT(*) FROM query_history WHERE created_at >= ? AND feedback = -1",
+            "SELECT COUNT(*) FROM chat_history WHERE created_at >= ? AND feedback = -1",
             (cutoff,)
         ).fetchone()[0]
 
         source_rows = con.execute(
-            "SELECT ref_sources_json FROM query_history WHERE created_at >= ? AND ref_count > 0",
+            "SELECT ref_sources_json FROM chat_history WHERE created_at >= ? AND ref_count > 0",
             (cutoff,)
         ).fetchall()
 
@@ -243,7 +265,7 @@ def get_stats(days: int = 14) -> Dict:
             """SELECT substr(created_at, 12, 2) as hour,
                       COUNT(*) as total,
                       SUM(CASE WHEN is_no_answer = 0 THEN 1 ELSE 0 END) as answered
-               FROM query_history WHERE created_at >= ?
+               FROM chat_history WHERE created_at >= ?
                GROUP BY hour ORDER BY hour""",
             (cutoff,)
         ).fetchall()
@@ -253,40 +275,40 @@ def get_stats(days: int = 14) -> Dict:
             """SELECT substr(created_at, 1, 10) as day,
                       COUNT(*) as total,
                       SUM(CASE WHEN is_no_answer = 0 THEN 1 ELSE 0 END) as answered
-               FROM query_history WHERE created_at >= ?
+               FROM chat_history WHERE created_at >= ?
                GROUP BY day ORDER BY day""",
             (cutoff,)
         ).fetchall()
 
         # 오늘 통계 (KST 기준)
         today_total = con.execute(
-            "SELECT COUNT(*) FROM query_history WHERE created_at >= ?", (today_cutoff,)
+            "SELECT COUNT(*) FROM chat_history WHERE created_at >= ?", (today_cutoff,)
         ).fetchone()[0]
 
         today_avg_ms = con.execute(
-            "SELECT AVG(response_time_ms) FROM query_history WHERE created_at >= ? AND response_time_ms IS NOT NULL",
+            "SELECT AVG(response_time_ms) FROM chat_history WHERE created_at >= ? AND response_time_ms IS NOT NULL",
             (today_cutoff,)
         ).fetchone()[0]
 
         today_no_answer = con.execute(
-            "SELECT COUNT(*) FROM query_history WHERE created_at >= ? AND is_no_answer = 1",
+            "SELECT COUNT(*) FROM chat_history WHERE created_at >= ? AND is_no_answer = 1",
             (today_cutoff,)
         ).fetchone()[0]
 
         today_up = con.execute(
-            "SELECT COUNT(*) FROM query_history WHERE created_at >= ? AND feedback = 1",
+            "SELECT COUNT(*) FROM chat_history WHERE created_at >= ? AND feedback = 1",
             (today_cutoff,)
         ).fetchone()[0]
 
         today_down = con.execute(
-            "SELECT COUNT(*) FROM query_history WHERE created_at >= ? AND feedback = -1",
+            "SELECT COUNT(*) FROM chat_history WHERE created_at >= ? AND feedback = -1",
             (today_cutoff,)
         ).fetchone()[0]
 
         # 최근 👎 질문 (최대 20건)
         bad_rows = con.execute(
             """SELECT id, created_at, question, answer
-               FROM query_history
+               FROM chat_history
                WHERE feedback = -1
                ORDER BY created_at DESC LIMIT 20"""
         ).fetchall()
@@ -297,7 +319,7 @@ def get_stats(days: int = 14) -> Dict:
         for src in json.loads(row[0] or "[]"):
             source_counts[src] = source_counts.get(src, 0) + 1
 
-    return {
+    result = {
         "period_days": days,
         "total": total,
         "avg_response_ms": round(avg_ms or 0),
@@ -327,9 +349,29 @@ def get_stats(days: int = 14) -> Dict:
             for r in bad_rows
         ],
     }
+    with _stats_cache_lock:
+        _stats_cache[days] = result
+    return result
 
 
 # ── 앱 설정 ─────────────────────────────────────────────────────────────────
+
+def set_collection_date(source: str, collected_at: Optional[str] = None) -> None:
+    """소스별 최근 수집일자를 app_settings에 저장합니다."""
+    value = collected_at or datetime.now(timezone.utc).isoformat()
+    set_setting(f"collection_date_{source}", value)
+
+
+def get_collection_dates() -> dict:
+    """소스별 최근 수집일자를 반환합니다."""
+    sources = ["jira", "confluence", "sharepoint", "teams", "local"]
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT key, value FROM app_settings WHERE key LIKE 'collection_date_%'"
+        ).fetchall()
+    date_map = {row["key"].replace("collection_date_", ""): row["value"] for row in rows}
+    return {src: date_map.get(src) for src in sources}
+
 
 def get_setting(key: str, default: str = "") -> str:
     """앱 설정값을 반환합니다."""
@@ -361,7 +403,7 @@ def get_history_page(
     date_to: Optional[str] = None,
     q: Optional[str] = None,
 ) -> Dict:
-    """필터 + 페이지네이션으로 query_history를 조회합니다."""
+    """필터 + 페이지네이션으로 chat_history를 조회합니다."""
     conditions = []
     params: list = []
 
@@ -387,14 +429,14 @@ def get_history_page(
 
     with _conn() as con:
         total = con.execute(
-            f"SELECT COUNT(*) FROM query_history {where}", params
+            f"SELECT COUNT(*) FROM chat_history {where}", params
         ).fetchone()[0]
 
         rows = con.execute(
             f"""SELECT id, session_id, created_at, question, answer,
                        ref_count, ref_sources_json, response_time_ms,
                        is_no_answer, feedback, analysis_status, perf_json
-                FROM query_history {where}
+                FROM chat_history {where}
                 ORDER BY created_at DESC
                 LIMIT ? OFFSET ?""",
             params + [page_size, offset],
@@ -435,7 +477,7 @@ def get_record_detail(record_id: int) -> Optional[Dict]:
                       references_json, ref_count, ref_sources_json,
                       response_time_ms, is_no_answer, feedback,
                       no_answer_analysis, analysis_status, perf_json
-               FROM query_history WHERE id = ?""",
+               FROM chat_history WHERE id = ?""",
             (record_id,),
         ).fetchone()
     if not row:
@@ -462,7 +504,7 @@ def save_analysis(record_id: int, analysis: str, status: str = "done") -> None:
     """답변없음 조사 결과를 저장합니다."""
     with _conn() as con:
         con.execute(
-            "UPDATE query_history SET no_answer_analysis = ?, analysis_status = ? WHERE id = ?",
+            "UPDATE chat_history SET no_answer_analysis = ?, analysis_status = ? WHERE id = ?",
             (analysis, status, record_id),
         )
         con.commit()
@@ -472,68 +514,7 @@ def set_analysis_pending(record_id: int) -> None:
     """조사 시작을 표시합니다."""
     with _conn() as con:
         con.execute(
-            "UPDATE query_history SET analysis_status = 'pending' WHERE id = ?",
+            "UPDATE chat_history SET analysis_status = 'pending' WHERE id = ?",
             (record_id,),
         )
         con.commit()
-
-
-# ── FTS5 역인덱스 ─────────────────────────────────────────────────────────────
-
-def fts_upsert(chunk_id: str, content: str) -> None:
-    """단일 청크를 FTS 인덱스에 추가/갱신합니다."""
-    with _conn() as con:
-        con.execute("DELETE FROM doc_fts WHERE chunk_id = ?", (chunk_id,))
-        con.execute("INSERT INTO doc_fts (chunk_id, content) VALUES (?, ?)", (chunk_id, content))
-        con.commit()
-
-
-def fts_bulk_upsert(docs: List[tuple]) -> None:
-    """여러 청크를 FTS 인덱스에 일괄 추가합니다. docs: [(chunk_id, content), ...]"""
-    if not docs:
-        return
-    with _conn() as con:
-        con.executemany("DELETE FROM doc_fts WHERE chunk_id = ?", [(d[0],) for d in docs])
-        con.executemany("INSERT INTO doc_fts (chunk_id, content) VALUES (?, ?)", docs)
-        con.commit()
-
-
-def fts_search(keywords: List[str], limit: int = 21) -> List[str]:
-    """
-    키워드 prefix 검색으로 매칭 chunk_id 리스트를 반환합니다.
-    FTS5 BM25 점수 순(관련도 높은 순)으로 정렬됩니다.
-    """
-    if not keywords:
-        return []
-    # 각 키워드를 quoted prefix query로 OR 결합 (FTS5 특수문자 안전 처리)
-    parts = ['"' + kw.replace('"', '') + '"*' for kw in keywords]
-    fts_query = " OR ".join(parts)
-    try:
-        with _conn() as con:
-            rows = con.execute(
-                "SELECT chunk_id FROM doc_fts WHERE doc_fts MATCH ? ORDER BY rank LIMIT ?",
-                (fts_query, limit),
-            ).fetchall()
-        return [row[0] for row in rows]
-    except Exception as e:
-        logger.debug(f"FTS 검색 실패 (query={fts_query!r}): {e}")
-        return []
-
-
-def fts_exists() -> bool:
-    """FTS 인덱스에 데이터가 있으면 True를 반환합니다. COUNT(*) 대신 LIMIT 1로 O(1) 확인."""
-    try:
-        with _conn() as con:
-            row = con.execute("SELECT 1 FROM doc_fts LIMIT 1").fetchone()
-            return row is not None
-    except Exception:
-        return False
-
-
-def fts_count() -> int:
-    """FTS 인덱스의 청크 수를 반환합니다. (모니터링/관리 목적)"""
-    try:
-        with _conn() as con:
-            return con.execute("SELECT COUNT(*) FROM doc_fts").fetchone()[0]
-    except Exception:
-        return 0

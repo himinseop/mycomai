@@ -142,11 +142,30 @@ sqlite3 db/query_history.db "PRAGMA integrity_check;"
 
 정상이라면 `ok` 가 출력됩니다.
 
+### 질의 이력 DB를 본파일로 직접 확인하고 싶을 때
+
+- 기본 설정은 `SQLITE_JOURNAL_MODE=DELETE` 입니다.
+- 이 모드에서는 최신 커밋이 `db/query_history.db` 본파일에 바로 반영됩니다.
+- 따라서 `sqlite3 db/query_history.db` 로 직접 조회해도 최신 이력을 볼 수 있습니다.
+- 반대로 `WAL` 모드에서는 최신 변경이 `query_history.db-wal` 에 남을 수 있어 본파일만 보면 일부 이력이 빠질 수 있습니다.
+
 ### FTS 문서 수 확인
 
 ```bash
 sqlite3 db/query_history.db "SELECT COUNT(*) FROM doc_fts;"
 ```
+
+### 질의 이력 단건 조회
+
+도커 컨테이너에 들어가지 않아도 호스트에 바인드된 DB를 바로 읽을 수 있습니다.
+
+```bash
+python3 scripts/query_history.py 83
+python3 scripts/query_history.py 83 --analysis
+python3 scripts/query_history.py --tail 10
+```
+
+이 스크립트는 `db/query_history.db` 와 함께 `db/query_history.db-wal`, `db/query_history.db-shm` 존재 여부와 크기도 같이 보여줍니다.
 
 ## 백업
 

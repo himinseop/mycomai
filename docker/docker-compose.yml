@@ -6,10 +6,12 @@ services:
     image: mycomai-rag
     env_file:
       - ../.env
+    environment:
+      CHROMA_DB_PATH: ./db/chroma_db
+      SQLITE_JOURNAL_MODE: DELETE
     volumes:
-      - ../db/chroma_db:/app/chroma_db
+      - ../db:/app/db
       - ../src/company_llm_rag:/app/company_llm_rag
-      - ../db/query_history.db:/app/query_history.db
     networks:
       - me
 

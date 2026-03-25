@@ -184,8 +184,8 @@ def get_files_in_folder(drive_id: str, folder_path: str, access_token: str, _dep
                 all_files_metadata.append(item)
             elif 'folder' in item:
                 # 폴더는 날짜 필터 없이 항상 재귀 탐색
-                if item['name'].lower() == 'old':
-                    logger.info(f"  - Skipping 'old' folder: {os.path.join(folder_path, item['name'])}")
+                if item['name'].lower() in ('old', 'version history'):
+                    logger.info(f"  - Skipping '{item['name']}' folder: {os.path.join(folder_path, item['name'])}")
                     continue
                 new_folder_path = os.path.join(folder_path, item['name'])
                 try:

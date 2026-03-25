@@ -23,8 +23,9 @@
 - 애플리케이션 코드 복사: `src/company_llm_rag/`
 - 기본 환경 변수:
   - `PYTHONPATH=/app`
-  - `CHROMA_DB_PATH=./chroma_db`
+  - `CHROMA_DB_PATH=./db/chroma_db`
   - `COLLECTION_NAME=company_llm_rag_collection`
+  - `SQLITE_JOURNAL_MODE=DELETE`
 
 ## Compose 서비스
 
@@ -35,9 +36,8 @@
 - 이미지 빌드
 - `.env` 로드
 - 볼륨 마운트
-  - `../db/chroma_db:/app/chroma_db`
+  - `../db:/app/db`
   - `../src/company_llm_rag:/app/company_llm_rag`
-  - `../db/query_history.db:/app/query_history.db`
 
 ### `data-loader`
 
@@ -140,6 +140,7 @@ docker compose -f docker/docker-compose.yml up -d cron-scheduler
 ## 주의할 점
 
 - Compose 파일은 `docker compose` 와 함께 `docker/docker-compose.yml` 을 직접 지정하는 방식이 가장 명확합니다.
-- `db/query_history.db` 바인드 마운트를 안정적으로 쓰려면 파일을 미리 만들어 두는 편이 안전합니다.
+- 현재 기본 모드는 `DELETE` 이므로 최신 질의 이력은 `db/query_history.db` 본파일에서 바로 확인할 수 있습니다.
+- 만약 `WAL` 로 바꾸면 읽기/쓰기 동시성은 좋아지지만 최신 변경이 `query_history.db-wal`, `query_history.db-shm` 로 분리될 수 있습니다.
 - `web` 서비스만으로도 대부분의 사용자 기능을 사용할 수 있습니다.
 - `rag-system` 은 웹 UI 대체 수단이지 주 서비스는 아닙니다.

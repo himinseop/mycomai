@@ -17,17 +17,17 @@ from pathlib import Path
 
 from company_llm_rag.config import settings
 from company_llm_rag.database import db_manager
-from company_llm_rag.history_store import init_db, fts_count
+from company_llm_rag.fts_store import init_fts_db, fts_count
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
 
 _BATCH_SIZE = 5000   # ChromaDB get() 한 번에 가져올 청크 수
-_DB_PATH = Path(settings.CHROMA_DB_PATH).parent / "query_history.db"
+_DB_PATH = Path(settings.SEARCH_INDEX_DB_PATH)
 
 
 def rebuild_fts() -> None:
-    init_db()  # doc_fts 테이블 보장
+    init_fts_db()  # doc_fts 테이블 보장
 
     collection = db_manager.get_collection()
     total = collection.count()

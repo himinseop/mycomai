@@ -131,7 +131,7 @@ def _keyword_search(
     if not keywords:
         return []
 
-    from company_llm_rag.history_store import fts_search, fts_exists
+    from company_llm_rag.fts_store import fts_search, fts_exists
 
     if not fts_exists():
         logger.warning("FTS 인덱스가 비어있음 — $contains 폴백. 데이터 재수집 후 FTS가 자동 구축됩니다.")

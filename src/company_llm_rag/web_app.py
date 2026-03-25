@@ -21,6 +21,7 @@ from company_llm_rag.history_store import (
     get_session_history, get_stats, SESSION_TTL_DAYS,
     get_setting, set_setting,
     get_history_page, get_record_detail,
+    get_collection_dates,
 )
 from company_llm_rag.no_answer_analyzer import analyze_bad_feedback
 from company_llm_rag.logger import get_logger
@@ -32,6 +33,25 @@ app.mount("/static", StaticFiles(directory="/app/company_llm_rag/static"), name=
 
 # DB 초기화 (앱 시작 시 마이그레이션 + 만료 레코드 정리)
 init_db()
+
+
+@app.on_event("startup")
+async def _warmup_db_stats():
+    """앱 시작 시 db-stats 캐시를 백그라운드로 갱신합니다."""
+    import asyncio
+    loop = asyncio.get_event_loop()
+
+    async def _run():
+        global _db_stats_cache, _db_stats_cache_time
+        try:
+            result = await loop.run_in_executor(None, _compute_db_stats)
+            _db_stats_cache = result
+            _db_stats_cache_time = time.monotonic()
+            logger.info("[Admin] db-stats 캐시 워밍업 완료")
+        except Exception as e:
+            logger.warning(f"[Admin] db-stats 워밍업 실패: {e}")
+
+    asyncio.ensure_future(_run())
 
 # 세션별 대화 히스토리 (session_id → messages) — 서버 메모리 캐시
 _sessions: Dict[str, List[Dict]] = {}
@@ -276,6 +296,76 @@ async def admin_page(request: Request):
     return html.replace("{{ company_name }}", company_name)
 
 
+def _compute_db_stats() -> dict:
+    """ChromaDB 소스별 통계를 계산합니다. 동기 함수 (executor에서 호출)."""
+    from company_llm_rag.database import db_manager
+    import datetime as _dt
+
+    collection = db_manager.get_collection()
+
+    # 소스별 표시 레이블과 상세 분류 기준 메타데이터 키
+    _SOURCES = {
+        "jira":       {"label": "일감",  "group_key": "jira_project_key"},
+        "confluence": {"label": "페이지", "group_key": "confluence_space_name"},
+        "sharepoint": {"label": "파일",  "group_key": "sharepoint_site_name"},
+        "teams":      {"label": "메시지", "group_key": "teams_channel_name", "parent_key": "teams_team_name"},
+    }
+
+    # Step 1: ID만 조회 → 소스별 청크 수 집계
+    id_res = collection.get(include=[])
+    chunk_counts: dict = {}
+    for chunk_id in id_res["ids"]:
+        src = chunk_id.split("-")[0]
+        chunk_counts[src] = chunk_counts.get(src, 0) + 1
+
+    # Step 2: 소스별 메타데이터 조회 → 문서 수 + 상세 분류
+    collection_dates = get_collection_dates()
+    source_stats: dict = {}
+
+    for src, cfg in _SOURCES.items():
+        if not chunk_counts.get(src):
+            continue
+
+        meta_res = collection.get(where={"source": src}, include=["metadatas"])
+
+        doc_group: dict = {}  # original_doc_id → 그룹 레이블
+        for meta in meta_res["metadatas"]:
+            doc_id = meta.get("original_doc_id", "")
+            if not doc_id:
+                continue
+            if src == "teams":
+                parent = meta.get("teams_team_name") or ""
+                child  = meta.get("teams_channel_name") or ""
+                if parent and child and parent != child:
+                    group = f"{parent} / {child}"
+                else:
+                    group = parent or child or "기타"
+            else:
+                group = meta.get(cfg["group_key"]) or "기타"
+            doc_group[doc_id] = group
+
+        # 그룹별 문서 수 집계 (내림차순 정렬)
+        detail: dict = {}
+        for grp in doc_group.values():
+            detail[grp] = detail.get(grp, 0) + 1
+        detail = dict(sorted(detail.items(), key=lambda x: x[1], reverse=True))
+
+        source_stats[src] = {
+            "label": cfg["label"],
+            "docs": len(doc_group),
+            "chunks": chunk_counts[src],
+            "latest": collection_dates.get(src),
+            "detail": detail,
+        }
+
+    return {
+        "total_docs": sum(s["docs"] for s in source_stats.values()),
+        "total_chunks": sum(chunk_counts.values()),
+        "sources": source_stats,
+        "cached_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+    }
+
+
 @app.get("/admin/db-stats")
 async def admin_db_stats(request: Request):
     """ChromaDB 소스별 문서 수 + 최근 수집일자를 반환합니다. 24시간 캐싱."""
@@ -284,26 +374,25 @@ async def admin_db_stats(request: Request):
     global _db_stats_cache, _db_stats_cache_time
     if _db_stats_cache_time > 0 and time.monotonic() - _db_stats_cache_time < 86400:
         return _db_stats_cache
-    from company_llm_rag.database import db_manager
-    collection = db_manager.get_collection()
-    total = collection.count()
-    sources = ["jira", "confluence", "sharepoint", "teams", "local"]
-    source_stats: dict = {}
-    for src in sources:
-        result = collection.get(where={"source": src}, include=["metadatas"])
-        cnt = len(result["ids"])
-        if cnt > 0:
-            dates = [m.get("created_at", "") for m in result["metadatas"] if m.get("created_at")]
-            latest = max(dates) if dates else None
-            source_stats[src] = {"count": cnt, "latest": latest}
-    import datetime as _dt
-    _db_stats_cache = {
-        "total": total,
-        "sources": source_stats,
-        "cached_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
-    }
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, _compute_db_stats)
+    _db_stats_cache = result
     _db_stats_cache_time = time.monotonic()
     return _db_stats_cache
+
+
+@app.post("/admin/db-stats/refresh")
+async def admin_db_stats_refresh(request: Request):
+    """db-stats 캐시를 즉시 강제 갱신합니다."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    global _db_stats_cache, _db_stats_cache_time
+    _db_stats_cache_time = 0.0  # 캐시 무효화
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, _compute_db_stats)
+    _db_stats_cache = result
+    _db_stats_cache_time = time.monotonic()
+    return {**result, "refreshed": True}
 
 
 @app.get("/admin/stats")
@@ -359,6 +448,27 @@ async def admin_history_analysis(request: Request, record_id: int):
         "analysis_status": detail["analysis_status"],
         "no_answer_analysis": detail["no_answer_analysis"],
     }
+
+
+@app.post("/admin/history/{record_id}/analyze")
+async def admin_trigger_analysis(request: Request, record_id: int):
+    """설정 스위치 무관하게 수동으로 결과분석을 실행합니다."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    detail = get_record_detail(record_id)
+    if not detail:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    if detail["analysis_status"] == "pending":
+        return {"success": False, "message": "이미 분석 중입니다."}
+    asyncio.create_task(
+        analyze_bad_feedback(
+            record_id,
+            detail["question"],
+            detail["answer"],
+            bool(detail["is_no_answer"]),
+        )
+    )
+    return {"success": True}
 
 
 @app.get("/admin/settings/data")

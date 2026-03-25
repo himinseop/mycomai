@@ -5,6 +5,7 @@
 """
 
 import os
+from pathlib import Path
 from typing import List, Dict
 from dotenv import load_dotenv
 
@@ -25,6 +26,16 @@ class Settings:
     # ChromaDB 설정
     CHROMA_DB_PATH: str = os.getenv("CHROMA_DB_PATH", "./db/chroma_db")
     COLLECTION_NAME: str = os.getenv("COLLECTION_NAME", "company_llm_rag_collection")
+
+    # SQLite DB 경로 (기본값: CHROMA_DB_PATH 상위 디렉토리)
+    APP_DATA_DB_PATH: str = os.getenv(
+        "APP_DATA_DB_PATH",
+        str(Path(os.getenv("CHROMA_DB_PATH", "./db/chroma_db")).parent / "app_data.db"),
+    )
+    SEARCH_INDEX_DB_PATH: str = os.getenv(
+        "SEARCH_INDEX_DB_PATH",
+        str(Path(os.getenv("CHROMA_DB_PATH", "./db/chroma_db")).parent / "search_index.db"),
+    )
 
     # Jira 설정
     JIRA_BASE_URL: str = os.getenv("JIRA_BASE_URL", "")
@@ -127,6 +138,11 @@ class Settings:
 
     # 로깅 설정
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+
+    # SQLite 저널 모드
+    # DELETE: 본파일에 직접 반영되어 호스트에서 db 파일만 읽어도 최신 상태 확인 가능
+    # WAL: 동시성/성능에 유리하지만 최신 내용이 -wal/-shm에 남을 수 있음
+    SQLITE_JOURNAL_MODE: str = os.getenv("SQLITE_JOURNAL_MODE", "DELETE").upper()
 
     def validate(self) -> None:
         """필수 설정값 검증"""
