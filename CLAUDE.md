@@ -26,42 +26,6 @@ src/company_llm_rag/
 - PYTHONPATH=/app (Docker 내부)
 - 로컬 실행: `PYTHONPATH=src python3 ...`
 
-## 현재 상태 (2026-02-24 기준)
-
-### 완료된 작업 (Phase 1 + Quick Win)
-- ✅ 패키지 구조 개선 (`__init__.py`, 절대 import)
-- ✅ 중앙화된 설정 관리 (`config.py`)
-- ✅ 구조화된 로깅 (`logger.py`, 컬러 출력)
-- ✅ 의존성 버전 고정 (`requirements.txt`)
-- ✅ Jira 페이지네이션 버그 수정 (v3 API nextPageToken 방식으로 변경)
-- ✅ Confluence 페이지네이션 버그 수정 (`size < limit` 체크)
-- ✅ SharePoint/Teams extractor 리팩토링
-- ✅ Teams 일반 채팅 수집 기능 추가 (`TEAMS_CHAT_IDS`)
-- ✅ 콘텐츠 해시 기반 임베딩 스킵 (`data_loader.py`) — 재수집 시 변경분만 임베딩 생성
-
-### 발견된 버그 및 수정 내역
-- **Jira**: `/rest/api/3/search/jql`은 `total` 필드 없음 → `isLast` + `nextPageToken` 사용
-- **Confluence**: `total` 필드 없음 → `size < limit`으로 마지막 페이지 판단
-- **Teams 채팅**: `/v1.0/chats` 엔드포인트는 Application context 미지원 → `/chats/{id}/messages` 직접 호출
-
-### data_loader.py 핵심 동작 (중요)
-재수집 시 모든 문서를 re-embed하지 않음:
-1. 각 청크의 MD5 해시를 계산
-2. ChromaDB에 이미 동일한 `content_hash`가 있으면 `upsert()` 호출 자체를 스킵
-3. 실행 완료 시 `new / updated / skipped` 카운트 출력
-- **첫 실행**: 전체 임베딩 생성 (비용 발생)
-- **이후 실행**: 변경된 문서만 임베딩 → 비용 95% 절감
-
-### 수집된 데이터 현황
-- 기존 ChromaDB: **48,485개** 문서 (페이지네이션 버그 있던 상태로 수집)
-- **재수집 필요**: 페이지네이션 버그 수정 반영 + Teams 채팅 3개 신규 추가
-  - Teams 채팅: 업무소통방, 슈퍼커넥트 전사방, 대표님과 함께하는 조직장들
-
-### 다음 할 일 (다른 머신에서 수행)
-- [ ] `git pull` 로 최신 코드 반영
-- [ ] 데이터 재수집 및 ChromaDB 적재: `docker-compose -f docker/docker-compose.yml up data-loader`
-- [ ] Phase 2 작업: 재시도 로직, 타입 힌트, 테스트 커버리지
-
 ## 필수 환경변수 (.env)
 ```bash
 # Jira
@@ -116,7 +80,18 @@ PYTHONPATH=src python3 -c "from company_llm_rag.database import db_manager; prin
 PYTHONPATH=src python3 -c "from company_llm_rag.config import settings; print(settings.COLLECTION_NAME)"
 ```
 
+## chat_history 스키마 (현재)
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| `session_id` | TEXT | 질문 그룹 ID (새 질문마다 신규 생성) |
+| `turn_index` | INTEGER | 그룹 내 몇 번째 턴 (1부터 시작) |
+| `parent_record_id` | INTEGER | 직전 턴의 `id` (첫 턴은 NULL) |
+| `feedback` | INTEGER | 단건 턴 피드백 (1 / -1 / 0) |
+| `group_feedback` | INTEGER | 질문 그룹 대표 피드백 (1 / -1 / 0) |
+| `group_feedback_at` | TEXT | 그룹 피드백 입력 시각 (ISO8601) |
+
 ## 참고 문서
 - `REFACTORING_PLAN.md` - 전체 리팩토링 로드맵 및 진행 상황
 - `DEDUPLICATION_STRATEGIES.md` - 중복 수집 최소화 전략
 - `docker/docker_compose_instructions.md` - Docker 실행 가이드
+- `docs/issues/37_question_group_session_redesign_2026-03-25.md` - Issue #37 설계 문서 및 TC

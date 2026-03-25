@@ -6,7 +6,9 @@
 설정의 analyze_no_answer 플래그가 ON일 때만 트리거됩니다.
 """
 
-from company_llm_rag.history_store import save_analysis, set_analysis_pending
+from typing import Optional
+
+from company_llm_rag.history_store import save_analysis, set_analysis_pending, get_session_detail
 from company_llm_rag.retrieval_module import retrieve_documents
 from company_llm_rag.llm.openai_provider import default_llm
 from company_llm_rag.logger import get_logger
@@ -212,22 +214,35 @@ async def analyze_bad_feedback(
     answer: str,
     is_no_answer: bool,
     conversation_history=None,
+    session_id: Optional[str] = None,
 ) -> None:
     """
     👎 피드백을 받은 대화에 대해 LLM 분석을 수행하고 DB에 저장합니다.
     질문을 재검색한 후, 답변 유무에 따라 적합한 프롬프트로 분석합니다.
-    conversation_history가 제공되면 전체 대화 맥락을 프롬프트에 포함합니다.
+    session_id가 제공되면 그룹 전체 transcript를 컨텍스트로 사용합니다.
     """
     try:
         set_analysis_pending(record_id)
-        logger.info(f"[Analyzer] 분석 시작 record_id={record_id} no_answer={is_no_answer}")
+        logger.info(f"[Analyzer] 분석 시작 record_id={record_id} no_answer={is_no_answer} session_id={session_id}")
 
         docs = retrieve_documents(question, n_results=15, return_scores=True)
         docs_text = _build_docs_text(docs)
 
-        # 전체 대화 컨텍스트 섹션 구성 (2턴 이상일 때만)
+        # 질문 그룹 transcript 구성
         history_prefix = ""
-        if conversation_history and len(conversation_history) > 2:
+        if session_id:
+            group = get_session_detail(session_id)
+            if group and len(group["turns"]) > 1:
+                turns_text = []
+                for t in group["turns"][:-1]:  # 마지막 턴은 질문/답변으로 별도 제공
+                    turns_text.append(
+                        f"Q{t['turn_index']}: {t['question']}\n"
+                        f"A{t['turn_index']}: {(t['answer'] or '')[:300]}"
+                    )
+                ctx = "\n\n".join(turns_text)
+                history_prefix = f"[질문 그룹 이전 턴 컨텍스트 — 같은 카드의 앞선 대화]\n{ctx}\n\n"
+        elif conversation_history and len(conversation_history) > 2:
+            # 하위 호환: conversation_history 직접 전달 방식
             turns = []
             i = 0
             while i < len(conversation_history) - 1:
@@ -239,7 +254,7 @@ async def analyze_bad_feedback(
                     i += 2
                 else:
                     i += 1
-            if len(turns) > 1:  # 마지막 턴은 질문/답변으로 별도 제공되므로 앞 턴들만 포함
+            if len(turns) > 1:
                 ctx = "\n\n".join(turns[:-1])
                 history_prefix = f"[이전 대화 컨텍스트 — 사용자가 이 대화에서 나눈 이전 턴들]\n{ctx}\n\n"
 

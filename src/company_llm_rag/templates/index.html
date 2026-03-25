@@ -249,9 +249,11 @@
 <script>
   // ── 상태 ─────────────────────────────────────────────────────────────
   let activeCtxId = null;
-  const ctxSessions  = {};   // ctxId → sessionId
-  const ctxTurns     = {};   // ctxId → [{question, answer}]
-  const ctxStreaming  = {};   // ctxId → bool
+  const ctxSessions   = {};   // ctxId → sessionId
+  const ctxTurns      = {};   // ctxId → [{question, answer}]
+  const ctxStreaming   = {};   // ctxId → bool
+  const ctxTurnIndex  = {};   // ctxId → 현재 turn_index (마지막 완료 턴)
+  const ctxLastRecord = {};   // ctxId → 마지막 record_id
 
   const feedScroll = document.getElementById('feed-scroll');
   const feed       = document.getElementById('feed');
@@ -367,6 +369,8 @@
     ctxSessions[ctxId] = _newSessionId();
     ctxTurns[ctxId] = [];
     ctxStreaming[ctxId] = false;
+    ctxTurnIndex[ctxId] = 0;
+    ctxLastRecord[ctxId] = 0;
 
     const card = document.createElement('div');
     card.className = 'context-card';
@@ -466,8 +470,9 @@
   function updateCtxFeedback(ctxId, recordId) {
     const bar = document.getElementById(`feedback-inline-${ctxId}`);
     if (!bar) return;
+    ctxLastRecord[ctxId] = recordId;
     bar.innerHTML = `
-      <span class="feedback-label">도움이 됐나요?</span>
+      <span class="feedback-label">이 질문 흐름이 도움이 됐나요?</span>
       <button class="feedback-btn" data-rating="1" onclick="sendFeedback(this,${recordId},1,'${ctxId}')">👍</button>
       <button class="feedback-btn" data-rating="-1" onclick="sendFeedback(this,${recordId},-1,'${ctxId}')">👎</button>`;
   }
@@ -583,10 +588,12 @@
             setTimeout(() => writeEl.remove(), 520);
             finalizeTurnEl(turnEl, fullText, finalRefs);
             ctxTurns[ctxId].push({ question: text, answer: fullText });
+            if (ev.turn_index) ctxTurnIndex[ctxId] = ev.turn_index;
+            if (ev.record_id)  ctxLastRecord[ctxId] = ev.record_id;
             if (ev.inquiry_available) {
               document.getElementById(`teams-bar-${ctxId}`).classList.add('visible');
             }
-            // 하단 피드백 업데이트
+            // 하단 피드백 업데이트 (항상 최신 record_id로 갱신)
             if (ev.record_id) updateCtxFeedback(ctxId, ev.record_id);
             // 액션 바 표시
             document.getElementById(`action-bar-${ctxId}`)?.classList.add('visible');
@@ -623,9 +630,11 @@
     Object.values(ctxSessions).forEach(sid =>
       fetch(`/chat/${sid}`, { method: 'DELETE' }).catch(() => {})
     );
-    for (const k in ctxSessions) delete ctxSessions[k];
-    for (const k in ctxTurns)    delete ctxTurns[k];
-    for (const k in ctxStreaming) delete ctxStreaming[k];
+    for (const k in ctxSessions)   delete ctxSessions[k];
+    for (const k in ctxTurns)      delete ctxTurns[k];
+    for (const k in ctxStreaming)   delete ctxStreaming[k];
+    for (const k in ctxTurnIndex)   delete ctxTurnIndex[k];
+    for (const k in ctxLastRecord)  delete ctxLastRecord[k];
     activeCtxId = null;
     // 기존 카드 제거 후 빈 상태 복원
     while (feed.firstChild) feed.removeChild(feed.firstChild);
@@ -639,18 +648,14 @@
     const bar  = btn.closest('.ctx-feedback-inline');
     const btns = bar.querySelectorAll('.feedback-btn');
     btns.forEach(b => b.disabled = true);
-    const conversationHistory = [];
-    (ctxTurns[ctxId] || []).forEach(t => {
-      conversationHistory.push({ role: 'user',      content: t.question });
-      conversationHistory.push({ role: 'assistant', content: t.answer   });
-    });
     try {
       const res  = await fetch('/feedback', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          record_id: recordId, rating,
+          record_id: recordId,
+          rating,
           session_id: ctxSessions[ctxId] || '',
-          conversation_history: conversationHistory,
+          scope: 'group',
         }),
       });
       const data = await res.json();

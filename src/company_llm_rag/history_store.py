@@ -67,11 +67,63 @@ def _migrate_add_columns(con: sqlite3.Connection) -> None:
         ("no_answer_analysis", "TEXT    DEFAULT NULL"),
         ("analysis_status",    "TEXT    DEFAULT NULL"),
         ("perf_json",          "TEXT    DEFAULT NULL"),
+        # Issue #37 — 질문 그룹 단위 세션
+        ("parent_record_id",   "INTEGER DEFAULT NULL"),
+        ("turn_index",         "INTEGER DEFAULT 1"),
+        ("group_feedback",     "INTEGER DEFAULT 0"),
+        ("group_feedback_at",  "TEXT    DEFAULT NULL"),
     ]
     for col, definition in migrations:
         if col not in existing:
             con.execute(f"ALTER TABLE chat_history ADD COLUMN {col} {definition}")
             logger.info(f"[History] 컬럼 추가: {col}")
+
+
+def _migrate_group_fields(con: sqlite3.Connection) -> None:
+    """기존 레코드에 turn_index / parent_record_id / group_feedback을 채웁니다 (idempotent).
+
+    같은 session_id 내에서 created_at 오름차순으로 turn_index를 매기고
+    직전 레코드를 parent_record_id로 연결합니다.
+    group_feedback은 기존 feedback 값이 있는 마지막 턴 기준으로 채웁니다.
+    이미 turn_index가 설정된 세션은 건너뜁니다.
+    """
+    # turn_index가 아직 1로만 남아있는 session만 처리 (신규 컬럼 추가 직후 상태)
+    sessions = [
+        row[0]
+        for row in con.execute(
+            """SELECT DISTINCT session_id FROM chat_history
+               WHERE turn_index = 1
+               GROUP BY session_id HAVING COUNT(*) > 1"""
+        )
+    ]
+    if not sessions:
+        return
+
+    updated = 0
+    for sid in sessions:
+        rows = con.execute(
+            "SELECT id, feedback FROM chat_history WHERE session_id = ? ORDER BY created_at ASC",
+            (sid,),
+        ).fetchall()
+        # group_feedback: 마지막으로 피드백이 있는 턴의 값
+        group_fb = 0
+        for r in rows:
+            if r[1] != 0:
+                group_fb = r[1]
+
+        prev_id = None
+        for idx, row in enumerate(rows, 1):
+            con.execute(
+                """UPDATE chat_history
+                   SET turn_index = ?, parent_record_id = ?, group_feedback = ?
+                   WHERE id = ?""",
+                (idx, prev_id, group_fb, row[0]),
+            )
+            prev_id = row[0]
+            updated += 1
+
+    if updated:
+        logger.info(f"[History] 그룹 필드 마이그레이션: {len(sessions)}개 세션 / {updated}개 레코드")
 
 
 def init_db() -> None:
@@ -105,13 +157,18 @@ def init_db() -> None:
                 feedback          INTEGER DEFAULT 0,
                 no_answer_analysis TEXT   DEFAULT NULL,
                 analysis_status   TEXT    DEFAULT NULL,
-                perf_json         TEXT    DEFAULT NULL
+                perf_json         TEXT    DEFAULT NULL,
+                parent_record_id  INTEGER DEFAULT NULL,
+                turn_index        INTEGER DEFAULT 1,
+                group_feedback    INTEGER DEFAULT 0,
+                group_feedback_at TEXT    DEFAULT NULL
             )
         """)
         _migrate_add_columns(con)
         con.execute("CREATE INDEX IF NOT EXISTS idx_session ON chat_history(session_id)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_created ON chat_history(created_at)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_no_answer ON chat_history(is_no_answer)")
+        _migrate_group_fields(con)
         con.commit()
 
     init_fts_db()
@@ -137,6 +194,8 @@ def save(
     response_time_ms: Optional[int] = None,
     is_no_answer: bool = False,
     perf: Optional[Dict] = None,
+    turn_index: int = 1,
+    parent_record_id: Optional[int] = None,
 ) -> int:
     """Q&A 한 건을 저장하고 record_id를 반환합니다."""
     refs = references or []
@@ -146,8 +205,9 @@ def save(
         cur = con.execute(
             """INSERT INTO chat_history
                (session_id, created_at, question, answer, references_json, teams_sent,
-                response_time_ms, is_no_answer, ref_count, ref_sources_json, feedback, perf_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
+                response_time_ms, is_no_answer, ref_count, ref_sources_json, feedback,
+                perf_json, turn_index, parent_record_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)""",
             (
                 session_id,
                 datetime.now(timezone.utc).isoformat(),
@@ -160,6 +220,8 @@ def save(
                 len(refs),
                 json.dumps(sources, ensure_ascii=False),
                 json.dumps(perf, ensure_ascii=False) if perf else None,
+                turn_index,
+                parent_record_id,
             ),
         )
         con.commit()
@@ -167,8 +229,12 @@ def save(
 
 
 def save_feedback(record_id: int, rating: int) -> bool:
-    """
-    피드백을 저장합니다.
+    """턴 단위 피드백을 저장합니다 (하위 호환 유지)."""
+    return save_record_feedback(record_id, rating)
+
+
+def save_record_feedback(record_id: int, rating: int) -> bool:
+    """단건 턴 피드백을 저장합니다.
 
     Args:
         record_id: save()가 반환한 레코드 ID
@@ -181,6 +247,26 @@ def save_feedback(record_id: int, rating: int) -> bool:
         cur = con.execute(
             "UPDATE chat_history SET feedback = ? WHERE id = ?",
             (rating, record_id),
+        )
+        con.commit()
+        return cur.rowcount > 0
+
+
+def save_group_feedback(session_id: str, rating: int) -> bool:
+    """질문 그룹 전체(같은 session_id)에 그룹 피드백을 저장합니다.
+
+    Args:
+        session_id: 질문 그룹 ID
+        rating: 1(👍) 또는 -1(👎)
+
+    Returns:
+        저장 성공 여부 (해당 session_id 레코드가 없으면 False)
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    with _conn() as con:
+        cur = con.execute(
+            "UPDATE chat_history SET group_feedback = ?, group_feedback_at = ? WHERE session_id = ?",
+            (rating, now, session_id),
         )
         con.commit()
         return cur.rowcount > 0
@@ -207,6 +293,137 @@ def get_session_history(session_id: str) -> List[Dict]:
         }
         for row in rows
     ]
+
+
+def get_session_detail(session_id: str) -> Optional[Dict]:
+    """질문 그룹 상세 정보를 반환합니다 (분석·관리자 상세용).
+
+    Returns:
+        {session_id, group_feedback, turns: [{id, turn_index, question, answer, ...}]}
+        또는 해당 세션이 없으면 None
+    """
+    with _conn() as con:
+        rows = con.execute(
+            """SELECT id, turn_index, parent_record_id, created_at,
+                      question, answer, references_json, is_no_answer,
+                      feedback, group_feedback, group_feedback_at,
+                      analysis_status, no_answer_analysis, response_time_ms
+               FROM chat_history
+               WHERE session_id = ?
+               ORDER BY turn_index ASC, created_at ASC""",
+            (session_id,),
+        ).fetchall()
+
+    if not rows:
+        return None
+
+    turns = [
+        {
+            "id": r["id"],
+            "turn_index": r["turn_index"],
+            "parent_record_id": r["parent_record_id"],
+            "created_at": r["created_at"],
+            "question": r["question"],
+            "answer": r["answer"],
+            "references": json.loads(r["references_json"] or "[]"),
+            "is_no_answer": bool(r["is_no_answer"]),
+            "feedback": r["feedback"],
+            "response_time_ms": r["response_time_ms"],
+            "analysis_status": r["analysis_status"],
+            "no_answer_analysis": r["no_answer_analysis"],
+        }
+        for r in rows
+    ]
+    return {
+        "session_id": session_id,
+        "group_feedback": rows[0]["group_feedback"],
+        "group_feedback_at": rows[0]["group_feedback_at"],
+        "turns": turns,
+    }
+
+
+def get_last_turn_in_session(session_id: str) -> Optional[Dict]:
+    """세션의 마지막 턴 record_id와 turn_index를 반환합니다."""
+    with _conn() as con:
+        row = con.execute(
+            """SELECT id, turn_index FROM chat_history
+               WHERE session_id = ?
+               ORDER BY turn_index DESC, created_at DESC LIMIT 1""",
+            (session_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {"id": row["id"], "turn_index": row["turn_index"]}
+
+
+def get_session_groups(
+    page: int = 1,
+    page_size: int = 20,
+    group_feedback: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    q: Optional[str] = None,
+) -> Dict:
+    """관리자 그룹 뷰: session_id 단위 집계 목록을 반환합니다."""
+    conditions = []
+    params: list = []
+
+    if group_feedback is not None:
+        conditions.append("group_feedback = ?")
+        params.append(group_feedback)
+    if date_from:
+        conditions.append("MIN(created_at) >= ?")
+        params.append(date_from)
+    if date_to:
+        conditions.append("MIN(created_at) < ?")
+        params.append(date_to + "T23:59:59.999999")
+    if q:
+        conditions.append("root_question LIKE ?")
+        params.append(f"%{q}%")
+
+    having = ("HAVING " + " AND ".join(conditions)) if conditions else ""
+    offset = (page - 1) * page_size
+
+    base_query = f"""
+        SELECT session_id,
+               MIN(CASE WHEN turn_index = 1 THEN question END) AS root_question,
+               COUNT(*) AS turn_count,
+               MAX(created_at) AS latest_turn_at,
+               MAX(group_feedback) AS group_feedback,
+               MAX(CASE WHEN analysis_status IS NOT NULL THEN analysis_status END) AS analysis_status
+        FROM chat_history
+        GROUP BY session_id
+        {having}
+    """
+
+    with _conn() as con:
+        total = con.execute(
+            f"SELECT COUNT(*) FROM ({base_query})", params
+        ).fetchone()[0]
+
+        rows = con.execute(
+            f"{base_query} ORDER BY latest_turn_at DESC LIMIT ? OFFSET ?",
+            params + [page_size, offset],
+        ).fetchall()
+
+    items = [
+        {
+            "session_id": r["session_id"],
+            "root_question": r["root_question"] or "",
+            "turn_count": r["turn_count"],
+            "latest_turn_at": r["latest_turn_at"],
+            "group_feedback": r["group_feedback"],
+            "analysis_status": r["analysis_status"],
+        }
+        for r in rows
+    ]
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": max(1, (total + page_size - 1) // page_size),
+        "items": items,
+    }
 
 
 def invalidate_stats_cache() -> None:

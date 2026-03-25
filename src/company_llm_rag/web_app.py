@@ -17,11 +17,14 @@ from company_llm_rag.teams_sender import (
     is_inquiry_configured,
 )
 from company_llm_rag.history_store import (
-    init_db, save as history_save, save_feedback,
+    init_db, save as history_save,
+    save_record_feedback, save_group_feedback,
     get_session_history, get_stats, SESSION_TTL_DAYS,
     get_setting, set_setting,
     get_history_page, get_record_detail,
     get_collection_dates,
+    get_last_turn_in_session,
+    get_session_groups, get_session_detail,
 )
 from company_llm_rag.no_answer_analyzer import analyze_bad_feedback
 from company_llm_rag.logger import get_logger
@@ -71,6 +74,8 @@ class ChatResponse(BaseModel):
     inquiry_available: bool = False
     references: List[Dict] = []
     record_id: int = 0
+    turn_index: int = 1
+    is_group_root: bool = True
 
 
 class InquiryRequest(BaseModel):
@@ -86,6 +91,7 @@ class FeedbackRequest(BaseModel):
     answer: str = ""
     session_id: str = "default"
     conversation_history: List[Dict] = []
+    scope: str = "group"  # "group" | "record"
 
 
 def _check_admin_auth(request: Request) -> bool:
@@ -116,6 +122,15 @@ async def chat(req: ChatRequest):
     history = _sessions.setdefault(req.session_id, [])
     logger.info(f"[{req.session_id}] Query: {req.message}")
 
+    # 질문 그룹 내 turn 계산
+    last_turn = get_last_turn_in_session(req.session_id)
+    if last_turn:
+        turn_index = last_turn["turn_index"] + 1
+        parent_record_id = last_turn["id"]
+    else:
+        turn_index = 1
+        parent_record_id = None
+
     t_start = time.monotonic()
     docs_holder: list = []
     answer, references, timing = rag_query(req.message, conversation_history=history, return_refs=True, _docs_out=docs_holder)
@@ -127,7 +142,6 @@ async def chat(req: ChatRequest):
         answer = answer + _TEAMS_GUIDE
 
     history.append({"role": "user", "content": req.message})
-
     history.append({"role": "assistant", "content": answer})
 
     max_messages = _MAX_HISTORY_TURNS * 2
@@ -139,6 +153,8 @@ async def chat(req: ChatRequest):
         response_time_ms=response_time_ms,
         is_no_answer=is_no_answer,
         perf=timing,
+        turn_index=turn_index,
+        parent_record_id=parent_record_id,
     )
 
     return ChatResponse(
@@ -147,6 +163,8 @@ async def chat(req: ChatRequest):
         inquiry_available=is_inquiry_configured(),
         references=references,
         record_id=record_id,
+        turn_index=turn_index,
+        is_group_root=(turn_index == 1),
     )
 
 
@@ -157,6 +175,15 @@ async def chat_stream(req: ChatRequest):
     loop = asyncio.get_event_loop()
     queue: asyncio.Queue = asyncio.Queue()
     docs_holder: list = []  # 검색된 전체 문서 캡처 (결과분석용)
+
+    # 질문 그룹 내 turn 계산 (스트리밍 시작 전에 확정)
+    last_turn = get_last_turn_in_session(req.session_id)
+    if last_turn:
+        turn_index = last_turn["turn_index"] + 1
+        parent_record_id: Optional[int] = last_turn["id"]
+    else:
+        turn_index = 1
+        parent_record_id = None
 
     def _run():
         try:
@@ -198,11 +225,16 @@ async def chat_stream(req: ChatRequest):
                 response_time_ms=timing.get("total_ms"),
                 is_no_answer=is_no_answer,
                 perf=timing,
+                turn_index=turn_index,
+                parent_record_id=parent_record_id,
             )
 
             meta_ev = {
                 "type": "meta",
                 "record_id": record_id,
+                "session_id": req.session_id,
+                "turn_index": turn_index,
+                "is_group_root": turn_index == 1,
                 "inquiry_available": is_inquiry_configured(),
                 "is_no_answer": is_no_answer,
             }
@@ -221,7 +253,11 @@ async def feedback(req: FeedbackRequest):
     if req.rating not in (1, -1):
         return {"success": False, "message": "rating은 1 또는 -1이어야 합니다."}
 
-    ok = save_feedback(req.record_id, req.rating)
+    # scope 분기: group(기본) → 세션 전체, record → 단건
+    if req.scope == "group" and req.session_id and req.session_id != "default":
+        ok = save_group_feedback(req.session_id, req.rating)
+    else:
+        ok = save_record_feedback(req.record_id, req.rating)
 
     if ok and req.rating == -1:
         # DB에서 question/answer 직접 조회 (클라이언트 전달값 미사용)
@@ -238,7 +274,7 @@ async def feedback(req: FeedbackRequest):
                         record["question"],
                         record["answer"],
                         bool(record["is_no_answer"]),
-                        conversation_history=req.conversation_history,
+                        session_id=req.session_id if req.scope == "group" else None,
                     )
                 )
 
@@ -491,3 +527,37 @@ async def admin_settings_update(request: Request, body: SettingsUpdateRequest):
     if body.analyze_no_answer is not None:
         set_setting("analyze_no_answer", "1" if body.analyze_no_answer else "0")
     return {"success": True}
+
+
+@app.get("/admin/sessions")
+async def admin_sessions(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    group_feedback: Optional[int] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
+):
+    """질문 그룹 단위 목록을 반환합니다."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    return get_session_groups(
+        page=page,
+        page_size=page_size,
+        group_feedback=group_feedback,
+        date_from=date_from,
+        date_to=date_to,
+        q=q,
+    )
+
+
+@app.get("/admin/sessions/{session_id}")
+async def admin_session_detail(request: Request, session_id: str):
+    """질문 그룹 상세 (전체 transcript + 분석 결과)를 반환합니다."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    detail = get_session_detail(session_id)
+    if not detail:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return detail

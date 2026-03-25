@@ -489,47 +489,96 @@
 
   <!-- ── 이력 조회 탭 ── -->
   <div class="tab-panel" id="tab-history">
-    <div class="history-card">
-      <div class="filter-bar">
-        <input type="text" id="h-q" placeholder="질문 검색..." onkeydown="if(event.key==='Enter') loadHistory(1)">
-        <input type="date" id="h-from" title="시작일">
-        <input type="date" id="h-to" title="종료일">
-        <select id="h-no-answer">
-          <option value="">전체</option>
-          <option value="1">답변없음만</option>
-          <option value="0">답변있음만</option>
-        </select>
-        <select id="h-feedback">
-          <option value="">피드백 전체</option>
-          <option value="1">👍 만족</option>
-          <option value="-1">👎 불만족</option>
-        </select>
-        <button class="btn btn-primary" onclick="loadHistory(1)">검색</button>
-        <button class="btn btn-secondary" onclick="resetHistoryFilter()">초기화</button>
+    <!-- 뷰 전환 -->
+    <div style="display:flex;gap:6px;margin-bottom:12px">
+      <button class="btn btn-primary" id="view-btn-turn"  onclick="switchHistoryView('turn')">턴 뷰</button>
+      <button class="btn btn-secondary" id="view-btn-group" onclick="switchHistoryView('group')">그룹 뷰</button>
+    </div>
+
+    <!-- ── 턴 뷰 ── -->
+    <div id="history-view-turn">
+      <div class="history-card">
+        <div class="filter-bar">
+          <input type="text" id="h-q" placeholder="질문 검색..." onkeydown="if(event.key==='Enter') loadHistory(1)">
+          <input type="date" id="h-from" title="시작일">
+          <input type="date" id="h-to" title="종료일">
+          <select id="h-no-answer">
+            <option value="">전체</option>
+            <option value="1">답변없음만</option>
+            <option value="0">답변있음만</option>
+          </select>
+          <select id="h-feedback">
+            <option value="">피드백 전체</option>
+            <option value="1">👍 만족</option>
+            <option value="-1">👎 불만족</option>
+          </select>
+          <button class="btn btn-primary" onclick="loadHistory(1)">검색</button>
+          <button class="btn btn-secondary" onclick="resetHistoryFilter()">초기화</button>
+        </div>
+
+        <table id="history-table">
+          <thead>
+            <tr>
+              <th style="width:40px">#</th>
+              <th style="width:110px">일시</th>
+              <th>질문</th>
+              <th style="width:80px">참고문서</th>
+              <th style="width:80px">응답시간</th>
+              <th style="width:60px">피드백</th>
+              <th style="width:60px">답변</th>
+              <th style="width:70px">결과분석</th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody">
+            <tr><td colspan="8" class="empty">검색 버튼을 눌러 조회하세요.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="pagination" id="history-pagination" style="display:none;">
+          <button class="btn btn-secondary" id="page-prev" onclick="loadHistory(currentPage-1)">← 이전</button>
+          <span class="page-info" id="page-info"></span>
+          <button class="btn btn-secondary" id="page-next" onclick="loadHistory(currentPage+1)">다음 →</button>
+        </div>
       </div>
+    </div>
 
-      <table id="history-table">
-        <thead>
-          <tr>
-            <th style="width:40px">#</th>
-            <th style="width:110px">일시</th>
-            <th>질문</th>
-            <th style="width:80px">참고문서</th>
-            <th style="width:80px">응답시간</th>
-            <th style="width:60px">피드백</th>
-            <th style="width:60px">답변</th>
-            <th style="width:70px">결과분석</th>
-          </tr>
-        </thead>
-        <tbody id="history-tbody">
-          <tr><td colspan="8" class="empty">검색 버튼을 눌러 조회하세요.</td></tr>
-        </tbody>
-      </table>
+    <!-- ── 그룹 뷰 ── -->
+    <div id="history-view-group" style="display:none">
+      <div class="history-card">
+        <div class="filter-bar">
+          <input type="text" id="g-q" placeholder="첫 질문 검색..." onkeydown="if(event.key==='Enter') loadGroups(1)">
+          <input type="date" id="g-from" title="시작일">
+          <input type="date" id="g-to" title="종료일">
+          <select id="g-feedback">
+            <option value="">그룹 피드백 전체</option>
+            <option value="1">👍 만족</option>
+            <option value="-1">👎 불만족</option>
+          </select>
+          <button class="btn btn-primary" onclick="loadGroups(1)">검색</button>
+          <button class="btn btn-secondary" onclick="resetGroupFilter()">초기화</button>
+        </div>
 
-      <div class="pagination" id="history-pagination" style="display:none;">
-        <button class="btn btn-secondary" id="page-prev" onclick="loadHistory(currentPage-1)">← 이전</button>
-        <span class="page-info" id="page-info"></span>
-        <button class="btn btn-secondary" id="page-next" onclick="loadHistory(currentPage+1)">다음 →</button>
+        <table id="group-table">
+          <thead>
+            <tr>
+              <th style="width:40px">#</th>
+              <th style="width:110px">마지막 질문 시각</th>
+              <th>첫 질문</th>
+              <th style="width:60px">턴 수</th>
+              <th style="width:70px">그룹 피드백</th>
+              <th style="width:70px">분석</th>
+            </tr>
+          </thead>
+          <tbody id="group-tbody">
+            <tr><td colspan="6" class="empty">검색 버튼을 눌러 조회하세요.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="pagination" id="group-pagination" style="display:none;">
+          <button class="btn btn-secondary" id="g-page-prev" onclick="loadGroups(groupCurrentPage-1)">← 이전</button>
+          <span class="page-info" id="g-page-info"></span>
+          <button class="btn btn-secondary" id="g-page-next" onclick="loadGroups(groupCurrentPage+1)">다음 →</button>
+        </div>
       </div>
     </div>
   </div>
@@ -571,6 +620,9 @@
   let totalPages = 1;
   let _activeChartTab = 'daily';
   let _lastStatsData = null;
+  let groupCurrentPage = 1;
+  let groupTotalPages = 1;
+  let _historyView = 'turn';  // 'turn' | 'group'
 
   const SOURCE_COLORS = {
     jira:       '#0052cc',
@@ -587,9 +639,13 @@
     document.getElementById('tab-' + name).classList.add('active');
     btn.classList.add('active');
     if (name === 'dashboard') { loadStats(); loadDbStats(); }
-    if (name === 'history' && document.getElementById('history-tbody').children.length === 1
-        && document.getElementById('history-tbody').children[0].children[0].colSpan > 1) {
-      loadHistory(1);
+    if (name === 'history') {
+      const tbody = document.getElementById('history-tbody');
+      if (_historyView === 'turn' && tbody.children.length === 1 && tbody.children[0].children[0].colSpan > 1) {
+        loadHistory(1);
+      } else if (_historyView === 'group') {
+        loadGroups(1);
+      }
     }
     if (name === 'settings') loadSettings();
   }
@@ -600,6 +656,130 @@
     switchTab('history', histBtn);
     await loadHistory(1);
     openDetailModal(recordId);
+  }
+
+  // ── 뷰 전환 ───────────────────────────────────────────────────────────────
+  function switchHistoryView(view) {
+    _historyView = view;
+    document.getElementById('history-view-turn').style.display  = view === 'turn'  ? '' : 'none';
+    document.getElementById('history-view-group').style.display = view === 'group' ? '' : 'none';
+    document.getElementById('view-btn-turn').className  = view === 'turn'  ? 'btn btn-primary' : 'btn btn-secondary';
+    document.getElementById('view-btn-group').className = view === 'group' ? 'btn btn-primary' : 'btn btn-secondary';
+    if (view === 'group') loadGroups(1);
+    else loadHistory(1);
+  }
+
+  // ── 그룹 뷰 ───────────────────────────────────────────────────────────────
+  function resetGroupFilter() {
+    document.getElementById('g-q').value = '';
+    document.getElementById('g-from').value = '';
+    document.getElementById('g-to').value = '';
+    document.getElementById('g-feedback').value = '';
+    loadGroups(1);
+  }
+
+  async function loadGroups(page) {
+    groupCurrentPage = page;
+    const q        = document.getElementById('g-q').value.trim();
+    const from     = document.getElementById('g-from').value;
+    const to       = document.getElementById('g-to').value;
+    const feedback = document.getElementById('g-feedback').value;
+
+    const params = new URLSearchParams({ page, page_size: 20 });
+    if (q)        params.set('q', q);
+    if (from)     params.set('date_from', from);
+    if (to)       params.set('date_to', to);
+    if (feedback) params.set('group_feedback', feedback);
+
+    const tbody = document.getElementById('group-tbody');
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">로딩 중...</td></tr>';
+
+    const res  = await fetch('/admin/sessions?' + params);
+    const data = await res.json();
+
+    groupTotalPages = data.total_pages || 1;
+    renderGroups(data.items || [], data.total);
+    renderGroupPagination(data.total_pages, data.total);
+  }
+
+  function renderGroups(items, total) {
+    const tbody = document.getElementById('group-tbody');
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">데이터가 없습니다.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map((g, i) => {
+      const offset = (groupCurrentPage - 1) * 20;
+      const num    = total - offset - i;
+      const ts     = g.latest_turn_at ? fmtDate(g.latest_turn_at) : '—';
+      const fb     = g.group_feedback === 1 ? '<span class="badge badge-up">👍</span>'
+                   : g.group_feedback === -1 ? '<span class="badge badge-down">👎</span>'
+                   : '<span style="color:#ccc;font-size:0.8rem">—</span>';
+      const ana    = g.analysis_status === 'done'    ? '<span class="badge badge-done">완료</span>'
+                   : g.analysis_status === 'pending' ? '<span class="badge badge-pending">분석중</span>'
+                   : '<span style="color:#ccc;font-size:0.8rem">—</span>';
+      const q = escHtml((g.root_question || '').slice(0, 80));
+      return `<tr class="clickable" onclick="openGroupDetail('${escHtml(g.session_id)}')">
+        <td style="text-align:center;color:#aaa;font-size:0.8rem">${num}</td>
+        <td class="ts-text">${ts}</td>
+        <td class="q-text">${q}</td>
+        <td style="text-align:center">${g.turn_count}</td>
+        <td style="text-align:center">${fb}</td>
+        <td style="text-align:center">${ana}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderGroupPagination(totalPagesVal, total) {
+    const pg = document.getElementById('group-pagination');
+    if (!totalPagesVal || totalPagesVal <= 1) { pg.style.display = 'none'; return; }
+    pg.style.display = 'flex';
+    document.getElementById('g-page-prev').disabled = groupCurrentPage <= 1;
+    document.getElementById('g-page-next').disabled = groupCurrentPage >= totalPagesVal;
+    document.getElementById('g-page-info').textContent =
+      `${groupCurrentPage} / ${totalPagesVal} 페이지 (총 ${total}건)`;
+  }
+
+  async function openGroupDetail(sessionId) {
+    document.getElementById('modal-title').textContent = '질문 그룹 상세';
+    document.getElementById('modal-body').innerHTML = '<p style="color:#aaa;padding:20px">로딩 중...</p>';
+    document.getElementById('modal-backdrop').classList.add('open');
+
+    const res  = await fetch(`/admin/sessions/${encodeURIComponent(sessionId)}`);
+    const data = await res.json();
+
+    const fbLabel = data.group_feedback === 1  ? '👍 만족'
+                  : data.group_feedback === -1 ? '👎 불만족'
+                  : '없음';
+    const fbAt = data.group_feedback_at ? ` (${fmtDate(data.group_feedback_at)})` : '';
+
+    const turnsHtml = (data.turns || []).map(t => {
+      const anaHtml = t.no_answer_analysis
+        ? `<div style="margin-top:10px"><div style="font-size:0.72rem;color:#999;margin-bottom:4px">분석 결과</div>
+           <div class="analysis-box">${t.no_answer_analysis}</div></div>`
+        : '';
+      return `
+        <div style="border:1px solid #eee;border-radius:8px;padding:12px 14px;margin-bottom:10px">
+          <div style="font-size:0.72rem;color:#999;margin-bottom:6px">
+            턴 ${t.turn_index} &nbsp;·&nbsp; ${fmtDate(t.created_at)}
+            ${t.is_no_answer ? '<span class="badge badge-no-answer" style="margin-left:6px">답변없음</span>' : ''}
+            ${t.response_time_ms ? `<span style="margin-left:8px;color:#ccc">${t.response_time_ms}ms</span>` : ''}
+          </div>
+          <div style="font-size:0.78rem;font-weight:600;color:#444;margin-bottom:4px">Q</div>
+          <div style="background:#f5f4ff;border-radius:4px;padding:8px 10px;font-size:0.85rem;margin-bottom:8px;white-space:pre-wrap">${escHtml(t.question)}</div>
+          <div style="font-size:0.78rem;font-weight:600;color:#444;margin-bottom:4px">A</div>
+          <div style="background:#f8f8f8;border-radius:4px;padding:8px 10px;font-size:0.85rem;white-space:pre-wrap">${escHtml((t.answer||'').slice(0,500))}${(t.answer||'').length>500?'…':''}</div>
+          ${anaHtml}
+        </div>`;
+    }).join('');
+
+    document.getElementById('modal-body').innerHTML = `
+      <div class="modal-meta">
+        <span>세션 ID: <code style="font-size:0.8rem">${escHtml(sessionId)}</code></span>
+        <span>턴 수: ${(data.turns||[]).length}</span>
+        <span>그룹 피드백: ${fbLabel}${fbAt}</span>
+      </div>
+      <div>${turnsHtml}</div>`;
   }
 
   // ── 유틸 ──────────────────────────────────────────────────────────────────
