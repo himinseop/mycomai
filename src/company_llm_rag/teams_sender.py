@@ -94,13 +94,13 @@ def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bo
             "isSubtle": True,
             "spacing": "Small",
         },
-        {"type": "Separator"},
         # ── [질문] ────────────────────────────────────────────────
         {
             "type": "TextBlock",
             "text": "**[질문]**",
             "weight": "Bolder",
             "spacing": "Medium",
+            "separator": True,
         },
         {
             "type": "TextBlock",
@@ -128,13 +128,13 @@ def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bo
         ]
 
     body_blocks += [
-        {"type": "Separator"},
         {
             "type": "TextBlock",
             "text": "**[답변]** ← 답글로 작성해 주세요",
             "weight": "Bolder",
             "color": "Good",
             "spacing": "Medium",
+            "separator": True,
         },
         {
             "type": "TextBlock",
@@ -228,14 +228,13 @@ def send_feedback_alert_to_teams(question: str, answer: str) -> bool:
                             "isSubtle": True,
                             "spacing": "Small",
                         },
-                        # ── 구분선 ────────────────────────────────────
-                        {"type": "Separator"},
                         # ── [질문] ────────────────────────────────────
                         {
                             "type": "TextBlock",
                             "text": "**[질문]**",
                             "weight": "Bolder",
                             "spacing": "Medium",
+                            "separator": True,
                         },
                         {
                             "type": "TextBlock",
@@ -258,13 +257,13 @@ def send_feedback_alert_to_teams(question: str, answer: str) -> bool:
                             "spacing": "Small",
                         },
                         # ── [올바른 답변] 안내 ─────────────────────────
-                        {"type": "Separator"},
                         {
                             "type": "TextBlock",
                             "text": "**[올바른 답변]** ← 답글로 작성해 주세요",
                             "weight": "Bolder",
                             "color": "Good",
                             "spacing": "Medium",
+                            "separator": True,
                         },
                         {
                             "type": "TextBlock",

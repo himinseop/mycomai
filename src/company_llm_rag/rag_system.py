@@ -1,8 +1,9 @@
 import json
 import re
 import time
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from urllib.parse import quote
 
 from company_llm_rag.config import settings
@@ -120,9 +121,18 @@ def _doc_source_label(meta: dict) -> str:
     return f"[{source}] 제목: {title} | URL: {url}"
 
 
-def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
+def build_rag_prompt(
+    user_query: str,
+    retrieved_docs: List[Dict],
+    recency_window: int = 0,
+    recency_explicit: bool = False,
+) -> str:
     """
     Constructs a prompt for the LLM using the user's query and retrieved documents.
+
+    Args:
+        recency_window: 최신성 필터 적용 기간(일). 0이면 선언 없음.
+        recency_explicit: True이면 사용자가 직접 기간을 지정한 경우.
     """
     context_parts = []
     for i, doc in enumerate(retrieved_docs):
@@ -169,8 +179,16 @@ def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
     context = "\n\n".join(context_parts)
 
     instructions = _load_prompt(settings.RAG_INSTRUCTIONS_FILE, "rag_instructions.txt")
+    if recency_window > 0:
+        if recency_explicit:
+            recency_hint = f"\n[검색 기준: 사용자 지정 최근 {recency_window}일 이내 Jira 일감을 표시합니다]\n"
+        else:
+            recency_hint = f"\n[검색 기준: 최근 {recency_window}일 이내 등록/수정된 Jira 일감을 우선 표시합니다]\n"
+    else:
+        recency_hint = ""
     prompt = (
         f"{instructions}\n\n"
+        f"{recency_hint}"
         "Company Knowledge Base:\n"
         f"{context}\n\n"
         f"User Query: {user_query}\n\n"
@@ -181,7 +199,41 @@ def build_rag_prompt(user_query: str, retrieved_docs: List[Dict]) -> str:
 _MAX_HISTORY_TURNS = 10  # 최대 유지할 대화 턴 수 (초과 시 오래된 것부터 제거)
 
 
-_RECENCY_KEYWORDS = ['최근', '최신', '가장 최근', '요즘', '이번 주', '이번달', '이번 분기', '최근에 등록', '새로 등록']
+_RECENCY_KEYWORDS = [
+    '최근', '최신', '가장 최근', '요즘',
+    '이번 주', '이번달', '이번 분기',
+    '최근에 등록', '최근 등록', '최근 생성', '최근에 생성',
+    '새로 등록', '방금 등록', '새로 생성',
+    '최근 추가', '새로 추가', '새로운',
+    '최근 올라온', '최근 만든',
+]
+
+# Jira 날짜 필터 정책: 결과 부족 시 기간 점진 확대 (일)
+_JIRA_RECENCY_WINDOWS = [30, 60, 90]
+_JIRA_RECENCY_MIN_RESULTS = 3  # 최소 결과 수 미만이면 기간 확대
+
+# 사용자 지정 기간 파싱 패턴 (순서 중요: 개월 > 주 > 일)
+_EXPLICIT_PERIOD_PATTERNS = [
+    (re.compile(r'(\d+)\s*(?:개월|달)'), lambda m: int(m.group(1)) * 30),
+    (re.compile(r'(\d+)\s*주\s*(?:일|간|동안|이내)?'), lambda m: int(m.group(1)) * 7),
+    (re.compile(r'(\d+)\s*일\s*(?:간|이내|동안)?'), lambda m: int(m.group(1))),
+    (re.compile(r'한\s*달'), lambda m: 30),
+    (re.compile(r'두\s*달'), lambda m: 60),
+    (re.compile(r'세\s*달'), lambda m: 90),
+]
+
+
+def _parse_explicit_period(query: str) -> Optional[int]:
+    """쿼리에서 사용자가 명시한 기간을 파싱해 일(day) 수로 반환합니다.
+    예: '최근 7일' → 7, '지난 2주간' → 14, '1개월 내' → 30
+    기간 표현이 없으면 None 반환.
+    """
+    for pattern, converter in _EXPLICIT_PERIOD_PATTERNS:
+        m = pattern.search(query)
+        if m:
+            return converter(m)
+    return None
+
 
 def _is_listing_query(query: str) -> bool:
     """목록/현황/집계를 요청하는 쿼리인지 감지합니다."""
@@ -203,6 +255,53 @@ def _sort_by_recency(docs: List[Dict]) -> List[Dict]:
         meta = doc.get("metadata", {})
         return meta.get("created_at") or meta.get("updated_at") or ""
     return sorted(docs, key=_date_key, reverse=True)
+
+
+def _apply_jira_recency_filter(
+    docs: List[Dict], explicit_days: Optional[int] = None
+) -> Tuple[List[Dict], int]:
+    """Jira 문서를 최근 N일 기준으로 필터링합니다.
+
+    explicit_days가 있으면 해당 기간을 그대로 적용합니다.
+    없으면 _JIRA_RECENCY_WINDOWS 순서로 점진 확대합니다.
+
+    Returns:
+        (필터링된 문서 리스트, 적용된 기간(일)) — Jira 없으면 (원본, 0)
+    """
+    jira_docs = [d for d in docs if d.get('metadata', {}).get('source') == 'jira']
+    other_docs = [d for d in docs if d.get('metadata', {}).get('source') != 'jira']
+
+    if not jira_docs:
+        return docs, 0
+
+    now = datetime.now(timezone.utc)
+
+    windows = [explicit_days] if explicit_days is not None else _JIRA_RECENCY_WINDOWS
+    min_results = 0 if explicit_days is not None else _JIRA_RECENCY_MIN_RESULTS
+
+    for days in windows:
+        cutoff = now - timedelta(days=days)
+        filtered = []
+        for doc in jira_docs:
+            meta = doc.get('metadata', {})
+            date_str = meta.get('created_at') or meta.get('updated_at') or ''
+            if not date_str:
+                continue
+            try:
+                dt = datetime.fromisoformat(date_str.rstrip("Z"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                if dt >= cutoff:
+                    filtered.append(doc)
+            except Exception:
+                continue
+
+        if len(filtered) >= min_results or days == windows[-1]:
+            label = "사용자 지정" if explicit_days is not None else "자동"
+            logger.info(f"[Jira 날짜 필터({label})] 최근 {days}일 적용 → {len(jira_docs)}개 중 {len(filtered)}개 통과")
+            return filtered + other_docs, days
+
+    return docs, 0
 
 
 def _detect_filters(query: str) -> dict:
@@ -454,7 +553,8 @@ def rag_query(
     t0 = time.monotonic()
     filters = _detect_filters(user_query)
     listing = _is_listing_query(user_query)
-    recency = _is_recency_query(user_query)
+    explicit_period = _parse_explicit_period(user_query)
+    recency = _is_recency_query(user_query) or (explicit_period is not None)
     effective_n = (n_results or settings.RETRIEVAL_TOP_K) * (3 if listing else 1)
     retrieved_docs, ret_timing = retrieve_documents(
         user_query,
@@ -463,6 +563,7 @@ def rag_query(
         url_extensions=filters['extensions'] or None,
         return_timing=True,
         return_scores=True,
+        recency_boost=recency,
     )
     t_retrieval = time.monotonic()
     retrieval_ms = int((t_retrieval - t0) * 1000)
@@ -470,8 +571,10 @@ def rag_query(
     # 쓸모없는 문서 제거 (빈 내용, PDF 바이너리, Teams 시스템 이벤트 등)
     retrieved_docs = [d for d in retrieved_docs if _is_usable_content(d)]
 
-    # 최신/최근 쿼리 → 날짜 내림차순 재정렬
+    # 최신/최근 쿼리 처리
+    recency_window = 0
     if recency:
+        retrieved_docs, recency_window = _apply_jira_recency_filter(retrieved_docs, explicit_days=explicit_period)
         retrieved_docs = _sort_by_recency(retrieved_docs)
 
     t_inject_start = time.monotonic()
@@ -486,7 +589,7 @@ def rag_query(
         timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm._default_model}
         return (answer, [], timing) if return_refs else answer
 
-    prompt = build_rag_prompt(user_query, retrieved_docs)
+    prompt = build_rag_prompt(user_query, retrieved_docs, recency_window=recency_window, recency_explicit=(explicit_period is not None))
     llm_response = get_llm_response(prompt, conversation_history=conversation_history)
     t_llm = time.monotonic()
     llm_ms = int((t_llm - t_retrieval) * 1000)
@@ -528,7 +631,8 @@ def rag_query_stream(
     t0 = time.monotonic()
     filters = _detect_filters(user_query)
     listing = _is_listing_query(user_query)
-    recency = _is_recency_query(user_query)
+    explicit_period = _parse_explicit_period(user_query)
+    recency = _is_recency_query(user_query) or (explicit_period is not None)
     effective_n = (n_results or settings.RETRIEVAL_TOP_K) * (3 if listing else 1)
     retrieved_docs, ret_timing = retrieve_documents(
         user_query,
@@ -537,6 +641,7 @@ def rag_query_stream(
         url_extensions=filters['extensions'] or None,
         return_timing=True,
         return_scores=True,
+        recency_boost=recency,
     )
     t_retrieval = time.monotonic()
     retrieval_ms = int((t_retrieval - t0) * 1000)
@@ -544,8 +649,10 @@ def rag_query_stream(
     # 쓸모없는 문서 제거 (빈 내용, PDF 바이너리, Teams 시스템 이벤트 등)
     retrieved_docs = [d for d in retrieved_docs if _is_usable_content(d)]
 
-    # 최신/최근 쿼리 → 날짜 내림차순 재정렬
+    # 최신/최근 쿼리 처리
+    recency_window = 0
     if recency:
+        retrieved_docs, recency_window = _apply_jira_recency_filter(retrieved_docs, explicit_days=explicit_period)
         retrieved_docs = _sort_by_recency(retrieved_docs)
 
     t_inject_start = time.monotonic()
@@ -562,7 +669,7 @@ def rag_query_stream(
         yield {"type": "done", "answer": answer, "references": [], "timing": timing, "is_no_answer": True}
         return
 
-    prompt = build_rag_prompt(user_query, retrieved_docs)
+    prompt = build_rag_prompt(user_query, retrieved_docs, recency_window=recency_window, recency_explicit=(explicit_period is not None))
     system_prompt = _load_prompt(settings.SYSTEM_PROMPT_FILE, "system_prompt.txt")
     messages = [{"role": "system", "content": system_prompt}]
     if conversation_history:

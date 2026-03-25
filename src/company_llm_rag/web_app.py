@@ -65,6 +65,7 @@ class FeedbackRequest(BaseModel):
     question: str = ""
     answer: str = ""
     session_id: str = "default"
+    conversation_history: List[Dict] = []
 
 
 def _check_admin_auth(request: Request) -> bool:
@@ -217,6 +218,7 @@ async def feedback(req: FeedbackRequest):
                         record["question"],
                         record["answer"],
                         bool(record["is_no_answer"]),
+                        conversation_history=req.conversation_history,
                     )
                 )
 
