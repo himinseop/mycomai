@@ -587,6 +587,7 @@
             scrollDown();
           } else if (ev.type === 'done') {
             finalRefs = ev.references || [];
+            if (ev.answer) fullText = ev.answer;  // 인용 치환된 최종 답변으로 교체
           } else if (ev.type === 'meta') {
             cursor.remove();
             writeEl.style.opacity = '0';
