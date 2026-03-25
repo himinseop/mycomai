@@ -193,8 +193,9 @@
     font-size: 0.85rem;
     background: #fff;
   }
-  .filter-bar input[type="text"] { flex: 1; min-width: 160px; }
-  .filter-bar input[type="date"] { width: 140px; }
+  .filter-bar input[type="text"] { flex: 1; min-width: 140px; }
+  .filter-bar input[type="date"] { width: 118px; }
+  .filter-bar select { max-width: 130px; }
   .btn {
     padding: 6px 14px;
     border: none;
@@ -352,6 +353,33 @@
   .markdown-body pre { background: #f5f5f5; padding: 10px; border-radius: 6px; overflow-x: auto; }
   .markdown-body table { border-collapse: collapse; width: 100%; margin: .4em 0; }
   .markdown-body td, .markdown-body th { border: 1px solid #ddd; padding: 5px 8px; }
+
+  /* ── 섹션 collapse ── */
+  .sec-hd {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; background: #f6f6fb; border: 1px solid #e8e8f0;
+    border-radius: 6px; cursor: pointer; user-select: none; margin-top: 6px;
+    font-size: 0.84rem; font-weight: 600; color: #444; transition: background .1s;
+  }
+  .sec-hd:hover { background: #ecebf5; }
+  .sec-hd .arr { font-size: 0.68rem; color: #bbb; transition: transform .18s; }
+  .sec-hd.open .arr { transform: rotate(90deg); }
+  .sec-bd { display: none; padding: 8px 0 2px; }
+  .sec-bd.open { display: block; }
+
+  /* ── 턴 카드 (그룹 상세) ── */
+  .turn-card { border: 1px solid #e0e0ea; border-radius: 8px; overflow: hidden; margin-bottom: 10px; }
+  .turn-card-hd { background: #f2f2f8; padding: 7px 12px; font-size: 0.79rem; color: #666; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .turn-card .sec-hd { border-radius: 0; border-left: none; border-right: none; border-top: 1px solid #eee; border-bottom: none; margin-top: 0; background: #fafafa; }
+  .turn-card .sec-hd:hover { background: #f0f0f7; }
+  .turn-card .sec-bd { padding: 10px 14px 6px; }
+
+  /* ── 그룹 피드백 바 ── */
+  .fb-bar { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #eee; font-size: 0.82rem; color: #888; flex-wrap: wrap; }
+  .fb-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 13px; border: 1px solid #ddd; border-radius: 16px; cursor: pointer; font-size: 0.82rem; background: #fff; transition: background .1s; }
+  .fb-btn:hover { background: #f0f0f9; }
+  .fb-btn.fb-up   { background: #e3f2fd; border-color: #64b5f6; color: #1565c0; }
+  .fb-btn.fb-down { background: #fce4ec; border-color: #ef9a9a; color: #c62828; }
 </style>
 </head>
 <body>
@@ -489,96 +517,41 @@
 
   <!-- ── 이력 조회 탭 ── -->
   <div class="tab-panel" id="tab-history">
-    <!-- 뷰 전환 -->
-    <div style="display:flex;gap:6px;margin-bottom:12px">
-      <button class="btn btn-primary" id="view-btn-turn"  onclick="switchHistoryView('turn')">턴 뷰</button>
-      <button class="btn btn-secondary" id="view-btn-group" onclick="switchHistoryView('group')">그룹 뷰</button>
-    </div>
-
-    <!-- ── 턴 뷰 ── -->
-    <div id="history-view-turn">
-      <div class="history-card">
-        <div class="filter-bar">
-          <input type="text" id="h-q" placeholder="질문 검색..." onkeydown="if(event.key==='Enter') loadHistory(1)">
-          <input type="date" id="h-from" title="시작일">
-          <input type="date" id="h-to" title="종료일">
-          <select id="h-no-answer">
-            <option value="">전체</option>
-            <option value="1">답변없음만</option>
-            <option value="0">답변있음만</option>
-          </select>
-          <select id="h-feedback">
-            <option value="">피드백 전체</option>
-            <option value="1">👍 만족</option>
-            <option value="-1">👎 불만족</option>
-          </select>
-          <button class="btn btn-primary" onclick="loadHistory(1)">검색</button>
-          <button class="btn btn-secondary" onclick="resetHistoryFilter()">초기화</button>
-        </div>
-
-        <table id="history-table">
-          <thead>
-            <tr>
-              <th style="width:40px">#</th>
-              <th style="width:110px">일시</th>
-              <th>질문</th>
-              <th style="width:80px">참고문서</th>
-              <th style="width:80px">응답시간</th>
-              <th style="width:60px">피드백</th>
-              <th style="width:60px">답변</th>
-              <th style="width:70px">결과분석</th>
-            </tr>
-          </thead>
-          <tbody id="history-tbody">
-            <tr><td colspan="8" class="empty">검색 버튼을 눌러 조회하세요.</td></tr>
-          </tbody>
-        </table>
-
-        <div class="pagination" id="history-pagination" style="display:none;">
-          <button class="btn btn-secondary" id="page-prev" onclick="loadHistory(currentPage-1)">← 이전</button>
-          <span class="page-info" id="page-info"></span>
-          <button class="btn btn-secondary" id="page-next" onclick="loadHistory(currentPage+1)">다음 →</button>
-        </div>
+    <div class="history-card">
+      <div class="filter-bar">
+        <input type="text" id="g-q" placeholder="첫 질문 검색..." onkeydown="if(event.key==='Enter') loadGroups(1)">
+        <input type="date" id="g-from" title="시작일">
+        <input type="date" id="g-to" title="종료일">
+        <select id="g-feedback">
+          <option value="">피드백 전체</option>
+          <option value="1">👍 만족</option>
+          <option value="-1">👎 불만족</option>
+        </select>
+        <button class="btn btn-primary" onclick="loadGroups(1)">검색</button>
+        <button class="btn btn-secondary" onclick="resetGroupFilter()">초기화</button>
       </div>
-    </div>
 
-    <!-- ── 그룹 뷰 ── -->
-    <div id="history-view-group" style="display:none">
-      <div class="history-card">
-        <div class="filter-bar">
-          <input type="text" id="g-q" placeholder="첫 질문 검색..." onkeydown="if(event.key==='Enter') loadGroups(1)">
-          <input type="date" id="g-from" title="시작일">
-          <input type="date" id="g-to" title="종료일">
-          <select id="g-feedback">
-            <option value="">그룹 피드백 전체</option>
-            <option value="1">👍 만족</option>
-            <option value="-1">👎 불만족</option>
-          </select>
-          <button class="btn btn-primary" onclick="loadGroups(1)">검색</button>
-          <button class="btn btn-secondary" onclick="resetGroupFilter()">초기화</button>
-        </div>
+      <table id="group-table">
+        <thead>
+          <tr>
+            <th style="width:40px">#</th>
+            <th style="width:110px">마지막 질문 시각</th>
+            <th>첫 질문</th>
+            <th style="width:50px">질문 수</th>
+            <th style="width:50px">Teams</th>
+            <th style="width:60px">피드백</th>
+            <th style="width:100px">결과분석</th>
+          </tr>
+        </thead>
+        <tbody id="group-tbody">
+          <tr><td colspan="7" class="empty">검색 버튼을 눌러 조회하세요.</td></tr>
+        </tbody>
+      </table>
 
-        <table id="group-table">
-          <thead>
-            <tr>
-              <th style="width:40px">#</th>
-              <th style="width:110px">마지막 질문 시각</th>
-              <th>첫 질문</th>
-              <th style="width:60px">턴 수</th>
-              <th style="width:70px">그룹 피드백</th>
-              <th style="width:70px">분석</th>
-            </tr>
-          </thead>
-          <tbody id="group-tbody">
-            <tr><td colspan="6" class="empty">검색 버튼을 눌러 조회하세요.</td></tr>
-          </tbody>
-        </table>
-
-        <div class="pagination" id="group-pagination" style="display:none;">
-          <button class="btn btn-secondary" id="g-page-prev" onclick="loadGroups(groupCurrentPage-1)">← 이전</button>
-          <span class="page-info" id="g-page-info"></span>
-          <button class="btn btn-secondary" id="g-page-next" onclick="loadGroups(groupCurrentPage+1)">다음 →</button>
-        </div>
+      <div class="pagination" id="group-pagination" style="display:none;">
+        <button class="btn btn-secondary" id="g-page-prev" onclick="loadGroups(groupCurrentPage-1)">← 이전</button>
+        <span class="page-info" id="g-page-info"></span>
+        <button class="btn btn-secondary" id="g-page-next" onclick="loadGroups(groupCurrentPage+1)">다음 →</button>
       </div>
     </div>
   </div>
@@ -616,13 +589,10 @@
 <script>
   let dailyChart = null;
   let hourlyChart = null;
-  let currentPage = 1;
-  let totalPages = 1;
   let _activeChartTab = 'daily';
   let _lastStatsData = null;
   let groupCurrentPage = 1;
   let groupTotalPages = 1;
-  let _historyView = 'turn';  // 'turn' | 'group'
 
   const SOURCE_COLORS = {
     jira:       '#0052cc',
@@ -640,36 +610,13 @@
     btn.classList.add('active');
     if (name === 'dashboard') { loadStats(); loadDbStats(); }
     if (name === 'history') {
-      const tbody = document.getElementById('history-tbody');
-      if (_historyView === 'turn' && tbody.children.length === 1 && tbody.children[0].children[0].colSpan > 1) {
-        loadHistory(1);
-      } else if (_historyView === 'group') {
-        loadGroups(1);
-      }
+      const gbody = document.getElementById('group-tbody');
+      if (gbody.children.length === 1 && gbody.children[0].children[0].colSpan > 1) loadGroups(1);
     }
     if (name === 'settings') loadSettings();
   }
 
-  // 이력 탭으로 이동 후 상세 팝업 오픈
-  async function goToDetail(recordId) {
-    const histBtn = document.querySelector('.tab-btn:nth-child(2)');
-    switchTab('history', histBtn);
-    await loadHistory(1);
-    openDetailModal(recordId);
-  }
-
-  // ── 뷰 전환 ───────────────────────────────────────────────────────────────
-  function switchHistoryView(view) {
-    _historyView = view;
-    document.getElementById('history-view-turn').style.display  = view === 'turn'  ? '' : 'none';
-    document.getElementById('history-view-group').style.display = view === 'group' ? '' : 'none';
-    document.getElementById('view-btn-turn').className  = view === 'turn'  ? 'btn btn-primary' : 'btn btn-secondary';
-    document.getElementById('view-btn-group').className = view === 'group' ? 'btn btn-primary' : 'btn btn-secondary';
-    if (view === 'group') loadGroups(1);
-    else loadHistory(1);
-  }
-
-  // ── 그룹 뷰 ───────────────────────────────────────────────────────────────
+  // ── 이력 조회 ─────────────────────────────────────────────────────────────
   function resetGroupFilter() {
     document.getElementById('g-q').value = '';
     document.getElementById('g-from').value = '';
@@ -692,7 +639,7 @@
     if (feedback) params.set('group_feedback', feedback);
 
     const tbody = document.getElementById('group-tbody');
-    tbody.innerHTML = '<tr><td colspan="6" class="empty">로딩 중...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">로딩 중...</td></tr>';
 
     const res  = await fetch('/admin/sessions?' + params);
     const data = await res.json();
@@ -705,25 +652,33 @@
   function renderGroups(items, total) {
     const tbody = document.getElementById('group-tbody');
     if (!items.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="empty">데이터가 없습니다.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">데이터가 없습니다.</td></tr>';
       return;
     }
     tbody.innerHTML = items.map((g, i) => {
       const offset = (groupCurrentPage - 1) * 20;
       const num    = total - offset - i;
       const ts     = g.latest_turn_at ? fmtDate(g.latest_turn_at) : '—';
-      const fb     = g.group_feedback === 1 ? '<span class="badge badge-up">👍</span>'
+      const fb     = g.group_feedback === 1  ? '<span class="badge badge-up">👍</span>'
                    : g.group_feedback === -1 ? '<span class="badge badge-down">👎</span>'
                    : '<span style="color:#ccc;font-size:0.8rem">—</span>';
-      const ana    = g.analysis_status === 'done'    ? '<span class="badge badge-done">완료</span>'
-                   : g.analysis_status === 'pending' ? '<span class="badge badge-pending">분석중</span>'
-                   : '<span style="color:#ccc;font-size:0.8rem">—</span>';
+      const teams  = g.teams_sent ? '<span style="color:#6264a7;font-size:0.85rem" title="Teams에 전송됨">T</span>' : '<span style="color:#ddd">—</span>';
+      const sid    = escHtml(g.session_id);
+      let ana;
+      if (g.analysis_status === 'done') {
+        ana = `<span class="badge badge-done" style="cursor:pointer" onclick="event.stopPropagation();openGroupDetail('${sid}')">리포트 보기</span>`;
+      } else if (g.analysis_status === 'pending') {
+        ana = '<span class="badge badge-pending">작성중…</span>';
+      } else {
+        ana = `<button class="btn-analyze" style="font-size:.75rem;padding:3px 8px" onclick="event.stopPropagation();trigGroupAnaFromTable('${sid}',this)">결과분석 요청</button>`;
+      }
       const q = escHtml((g.root_question || '').slice(0, 80));
-      return `<tr class="clickable" onclick="openGroupDetail('${escHtml(g.session_id)}')">
+      return `<tr class="clickable" onclick="openGroupDetail('${sid}')">
         <td style="text-align:center;color:#aaa;font-size:0.8rem">${num}</td>
         <td class="ts-text">${ts}</td>
         <td class="q-text">${q}</td>
         <td style="text-align:center">${g.turn_count}</td>
+        <td style="text-align:center">${teams}</td>
         <td style="text-align:center">${fb}</td>
         <td style="text-align:center">${ana}</td>
       </tr>`;
@@ -741,45 +696,62 @@
   }
 
   async function openGroupDetail(sessionId) {
-    document.getElementById('modal-title').textContent = '질문 그룹 상세';
-    document.getElementById('modal-body').innerHTML = '<p style="color:#aaa;padding:20px">로딩 중...</p>';
-    document.getElementById('modal-backdrop').classList.add('open');
+    showModal('그룹 상세', '<p style="color:#aaa;padding:16px 0">로딩 중...</p>');
+    let data;
+    try {
+      const res = await fetch(`/admin/sessions/${encodeURIComponent(sessionId)}`);
+      if (!res.ok) return;
+      data = await res.json();
+    } catch(e) { return; }
 
-    const res  = await fetch(`/admin/sessions/${encodeURIComponent(sessionId)}`);
-    const data = await res.json();
+    const turns = data.turns || [];
 
-    const fbLabel = data.group_feedback === 1  ? '👍 만족'
-                  : data.group_feedback === -1 ? '👎 불만족'
-                  : '없음';
-    const fbAt = data.group_feedback_at ? ` (${fmtDate(data.group_feedback_at)})` : '';
+    const meta = `<div class="modal-meta">
+      <span>세션: <code style="font-size:.78rem">${escHtml(sessionId)}</code></span>
+      <span>${turns.length}개 질문</span>
+      ${data.group_feedback === 1 ? '<span class="badge badge-up">👍 만족</span>'
+        : data.group_feedback === -1 ? '<span class="badge badge-down">👎 불만족</span>' : ''}
+    </div>`;
 
-    const turnsHtml = (data.turns || []).map(t => {
-      const anaHtml = t.no_answer_analysis
-        ? `<div style="margin-top:10px"><div style="font-size:0.72rem;color:#999;margin-bottom:4px">분석 결과</div>
-           <div class="analysis-box">${t.no_answer_analysis}</div></div>`
-        : '';
-      return `
-        <div style="border:1px solid #eee;border-radius:8px;padding:12px 14px;margin-bottom:10px">
-          <div style="font-size:0.72rem;color:#999;margin-bottom:6px">
-            턴 ${t.turn_index} &nbsp;·&nbsp; ${fmtDate(t.created_at)}
-            ${t.is_no_answer ? '<span class="badge badge-no-answer" style="margin-left:6px">답변없음</span>' : ''}
-            ${t.response_time_ms ? `<span style="margin-left:8px;color:#ccc">${t.response_time_ms}ms</span>` : ''}
-          </div>
-          <div style="font-size:0.78rem;font-weight:600;color:#444;margin-bottom:4px">Q</div>
-          <div style="background:#f5f4ff;border-radius:4px;padding:8px 10px;font-size:0.85rem;margin-bottom:8px;white-space:pre-wrap">${escHtml(t.question)}</div>
-          <div style="font-size:0.78rem;font-weight:600;color:#444;margin-bottom:4px">A</div>
-          <div style="background:#f8f8f8;border-radius:4px;padding:8px 10px;font-size:0.85rem;white-space:pre-wrap">${escHtml((t.answer||'').slice(0,500))}${(t.answer||'').length>500?'…':''}</div>
-          ${anaHtml}
-        </div>`;
+    // [5] 참고문서·응답시간을 질문 박스 안에 포함
+    const turnsHtml = turns.map(t => {
+      const refs = t.references || [];
+      const noAnsBadge = t.is_no_answer ? '<span class="badge badge-no-answer">답변없음</span>' : '';
+      return `<div class="turn-card">
+        <div class="turn-card-hd">
+          <span>질문 ${t.turn_index}</span>
+          <span style="font-weight:400;color:#999">${fmtDate(t.created_at)}</span>
+          ${noAnsBadge}
+          ${t.response_time_ms ? `<span style="margin-left:auto;color:#bbb;font-weight:400">${fmtMs(t.response_time_ms)}</span>` : ''}
+        </div>
+        <div class="sec-hd open" onclick="toggleSec(this)"><span>💬 질문 / 답변</span><span class="arr">▶</span></div>
+        <div class="sec-bd open">
+          <div class="modal-section"><label>질문</label><div class="content-box">${escHtml(t.question)}</div></div>
+          <div class="modal-section"><label>답변</label><div class="content-box markdown-body">${renderMd(t.answer)}</div></div>
+          <div class="sec-hd" style="margin-top:6px" onclick="toggleSec(this)"><span>📄 참고문서 <span style="color:#aaa;font-weight:400;font-size:.8rem">${refs.length}건</span></span><span class="arr">▶</span></div>
+          <div class="sec-bd">${buildRefsHtml(refs)}</div>
+          <div class="sec-hd" onclick="toggleSec(this)"><span>⏱ 응답시간 <span style="color:#aaa;font-weight:400;font-size:.8rem">${fmtMs(t.response_time_ms)}</span></span><span class="arr">▶</span></div>
+          <div class="sec-bd">${buildPerfHtml(null, t.response_time_ms)}</div>
+        </div>
+      </div>`;
     }).join('');
 
-    document.getElementById('modal-body').innerHTML = `
-      <div class="modal-meta">
-        <span>세션 ID: <code style="font-size:0.8rem">${escHtml(sessionId)}</code></span>
-        <span>턴 수: ${(data.turns||[]).length}</span>
-        <span>그룹 피드백: ${fbLabel}${fbAt}</span>
-      </div>
-      <div>${turnsHtml}</div>`;
+    // [6] 결과분석 시각적 구분
+    const anaTurn    = turns.find(t => t.analysis_status === 'done')
+                    || turns.find(t => t.analysis_status === 'pending') || null;
+    const anaStatus  = anaTurn ? anaTurn.analysis_status  : null;
+    const anaContent = anaTurn ? anaTurn.no_answer_analysis : null;
+    const anaLabel   = anaStatus === 'done' ? '완료' : anaStatus === 'pending' ? '작성중…' : '없음';
+    const anaSec = `
+      <div style="margin-top:18px;padding-top:16px;border-top:2px dashed #e0e0ea">
+        <div class="sec-hd" style="background:#f0f0f8;border-color:#d8d8f0" onclick="toggleSec(this)">
+          <span>📋 결과분석 <span style="color:#aaa;font-weight:400;font-size:.8rem">${anaLabel}</span></span><span class="arr">▶</span>
+        </div>
+        <div class="sec-bd">${buildAnaSec(anaStatus, anaContent, sessionId)}</div>
+      </div>`;
+
+    document.getElementById('modal-title').textContent = '그룹 상세';
+    document.getElementById('modal-body').innerHTML = meta + turnsHtml + anaSec;
   }
 
   // ── 유틸 ──────────────────────────────────────────────────────────────────
@@ -954,6 +926,14 @@
     });
   }
 
+  function fmtDate(iso) {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    } catch { return ''; }
+  }
+
   function fmtDateShort(iso) {
     if (!iso) return '';
     try {
@@ -1058,28 +1038,29 @@
         const tr = document.createElement('tr');
         if (row.is_no_answer) tr.classList.add('no-answer-row');
 
-        const feedbackBadge = row.feedback === 1
+        const gfb = row.group_feedback;
+        const feedbackBadge = gfb === 1
           ? '<span class="badge badge-up">👍</span>'
-          : row.feedback === -1
+          : gfb === -1
           ? '<span class="badge badge-down">👎</span>'
-          : '—';
+          : '<span style="color:#ccc">—</span>';
 
-        // 답변 셀: 클릭 시 상세 모달
+        // 답변 셀: 클릭 시 통합 상세 모달
         const answerBadge = row.is_no_answer
           ? `<span class="badge badge-no-answer" style="cursor:pointer" onclick="openDetailModal(${row.id})">없음</span>`
           : `<span class="badge badge-ok" style="cursor:pointer" onclick="openDetailModal(${row.id})">있음</span>`;
 
-        // 참고문서 셀: 참고문서가 있을 때만 클릭 가능
+        // 참고문서 셀: 통합 모달로
         const refCell = row.ref_count > 0
-          ? `<span class="badge badge-ok" style="cursor:pointer" onclick="openRefsModal(${row.id})">${row.ref_count}건</span>`
+          ? `<span class="badge badge-ok" style="cursor:pointer" onclick="openDetailModal(${row.id})">${row.ref_count}건</span>`
           : '<span style="color:#ccc">—</span>';
 
-        // 응답시간 셀: 클릭 시 단계별 타이밍
+        // 응답시간 셀: 통합 모달로
         const perfCell = row.response_time_ms != null
-          ? `<span class="ts-text" style="cursor:pointer;text-decoration:underline dotted" onclick="openPerfModal(${row.id})">${fmtMs(row.response_time_ms)}</span>`
+          ? `<span class="ts-text" style="cursor:pointer;text-decoration:underline dotted" onclick="openDetailModal(${row.id})">${fmtMs(row.response_time_ms)}</span>`
           : '—';
 
-        // 조사 셀
+        // 분석 셀: 그룹 기준
         const analysisBadge = buildAnalysisBadge(row);
 
         // 질문 셀: 클릭 시 상세 모달
@@ -1110,26 +1091,21 @@
   function buildAnalysisBadge(row) {
     if (row.analysis_status === 'pending') return '<span class="badge badge-pending">작성중…</span>';
     if (row.analysis_status === 'done')
-      return `<span class="badge badge-done" onclick="event.stopPropagation();openAnalysisModal(${row.id})">📋 보기</span>`;
-    // 분석 없음(null) 또는 오류 → 수동 분석 버튼
-    return `<button class="btn-analyze" onclick="event.stopPropagation();triggerAnalysis(${row.id}, this)">결과분석</button>`;
+      return `<span class="badge badge-done" onclick="event.stopPropagation();openDetailModal(${row.id})">📋 보기</span>`;
+    const sid = escHtml(row.session_id || '');
+    return `<button class="btn-analyze" onclick="event.stopPropagation();trigGroupAnaFromTable('${sid}',this)">결과분석</button>`;
   }
 
-  async function triggerAnalysis(recordId, el) {
-    el.disabled = true;
-    el.textContent = '요청중…';
+  async function trigGroupAnaFromTable(sessionId, btn) {
+    btn.disabled = true; btn.textContent = '요청중…';
     try {
-      const res = await fetch(`/admin/history/${recordId}/analyze`, { method: 'POST' });
+      const res = await fetch(`/admin/sessions/${encodeURIComponent(sessionId)}/analyze`, { method: 'POST' });
       if (res.ok) {
-        el.outerHTML = '<span class="badge badge-pending">작성중…</span>';
+        btn.outerHTML = '<span class="badge badge-pending">작성중…</span>';
       } else {
-        el.disabled = false;
-        el.textContent = '결과분석';
+        btn.disabled = false; btn.textContent = '결과분석';
       }
-    } catch(e) {
-      el.disabled = false;
-      el.textContent = '결과분석';
-    }
+    } catch(e) { btn.disabled = false; btn.textContent = '결과분석'; }
   }
 
   function resetHistoryFilter() {
@@ -1154,48 +1130,29 @@
     document.getElementById('modal-backdrop').classList.remove('open');
   }
 
-  // 답변 상세 모달
-  async function openDetailModal(recordId) {
-    let data;
-    try {
-      const res = await fetch(`/admin/history/${recordId}/detail`);
-      if (!res.ok) return;
-      data = await res.json();
-    } catch(e) { return; }
-
-    const meta = `<div class="modal-meta">
-      <span>🕐 ${fmtTsFull(data.created_at)}</span>
-      <span>⏱ ${data.response_time_ms != null ? fmtMs(data.response_time_ms) : '—'}</span>
-      ${data.is_no_answer ? '<span style="color:#c62828">⚠️ 답변없음</span>' : ''}
-      ${data.feedback === 1 ? '<span>👍 만족</span>' : data.feedback === -1 ? '<span>👎 불만족</span>' : ''}
-    </div>`;
-
-    let html = meta
-      + `<div class="modal-section"><label>질문</label><div class="content-box">${escHtml(data.question)}</div></div>`
-      + `<div class="modal-section"><label>답변</label><div class="content-box markdown-body">${renderMd(data.answer)}</div></div>`;
-
-    showModal(`질문 #${data.id}`, html);
+  // ── 섹션 토글 ─────────────────────────────────────────────────────────────
+  function toggleSec(hd) {
+    hd.classList.toggle('open');
+    const bd = hd.nextElementSibling;
+    if (bd) bd.classList.toggle('open');
   }
 
-  // 참고문서 모달
-  async function openRefsModal(recordId) {
-    let data;
-    try {
-      const res = await fetch(`/admin/history/${recordId}/detail`);
-      if (!res.ok) return;
-      data = await res.json();
-    } catch(e) { return; }
+  // ── ms 포맷 ───────────────────────────────────────────────────────────────
+  function fmtMs(ms) {
+    if (ms == null) return '—';
+    if (ms < 1000) return ms + 'ms';
+    return (ms / 1000).toFixed(1) + 's';
+  }
 
-    const refs = data.references || [];
-    if (refs.length === 0) { showModal('참고문서', '<p class="empty">참고 문서 없음</p>'); return; }
-
+  // ── 참고문서 HTML 빌더 ────────────────────────────────────────────────────
+  function buildRefsHtml(refs) {
+    if (!refs || !refs.length) return '<p style="color:#aaa;padding:6px 0;font-size:0.85rem">참고 문서 없음</p>';
     const SRC_META = {
-      jira:       { label: 'J', bg: '#0052CC', name: 'Jira' },
-      confluence: { label: 'C', bg: '#0065FF', name: 'Confluence' },
-      sharepoint: { label: 'S', bg: '#038387', name: 'SharePoint' },
-      teams:      { label: 'T', bg: '#6264A7', name: 'Teams' },
+      jira:       { label:'J', bg:'#0052CC' },
+      confluence: { label:'C', bg:'#0065FF' },
+      sharepoint: { label:'S', bg:'#038387' },
+      teams:      { label:'T', bg:'#6264A7' },
     };
-
     function refTitle(r) {
       const src = r.source || '';
       if (src === 'jira') return r.issue_key ? `[${r.issue_key}] ${r.title}` : r.title;
@@ -1209,69 +1166,161 @@
       if (src === 'sharepoint') {
         try {
           const u = new URL(r.url);
-          const fileParam = u.searchParams.get('file');
-          if (fileParam) return decodeURIComponent(fileParam);
-          const parts = u.pathname.split('/');
-          const lastSeg = decodeURIComponent(parts[parts.length - 1] || '');
-          if (lastSeg && !lastSeg.toLowerCase().endsWith('.aspx')) return lastSeg;
+          const fp = u.searchParams.get('file');
+          if (fp) return decodeURIComponent(fp);
+          const segs = u.pathname.split('/');
+          const last = decodeURIComponent(segs[segs.length - 1] || '');
+          if (last && !last.toLowerCase().endsWith('.aspx')) return last;
         } catch (_) {}
         return r.title;
       }
       if (src === 'teams') {
-        const prefix = r.team_name && r.channel_name ? `[${r.team_name}/${r.channel_name}] `
+        const pfx = r.team_name && r.channel_name ? `[${r.team_name}/${r.channel_name}] `
           : r.chat_topic ? `[${r.chat_topic}] ` : '';
-        return prefix + (r.author ? `${r.author}: ` : '') + (r.snippet || '').replace(/\s+/g, ' ').slice(0, 60);
+        return pfx + (r.author ? `${r.author}: ` : '') + (r.snippet || '').replace(/\s+/g,' ').slice(0,60);
       }
       return r.title || r.url;
     }
-
-    function refSubInfo(r) {
-      const parts = [];
-      if (r.author) parts.push(`<span>✍ ${escHtml(r.author)}</span>`);
-      if (r.created_at) {
-        try {
-          const d = new Date(r.created_at);
-          parts.push(`<span>📅 ${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()}</span>`);
-        } catch {}
-      }
-      try {
-        const host = new URL(r.url).hostname.replace('www.', '');
-        parts.push(`<span style="color:#bbb">${escHtml(host)}</span>`);
-      } catch {}
-      return parts.join('<span style="color:#ddd;margin:0 4px">·</span>');
+    function refSub(r) {
+      const p = [];
+      if (r.author) p.push(`✍ ${escHtml(r.author)}`);
+      if (r.created_at) { try { const d=new Date(r.created_at); p.push(`📅 ${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()}`); } catch {} }
+      try { const h=new URL(r.url).hostname.replace('www.',''); p.push(`<span style="color:#ccc">${escHtml(h)}</span>`); } catch {}
+      return p.join('<span style="color:#ddd;margin:0 3px">·</span>');
     }
-
-    const cards = refs.map((r, i) => {
+    return refs.map(r => {
       const src  = r.source || '';
-      const meta = SRC_META[src] || { label: '?', bg: '#888', name: src };
+      const m    = SRC_META[src] || { label:'?', bg:'#888' };
       const title = refTitle(r);
-      const sub   = refSubInfo(r);
-      return `
-        <a href="${escHtml(r.url)}" target="_blank" rel="noopener noreferrer" style="display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1px solid #eee;border-radius:8px;text-decoration:none;color:inherit;transition:background .15s;margin-bottom:8px" onmouseover="this.style.background='#f8f8ff'" onmouseout="this.style.background=''">
-          <div style="flex-shrink:0;margin-top:2px">
-            <span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:6px;background:${meta.bg};color:#fff;font-size:11px;font-weight:700">${meta.label}</span>
-          </div>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:.88rem;font-weight:600;color:#1a1a2e;line-height:1.4;word-break:break-word">${escHtml(title)}</div>
-            ${sub ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;font-size:.76rem;color:#888">${sub}</div>` : ''}
-          </div>
-          <div style="flex-shrink:0;color:#bbb;font-size:13px;margin-top:3px">↗</div>
-        </a>`;
+      const sub   = refSub(r);
+      return `<a href="${escHtml(r.url)}" target="_blank" rel="noopener noreferrer" style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #eee;border-radius:8px;text-decoration:none;color:inherit;margin-bottom:6px" onmouseover="this.style.background='#f8f8ff'" onmouseout="this.style.background=''">
+        <span style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:5px;background:${m.bg};color:#fff;font-size:11px;font-weight:700;margin-top:1px">${m.label}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.87rem;font-weight:600;color:#1a1a2e;word-break:break-word;line-height:1.4">${escHtml(title)}</div>
+          ${sub ? `<div style="margin-top:4px;font-size:.75rem;color:#999">${sub}</div>` : ''}
+        </div>
+        <span style="color:#bbb;font-size:12px;flex-shrink:0;margin-top:2px">↗</span>
+      </a>`;
     }).join('');
-
-    showModal(`참고문서 (${refs.length}건)`,
-      `<div style="padding:4px 0">${cards}</div>`);
   }
 
-  // ms → "234ms" 또는 "1.2s" 포맷
-  function fmtMs(ms) {
-    if (ms == null) return '—';
-    if (ms < 1000) return ms + 'ms';
-    return (ms / 1000).toFixed(1) + 's';
+  // ── 응답시간 HTML 빌더 ────────────────────────────────────────────────────
+  function buildPerfHtml(p, totalMs) {
+    if (!p) return `<div style="padding:6px 0;color:#888;font-size:0.85rem">단계별 시간 정보 없음 (총 ${fmtMs(totalMs)})</div>`;
+    const total  = p.total_ms || 1;
+    const vMs    = p.vector_ms  ?? null;
+    const kMs    = p.keyword_ms ?? null;
+    const iMs    = p.inject_ms  ?? null;
+    const hasSub = vMs !== null && kMs !== null;
+    const hasInj = iMs !== null && iMs > 0;
+    const rMs    = p.retrieval_ms;
+    const lMs    = p.llm_ms;
+    const vPct = hasSub ? Math.max(1, Math.round(vMs/total*100)) : 0;
+    const kPct = hasSub ? Math.max(1, Math.round(kMs/total*100)) : 0;
+    const iPct = hasInj ? Math.max(1, Math.round(iMs/total*100)) : 0;
+    const rPct = Math.max(1, Math.round(rMs/total*100));
+    const lPct = Math.max(1, 100 - rPct - iPct);
+    const dot = c => `<span style="display:inline-block;width:9px;height:9px;background:${c};border-radius:2px;margin-right:5px;flex-shrink:0"></span>`;
+    return `
+      <div style="margin-bottom:12px">
+        <div style="display:flex;height:24px;border-radius:6px;overflow:hidden;font-size:.72rem;font-weight:600;gap:1px">
+          ${hasSub
+            ? `<div style="width:${vPct}%;background:#6264a7;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="벡터 ${fmtMs(vMs)}">${vPct>=10?'벡터':''}</div>
+               <div style="width:${kPct}%;background:#8b5cf6;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="FTS ${fmtMs(kMs)}">${kPct>=10?'FTS':''}</div>`
+            : `<div style="width:${rPct}%;background:#6264a7;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="검색 ${fmtMs(rMs)}">${rPct>=10?'검색':''}</div>`}
+          ${hasInj ? `<div style="width:${iPct}%;background:#f59e0b;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="직접조회 ${fmtMs(iMs)}">${iPct>=10?'직접조회':''}</div>` : ''}
+          <div style="width:${lPct}%;background:#0078d4;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="LLM ${fmtMs(lMs)}">${lPct>=10?'LLM':''}</div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:6px;font-size:.77rem;color:#555;flex-wrap:wrap">
+          ${hasSub
+            ? `<span style="display:flex;align-items:center">${dot('#6264a7')}벡터</span><span style="display:flex;align-items:center">${dot('#8b5cf6')}FTS</span>`
+            : `<span style="display:flex;align-items:center">${dot('#6264a7')}검색</span>`}
+          ${hasInj ? `<span style="display:flex;align-items:center">${dot('#f59e0b')}직접조회</span>` : ''}
+          <span style="display:flex;align-items:center">${dot('#0078d4')}LLM</span>
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:.87rem">
+        <thead><tr style="border-bottom:1px solid #eee">
+          <th style="text-align:left;padding:4px 8px;color:#999;font-weight:500;font-size:.74rem">구분</th>
+          <th style="text-align:right;padding:4px 8px;color:#999;font-weight:500;font-size:.74rem">시간</th>
+        </tr></thead>
+        <tbody>
+          ${hasSub
+            ? `<tr><td style="padding:6px 8px 3px">${dot('#6264a7')}ChromaDB 벡터</td><td style="text-align:right;padding:6px 8px 3px;font-weight:700">${fmtMs(vMs)}</td></tr>
+               <tr><td style="padding:3px 8px 6px;border-bottom:1px solid #f0f0f0">${dot('#8b5cf6')}FTS 키워드</td><td style="text-align:right;padding:3px 8px 6px;font-weight:700;border-bottom:1px solid #f0f0f0">${fmtMs(kMs)}</td></tr>`
+            : `<tr><td style="padding:6px 8px;border-bottom:1px solid #f0f0f0">${dot('#6264a7')}검색</td><td style="text-align:right;padding:6px 8px;font-weight:700;border-bottom:1px solid #f0f0f0">${fmtMs(rMs)}</td></tr>`}
+          ${hasInj ? `<tr><td style="padding:6px 8px;border-bottom:1px solid #f0f0f0">${dot('#f59e0b')}직접조회</td><td style="text-align:right;padding:6px 8px;font-weight:700;border-bottom:1px solid #f0f0f0">${fmtMs(iMs)}</td></tr>` : ''}
+          <tr><td style="padding:6px 8px">${dot('#0078d4')}LLM</td><td style="text-align:right;padding:6px 8px;font-weight:700">${fmtMs(lMs)}</td></tr>
+          <tr style="border-top:2px solid #eee">
+            <td style="padding:8px;font-weight:600">총 응답시간</td>
+            <td style="text-align:right;padding:8px;font-size:1.1rem;font-weight:700;color:#6264a7">${fmtMs(p.total_ms)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="font-size:.75rem;color:#aaa;margin-top:4px;padding:0 8px">검색 문서 ${p.doc_count}개${p.model ? ` · 모델: <code style="background:#f0f0f0;padding:1px 4px;border-radius:3px">${escHtml(p.model)}</code>` : ''}</div>`;
   }
 
-  // 응답시간 상세 모달 (스택바 차트)
-  async function openPerfModal(recordId) {
+  // ── 결과분석 섹션 내용 빌더 ───────────────────────────────────────────────
+  function buildAnaSec(status, content, sessionId) {
+    if (status === 'pending') return '<span class="badge badge-pending" style="display:inline-block">작성중…</span>';
+    if (status === 'done' && content) return `<div class="analysis-box">${content}</div>`;
+    const sid = escHtml(sessionId);
+    return `<p style="color:#aaa;font-size:0.85rem;margin-bottom:10px">결과분석이 없습니다.</p>
+      <button class="btn-analyze" onclick="trigGroupAna('${sid}',this)">결과분석 요청</button>`;
+  }
+
+  async function trigGroupAna(sessionId, btn) {
+    btn.disabled = true; btn.textContent = '요청중…';
+    try {
+      const res = await fetch(`/admin/sessions/${encodeURIComponent(sessionId)}/analyze`, { method: 'POST' });
+      if (res.ok) {
+        btn.outerHTML = '<span class="badge badge-pending">작성중…</span>';
+      } else {
+        btn.disabled = false; btn.textContent = '결과분석 요청';
+      }
+    } catch(e) { btn.disabled = false; btn.textContent = '결과분석 요청'; }
+  }
+
+  // ── 그룹 피드백 바 빌더 ───────────────────────────────────────────────────
+  function buildFbBar(sessionId, groupFeedback, fbAt) {
+    const upCls  = groupFeedback === 1  ? ' fb-up'   : '';
+    const dnCls  = groupFeedback === -1 ? ' fb-down' : '';
+    const label  = groupFeedback === 1  ? '👍 만족' : groupFeedback === -1 ? '👎 불만족' : '';
+    const ts     = fbAt ? ` · ${fmtDate(fbAt)}` : '';
+    const sid    = escHtml(sessionId);
+    return `<div class="fb-bar">
+      <span style="white-space:nowrap;font-size:.82rem">그룹 피드백</span>
+      <button class="fb-btn${upCls}" onclick="sendGroupFb('${sid}',1,this.closest('.fb-bar'))">👍 만족</button>
+      <button class="fb-btn${dnCls}" onclick="sendGroupFb('${sid}',-1,this.closest('.fb-bar'))">👎 불만족</button>
+      ${label ? `<span style="font-size:.78rem;color:#aaa;margin-left:auto">${label}${ts}</span>` : ''}
+    </div>`;
+  }
+
+  async function sendGroupFb(sessionId, rating, barEl) {
+    try {
+      const res = await fetch(`/admin/sessions/${encodeURIComponent(sessionId)}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating }),
+      });
+      if (!res.ok) return;
+      const btns = barEl.querySelectorAll('.fb-btn');
+      btns[0].classList.toggle('fb-up',   rating === 1);
+      btns[1].classList.toggle('fb-down', rating === -1);
+      btns[0].classList.toggle('fb-up',   false);
+      btns[1].classList.toggle('fb-down', false);
+      if (rating === 1)  btns[0].classList.add('fb-up');
+      if (rating === -1) btns[1].classList.add('fb-down');
+      let lbl = barEl.querySelector('.fb-lbl');
+      if (!lbl) { lbl = document.createElement('span'); lbl.className = 'fb-lbl'; lbl.style.cssText = 'font-size:.78rem;color:#aaa;margin-left:auto'; barEl.appendChild(lbl); }
+      lbl.textContent = rating === 1 ? '👍 만족' : '👎 불만족';
+      if (_historyView === 'group') loadGroups(groupCurrentPage);
+    } catch(e) {}
+  }
+
+  // ── 통합 상세 모달 (턴 뷰) ────────────────────────────────────────────────
+  async function openDetailModal(recordId) {
+    showModal(`질문 #${recordId}`, '<p style="color:#aaa;padding:16px 0">로딩 중...</p>');
     let data;
     try {
       const res = await fetch(`/admin/history/${recordId}/detail`);
@@ -1279,121 +1328,38 @@
       data = await res.json();
     } catch(e) { return; }
 
-    const p = data.perf;
-    let html;
-    if (!p) {
-      html = `<div style="padding:8px 0;color:#888">이전 기록은 단계별 시간이 없습니다. (총 ${fmtMs(data.response_time_ms)})</div>`;
-    } else {
-      const total   = p.total_ms || 1;
-      const vMs     = p.vector_ms  ?? null;
-      const kMs     = p.keyword_ms ?? null;
-      const iMs     = p.inject_ms  ?? null;
-      const hasSub  = vMs !== null && kMs !== null;
-      const hasInj  = iMs !== null && iMs > 0;
-      const rMs     = p.retrieval_ms;
-      const lMs     = p.llm_ms;
+    const refs = data.references || [];
+    const anaLabel = data.analysis_status === 'done' ? '완료' : data.analysis_status === 'pending' ? '작성중…' : '없음';
 
-      // 스택바 비율 (벡터/FTS 분리 or 검색 통합 + 직접조회)
-      const vPct = hasSub ? Math.max(1, Math.round(vMs / total * 100)) : 0;
-      const kPct = hasSub ? Math.max(1, Math.round(kMs / total * 100)) : 0;
-      const iPct = hasInj ? Math.max(1, Math.round(iMs / total * 100)) : 0;
-      const rPct = hasSub ? Math.max(1, Math.round(rMs / total * 100)) : Math.max(1, Math.round(rMs / total * 100));
-      const lPct = Math.max(1, 100 - rPct - iPct);
+    const meta = `<div class="modal-meta">
+      <span>🕐 ${fmtTsFull(data.created_at)}</span>
+      <span>세션: <code style="font-size:.78rem">${escHtml(data.session_id)}</code></span>
+      ${data.is_no_answer ? '<span style="color:#c62828">⚠️ 답변없음</span>' : ''}
+      <span>질문 ${data.turn_index || 1}</span>
+    </div>`;
 
-      const dot = (color) => `<span style="display:inline-block;width:9px;height:9px;background:${color};border-radius:2px;margin-right:5px;flex-shrink:0"></span>`;
+    const qaSec = `
+      <div class="sec-hd open" onclick="toggleSec(this)"><span>💬 질문 / 답변</span><span class="arr">▶</span></div>
+      <div class="sec-bd open">
+        <div class="modal-section"><label>질문</label><div class="content-box">${escHtml(data.question)}</div></div>
+        <div class="modal-section"><label>답변</label><div class="content-box markdown-body">${renderMd(data.answer)}</div></div>
+      </div>`;
 
-      html = `
-        <div style="margin-bottom:16px">
-          <!-- 스택바 -->
-          <div style="display:flex;height:26px;border-radius:6px;overflow:hidden;font-size:.72rem;font-weight:600;gap:1px">
-            ${hasSub ? `
-            <div style="width:${vPct}%;background:#6264a7;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="벡터 ${fmtMs(vMs)}">
-              ${vPct >= 10 ? '벡터' : ''}
-            </div>
-            <div style="width:${kPct}%;background:#8b5cf6;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="FTS ${fmtMs(kMs)}">
-              ${kPct >= 10 ? 'FTS' : ''}
-            </div>
-            ` : `
-            <div style="width:${rPct}%;background:#6264a7;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="검색 ${fmtMs(rMs)}">
-              ${rPct >= 10 ? '검색' : ''}
-            </div>
-            `}
-            ${hasInj ? `
-            <div style="width:${iPct}%;background:#f59e0b;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="직접조회 ${fmtMs(iMs)}">
-              ${iPct >= 10 ? '직접조회' : ''}
-            </div>
-            ` : ''}
-            <div style="width:${lPct}%;background:#0078d4;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="LLM ${fmtMs(lMs)}">
-              ${lPct >= 10 ? 'LLM' : ''}
-            </div>
-          </div>
-          <!-- 범례 -->
-          <div style="display:flex;gap:14px;margin-top:7px;font-size:.78rem;color:#555;flex-wrap:wrap">
-            ${hasSub ? `
-            <span style="display:flex;align-items:center">${dot('#6264a7')}ChromaDB 벡터</span>
-            <span style="display:flex;align-items:center">${dot('#8b5cf6')}FTS 키워드</span>
-            ` : `<span style="display:flex;align-items:center">${dot('#6264a7')}검색</span>`}
-            ${hasInj ? `<span style="display:flex;align-items:center">${dot('#f59e0b')}Jira 직접조회</span>` : ''}
-            <span style="display:flex;align-items:center">${dot('#0078d4')}LLM 생성</span>
-          </div>
-        </div>
-        <!-- 상세 수치 -->
-        <table style="width:100%;border-collapse:collapse;font-size:.88rem">
-          <thead>
-            <tr style="border-bottom:1px solid #eee">
-              <th style="text-align:left;padding:5px 8px;color:#999;font-weight:500;font-size:.75rem">구분</th>
-              <th style="text-align:right;padding:5px 8px;color:#999;font-weight:500;font-size:.75rem">시간</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${hasSub ? `
-            <tr>
-              <td style="padding:8px 8px 4px">${dot('#6264a7')}ChromaDB 벡터검색</td>
-              <td style="text-align:right;padding:8px 8px 4px;font-weight:700;color:#1a1a2e">${fmtMs(vMs)}</td>
-            </tr>
-            <tr>
-              <td style="padding:4px 8px 8px;border-bottom:1px solid #f0f0f0">${dot('#8b5cf6')}FTS 키워드검색</td>
-              <td style="text-align:right;padding:4px 8px 8px;font-weight:700;color:#1a1a2e;border-bottom:1px solid #f0f0f0">${fmtMs(kMs)}</td>
-            </tr>
-            ` : `
-            <tr>
-              <td style="padding:8px;border-bottom:1px solid #f0f0f0">${dot('#6264a7')}검색 (ChromaDB + FTS)</td>
-              <td style="text-align:right;padding:8px;font-weight:700;color:#1a1a2e;border-bottom:1px solid #f0f0f0">${fmtMs(rMs)}</td>
-            </tr>
-            `}
-            ${hasInj ? `
-            <tr>
-              <td style="padding:8px;border-bottom:1px solid #f0f0f0">${dot('#f59e0b')}Jira 직접조회</td>
-              <td style="text-align:right;padding:8px;font-weight:700;color:#1a1a2e;border-bottom:1px solid #f0f0f0">${fmtMs(iMs)}</td>
-            </tr>
-            ` : ''}
-            <tr>
-              <td style="padding:8px">${dot('#0078d4')}LLM 생성 (OpenAI)</td>
-              <td style="text-align:right;padding:8px;font-weight:700;color:#1a1a2e">${fmtMs(lMs)}</td>
-            </tr>
-            <tr style="border-top:2px solid #eee">
-              <td style="padding:10px 8px;font-weight:600">총 응답시간</td>
-              <td style="text-align:right;padding:10px 8px;font-size:1.15rem;font-weight:700;color:#6264a7">${fmtMs(p.total_ms)}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div style="font-size:.76rem;color:#aaa;margin-top:4px;padding:0 8px">검색 문서 ${p.doc_count}개${p.model ? ` &nbsp;·&nbsp; 모델: <code style="background:#f0f0f0;padding:1px 5px;border-radius:3px">${escHtml(p.model)}</code>` : ''}</div>`;
-    }
-    showModal(`응답시간 상세 #${recordId}`, html);
-  }
+    const refSec = `
+      <div class="sec-hd" onclick="toggleSec(this)"><span>📄 참고문서 <span style="color:#aaa;font-weight:400;font-size:.8rem">${refs.length}건</span></span><span class="arr">▶</span></div>
+      <div class="sec-bd">${buildRefsHtml(refs)}</div>`;
 
-  // 조사 결과 모달
-  async function openAnalysisModal(recordId) {
-    let data;
-    try {
-      const res = await fetch(`/admin/history/${recordId}/analysis`);
-      if (!res.ok) return;
-      data = await res.json();
-    } catch(e) { return; }
+    const perfSec = `
+      <div class="sec-hd" onclick="toggleSec(this)"><span>⏱ 응답시간 <span style="color:#aaa;font-weight:400;font-size:.8rem">${fmtMs(data.response_time_ms)}</span></span><span class="arr">▶</span></div>
+      <div class="sec-bd">${buildPerfHtml(data.perf, data.response_time_ms)}</div>`;
 
-    const content = data.no_answer_analysis || '<p style="color:#888">분석 결과 없음</p>';
-    showModal(`결과분석 #${recordId}`,
-      `<div class="analysis-box">${content}</div>`);
+    const anaSec = `
+      <div class="sec-hd" onclick="toggleSec(this)"><span>📋 결과분석 <span style="color:#aaa;font-weight:400;font-size:.8rem">${anaLabel}</span></span><span class="arr">▶</span></div>
+      <div class="sec-bd">${buildAnaSec(data.analysis_status, data.no_answer_analysis, data.session_id)}</div>`;
+
+    document.getElementById('modal-title').textContent = `질문 #${recordId}`;
+    document.getElementById('modal-body').innerHTML = meta + qaSec + refSec + perfSec + anaSec
+      + buildFbBar(data.session_id, data.group_feedback, data.group_feedback_at);
   }
 
   // ── 설정 ──────────────────────────────────────────────────────────────────

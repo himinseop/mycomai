@@ -8,7 +8,11 @@
 
 from typing import Optional
 
-from company_llm_rag.history_store import save_analysis, set_analysis_pending, get_session_detail
+from company_llm_rag.history_store import (
+    save_analysis, set_analysis_pending,
+    save_group_analysis, set_group_analysis_pending,
+    get_session_detail,
+)
 from company_llm_rag.retrieval_module import retrieve_documents
 from company_llm_rag.llm.openai_provider import default_llm
 from company_llm_rag.logger import get_logger
@@ -222,7 +226,10 @@ async def analyze_bad_feedback(
     session_id가 제공되면 그룹 전체 transcript를 컨텍스트로 사용합니다.
     """
     try:
-        set_analysis_pending(record_id)
+        if session_id:
+            set_group_analysis_pending(session_id)
+        else:
+            set_analysis_pending(record_id)
         logger.info(f"[Analyzer] 분석 시작 record_id={record_id} no_answer={is_no_answer} session_id={session_id}")
 
         docs = retrieve_documents(question, n_results=15, return_scores=True)
@@ -278,17 +285,6 @@ async def analyze_bad_feedback(
         docs_html = _build_docs_html(docs)
         q_esc = question.replace("<", "&lt;").replace(">", "&gt;")
 
-        toggle_btn = (
-            f'<button onclick="var el=document.getElementById(\'ana-docs-{record_id}\');'
-            f'var btn=this;'
-            f'if(el.style.display===\'none\'){{el.style.display=\'\';btn.textContent=\'▲ 재검색 결과 {len(docs)}건 접기\';}}'
-            f'else{{el.style.display=\'none\';btn.textContent=\'▼ 재검색 결과 {len(docs)}건 펼치기\';}}" '
-            f'style="background:none;border:1px solid #ddd;border-radius:4px;padding:4px 10px;'
-            f'font-size:0.75rem;color:#666;cursor:pointer;margin-top:14px;width:100%;text-align:left">'
-            f'▼ 재검색 결과 {len(docs)}건 펼치기'
-            f'</button>'
-        )
-
         html = (
             '<div style="font-family:inherit;font-size:0.85rem">'
             '<div style="margin-bottom:14px">'
@@ -299,18 +295,24 @@ async def analyze_bad_feedback(
             '<div style="font-size:0.72rem;color:#999;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">분석 작업 보고서</div>'
             f'<div style="line-height:1.75;color:#333">{llm_html}</div>'
             '</div>'
-            f'{toggle_btn}'
-            f'<div id="ana-docs-{record_id}" style="display:none;margin-top:8px">{docs_html}</div>'
+            f'<div style="margin-top:14px"><div style="font-size:0.72rem;color:#999;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">재검색 결과 {len(docs)}건</div>'
+            f'{docs_html}</div>'
             '</div>'
         )
 
-        save_analysis(record_id, html, status="done")
+        if session_id:
+            save_group_analysis(session_id, html, status="done")
+        else:
+            save_analysis(record_id, html, status="done")
         logger.info(f"[Analyzer] 분석 완료 record_id={record_id} docs={len(docs)}")
 
     except Exception as e:
         logger.error(f"[Analyzer] 분석 실패 record_id={record_id}: {e}", exc_info=True)
         err_html = f'<p style="color:#c62828">분석 중 오류 발생: {e}</p>'
-        save_analysis(record_id, err_html, status="error")
+        if session_id:
+            save_group_analysis(session_id, err_html, status="error")
+        else:
+            save_analysis(record_id, err_html, status="error")
 
 
 # 하위 호환: 기존 코드에서 참조할 수 있는 함수 (deprecated → analyze_bad_feedback 사용 권장)

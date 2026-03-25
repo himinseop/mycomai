@@ -390,7 +390,8 @@ def get_session_groups(
                COUNT(*) AS turn_count,
                MAX(created_at) AS latest_turn_at,
                MAX(group_feedback) AS group_feedback,
-               MAX(CASE WHEN analysis_status IS NOT NULL THEN analysis_status END) AS analysis_status
+               MAX(CASE WHEN analysis_status IS NOT NULL THEN analysis_status END) AS analysis_status,
+               MAX(CASE WHEN teams_sent = 1 THEN 1 ELSE 0 END) AS teams_sent
         FROM chat_history
         GROUP BY session_id
         {having}
@@ -414,6 +415,7 @@ def get_session_groups(
             "latest_turn_at": r["latest_turn_at"],
             "group_feedback": r["group_feedback"],
             "analysis_status": r["analysis_status"],
+            "teams_sent": bool(r["teams_sent"]),
         }
         for r in rows
     ]
@@ -652,7 +654,7 @@ def get_history_page(
         rows = con.execute(
             f"""SELECT id, session_id, created_at, question, answer,
                        ref_count, ref_sources_json, response_time_ms,
-                       is_no_answer, feedback, analysis_status, perf_json
+                       is_no_answer, feedback, group_feedback, analysis_status, perf_json
                 FROM chat_history {where}
                 ORDER BY created_at DESC
                 LIMIT ? OFFSET ?""",
@@ -671,6 +673,7 @@ def get_history_page(
             "response_time_ms": r["response_time_ms"],
             "is_no_answer": bool(r["is_no_answer"]),
             "feedback": r["feedback"],
+            "group_feedback": r["group_feedback"],
             "analysis_status": r["analysis_status"],
             "perf": json.loads(r["perf_json"]) if r["perf_json"] else None,
         }
@@ -693,6 +696,7 @@ def get_record_detail(record_id: int) -> Optional[Dict]:
             """SELECT id, session_id, created_at, question, answer,
                       references_json, ref_count, ref_sources_json,
                       response_time_ms, is_no_answer, feedback,
+                      group_feedback, group_feedback_at, turn_index,
                       no_answer_analysis, analysis_status, perf_json
                FROM chat_history WHERE id = ?""",
             (record_id,),
@@ -711,6 +715,9 @@ def get_record_detail(record_id: int) -> Optional[Dict]:
         "response_time_ms": row["response_time_ms"],
         "is_no_answer": bool(row["is_no_answer"]),
         "feedback": row["feedback"],
+        "group_feedback": row["group_feedback"],
+        "group_feedback_at": row["group_feedback_at"],
+        "turn_index": row["turn_index"],
         "no_answer_analysis": row["no_answer_analysis"],
         "analysis_status": row["analysis_status"],
         "perf": json.loads(row["perf_json"]) if row["perf_json"] else None,
@@ -727,11 +734,31 @@ def save_analysis(record_id: int, analysis: str, status: str = "done") -> None:
         con.commit()
 
 
+def save_group_analysis(session_id: str, analysis: str, status: str = "done") -> None:
+    """질문 그룹 전체에 분석 결과를 저장합니다."""
+    with _conn() as con:
+        con.execute(
+            "UPDATE chat_history SET no_answer_analysis = ?, analysis_status = ? WHERE session_id = ?",
+            (analysis, status, session_id),
+        )
+        con.commit()
+
+
 def set_analysis_pending(record_id: int) -> None:
     """조사 시작을 표시합니다."""
     with _conn() as con:
         con.execute(
             "UPDATE chat_history SET analysis_status = 'pending' WHERE id = ?",
             (record_id,),
+        )
+        con.commit()
+
+
+def set_group_analysis_pending(session_id: str) -> None:
+    """그룹 조사 시작을 표시합니다."""
+    with _conn() as con:
+        con.execute(
+            "UPDATE chat_history SET analysis_status = 'pending' WHERE session_id = ?",
+            (session_id,),
         )
         con.commit()

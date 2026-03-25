@@ -25,6 +25,7 @@ from company_llm_rag.history_store import (
     get_collection_dates,
     get_last_turn_in_session,
     get_session_groups, get_session_detail,
+    set_group_analysis_pending,
 )
 from company_llm_rag.no_answer_analyzer import analyze_bad_feedback
 from company_llm_rag.logger import get_logger
@@ -502,6 +503,47 @@ async def admin_trigger_analysis(request: Request, record_id: int):
             detail["question"],
             detail["answer"],
             bool(detail["is_no_answer"]),
+        )
+    )
+    return {"success": True}
+
+
+class AdminFeedbackRequest(BaseModel):
+    rating: int
+
+
+@app.post("/admin/sessions/{session_id}/feedback")
+async def admin_session_feedback(request: Request, session_id: str, body: AdminFeedbackRequest):
+    """관리자 전용 그룹 피드백 저장 (부작용 없음)."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if body.rating not in (1, -1):
+        return JSONResponse({"error": "rating은 1 또는 -1"}, status_code=400)
+    ok = save_group_feedback(session_id, body.rating)
+    return {"success": ok}
+
+
+@app.post("/admin/sessions/{session_id}/analyze")
+async def admin_session_analyze(request: Request, session_id: str):
+    """질문 그룹 전체를 대상으로 결과분석을 실행합니다."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    detail = get_session_detail(session_id)
+    if not detail or not detail.get("turns"):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    # 이미 pending 상태면 중복 요청 방지
+    if any(t["analysis_status"] == "pending" for t in detail["turns"]):
+        return {"success": False, "message": "이미 분석 중입니다."}
+    # 마지막 턴 데이터로 분석 시작
+    last = detail["turns"][-1]
+    set_group_analysis_pending(session_id)
+    asyncio.create_task(
+        analyze_bad_feedback(
+            last["id"],
+            last["question"],
+            last["answer"] or "",
+            bool(last["is_no_answer"]),
+            session_id=session_id,
         )
     )
     return {"success": True}

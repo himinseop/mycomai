@@ -121,6 +121,74 @@ def _doc_source_label(meta: dict) -> str:
     return f"[{source}] 제목: {title} | URL: {url}"
 
 
+_REF_PATTERN = re.compile(r'\[REF(\d+)\]')
+
+
+def _doc_display_name(meta: dict) -> str:
+    """문서 표시명 — Jira: 이슈키+제목, SharePoint: 파일명, 그 외: 제목"""
+    source = meta.get("source", "")
+    if source == "jira":
+        key   = meta.get("jira_issue_key", "")
+        title = meta.get("title", "")
+        return f"{key}: {title}" if key else (title or "Jira")
+    if source == "confluence":
+        return meta.get("title", "") or "Confluence"
+    if source == "sharepoint":
+        url = meta.get("url", "") or ""
+        try:
+            from urllib.parse import urlparse, unquote, parse_qs
+            u  = urlparse(url)
+            qs = parse_qs(u.query)
+            if "file" in qs:
+                return unquote(qs["file"][0].split("/")[-1])
+            segs = [s for s in u.path.split("/") if s]
+            if segs:
+                last = unquote(segs[-1])
+                if not last.lower().endswith(".aspx"):
+                    return last
+        except Exception:
+            pass
+        return meta.get("title", "") or "SharePoint"
+    if source == "teams":
+        tn = meta.get("teams_team_name") or ""
+        cn = meta.get("teams_channel_name") or ""
+        ct = meta.get("teams_chat_topic") or ""
+        if tn and cn:
+            return f"Teams {tn}/{cn}"
+        if ct:
+            return f"Teams {ct}"
+        return "Teams"
+    return meta.get("title", "") or source
+
+
+def _resolve_citations(answer: str, retrieved_docs: List[Dict]) -> Tuple[str, set]:
+    """
+    답변 내 [REF1] 형식 인용을 '문서명(url)' 마크다운 링크로 치환합니다.
+    실제 인용된 doc 인덱스 집합을 함께 반환합니다.
+    인용이 하나도 없으면 cited = set() 반환 (호출자가 fallback 처리).
+    """
+    cited: set = set()
+
+    def replace_ref(m: re.Match) -> str:
+        try:
+            idx = int(m.group(1)) - 1
+        except ValueError:
+            return m.group(0)
+        if idx < 0 or idx >= len(retrieved_docs):
+            return m.group(0)
+        cited.add(idx)
+        doc  = retrieved_docs[idx]
+        meta = doc["metadata"]
+        url  = meta.get("url", "") or ""
+        if not url or url == "None":
+            url = _build_teams_url(meta)
+        name = _doc_display_name(meta)
+        return f"[{name}]({url})" if url else name
+
+    new_answer = _REF_PATTERN.sub(replace_ref, answer)
+    return new_answer, cited
+
+
 def build_rag_prompt(
     user_query: str,
     retrieved_docs: List[Dict],
@@ -170,7 +238,7 @@ def build_rag_prompt(
             extra = extra.rstrip(" |")
 
         context_parts.append(
-            f"--- 문서 {i+1} | {source_label}{(' | ' + extra) if extra else ''} ---\n"
+            f"--- [REF{i+1}] | {source_label}{(' | ' + extra) if extra else ''} ---\n"
             f"{doc['content']}\n"
             f"{comments_str}\n"
             f"----------------------------------------------------------"
@@ -595,9 +663,12 @@ def rag_query(
     llm_ms = int((t_llm - t_retrieval) * 1000)
     total_ms = int((t_llm - t0) * 1000)
 
+    # [REF1] 인용 치환 → 실제 문서명+링크 마크다운
+    llm_response, cited = _resolve_citations(llm_response, retrieved_docs)
+
     logger.info(
         f"[RAG 성능] 검색={retrieval_ms}ms (벡터={ret_timing['vector_ms']}ms / FTS={ret_timing['keyword_ms']}ms) | 직접조회={inject_ms}ms | LLM={llm_ms}ms | "
-        f"총={total_ms}ms | 문서={len(retrieved_docs)}개"
+        f"총={total_ms}ms | 문서={len(retrieved_docs)}개 | 인용={len(cited)}건"
     )
     timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "inject_ms": inject_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm._default_model}
 
@@ -608,7 +679,9 @@ def rag_query(
     if _NO_ANSWER_PHRASE in llm_response:
         return llm_response, [], timing
 
-    references = _build_references(retrieved_docs, listing)
+    # 인용된 문서만 참고문서로 표시 (인용 없으면 거리 필터 결과 전체)
+    ref_docs = [retrieved_docs[i] for i in sorted(cited)] if cited else retrieved_docs
+    references = _build_references(ref_docs, listing)
     return llm_response, references, timing
 
 
@@ -690,14 +763,22 @@ def rag_query_stream(
     t_llm = time.monotonic()
     llm_ms = int((t_llm - t_llm_start) * 1000)
     total_ms = int((t_llm - t0) * 1000)
+
+    # [REF1] 인용 치환 → 실제 문서명+링크 마크다운
+    full_answer, cited = _resolve_citations(full_answer, retrieved_docs)
+
     timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "inject_ms": inject_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm._default_model}
     logger.info(
         f"[RAG 스트리밍 성능] 검색={retrieval_ms}ms (벡터={ret_timing['vector_ms']}ms / FTS={ret_timing['keyword_ms']}ms) | 직접조회={inject_ms}ms | LLM={llm_ms}ms | "
-        f"총={total_ms}ms | 문서={len(retrieved_docs)}개"
+        f"총={total_ms}ms | 문서={len(retrieved_docs)}개 | 인용={len(cited)}건"
     )
 
     is_no_answer = _NO_ANSWER_PHRASE in full_answer
-    references = [] if is_no_answer else _build_references(retrieved_docs, listing)
+    if is_no_answer:
+        references = []
+    else:
+        ref_docs = [retrieved_docs[i] for i in sorted(cited)] if cited else retrieved_docs
+        references = _build_references(ref_docs, listing)
     yield {"type": "done", "answer": full_answer, "references": references, "timing": timing, "is_no_answer": is_no_answer}
 
 
