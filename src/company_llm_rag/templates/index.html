@@ -123,8 +123,8 @@
     /* ── 참고 문서 ── */
     .refs { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
     .refs-label { font-size: 11px; color: #ccc; margin-bottom: 2px; }
-    .ref-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-    .ref-item a { color: #4f46e5; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 400px; }
+    .ref-item { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; }
+    .ref-item a { color: #4f46e5; text-decoration: none; word-break: break-word; min-width: 0; flex: 1; }
     .ref-item a:hover { text-decoration: underline; }
     .ref-time { font-size: 11px; color: #bbb; margin-left: 4px; white-space: nowrap; flex-shrink: 0; }
     .src-badge { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 4px; font-size: 10px; font-weight: 700; color: white; flex-shrink: 0; }
@@ -296,8 +296,13 @@
   }
 
   function getRefLabel(ref) {
-    if (ref.source === 'jira')
-      return ref.issue_key ? `[${ref.issue_key}] ${ref.title}` : ref.title;
+    if (ref.source === 'jira') {
+      let title = ref.title || '';
+      // 제목이 이미 이슈 키로 시작하면 중복 제거
+      if (ref.issue_key && title.startsWith(`[${ref.issue_key}]`))
+        title = title.slice(`[${ref.issue_key}]`.length).trim();
+      return ref.issue_key ? `[${ref.issue_key}] ${title}` : title;
+    }
     if (ref.source === 'confluence') {
       const parts = [];
       if (ref.space_name) parts.push(ref.space_name);

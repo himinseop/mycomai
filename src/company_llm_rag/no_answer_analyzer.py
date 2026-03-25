@@ -118,7 +118,12 @@ def _build_ref_link_html(meta: dict, title_esc: str, url: str) -> str:
             a(project_url, project_key, light) if project_url
             else (f'<span style="{light}">{project_key}</span>' if project_key else "")
         )
-        issue_text = f"[{issue_key}] {title_esc}" if issue_key else title_esc
+        # 제목이 이미 이슈 키로 시작하면 중복 제거
+        clean_title_esc = title_esc
+        key_prefix = f"[{issue_key}]"
+        if issue_key and clean_title_esc.startswith(key_prefix):
+            clean_title_esc = clean_title_esc[len(key_prefix):].strip()
+        issue_text = f"[{issue_key}] {clean_title_esc}" if issue_key else clean_title_esc
         doc_link = a(url, issue_text) if url else f'<span style="{main_style}">{issue_text}</span>'
         return f'{proj_part}{sep}{doc_link}' if proj_part else doc_link
 

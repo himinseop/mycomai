@@ -345,14 +345,24 @@
   .analysis-box p { margin: 4px 0 10px; color: #444; }
   .analysis-box ul { margin: 4px 0 10px; padding-left: 18px; color: #444; }
   .analysis-box li { margin-bottom: 3px; }
-  .markdown-body { line-height: 1.6; }
-  .markdown-body h1,.markdown-body h2,.markdown-body h3 { margin: .6em 0 .3em; font-size: 1em; font-weight: 700; }
-  .markdown-body ul,.markdown-body ol { margin: .4em 0 .4em 1.4em; }
-  .markdown-body p { margin: .4em 0; }
-  .markdown-body code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: .88em; }
-  .markdown-body pre { background: #f5f5f5; padding: 10px; border-radius: 6px; overflow-x: auto; }
-  .markdown-body table { border-collapse: collapse; width: 100%; margin: .4em 0; }
-  .markdown-body td, .markdown-body th { border: 1px solid #ddd; padding: 5px 8px; }
+  .markdown-body { font-size: 0.88rem; color: #1a1a2e; line-height: 1.6; word-break: break-word; }
+  .markdown-body h1,.markdown-body h2,.markdown-body h3 { font-size: 1em; font-weight: 700; margin: 10px 0 4px; }
+  .markdown-body h1:first-child,.markdown-body h2:first-child,.markdown-body h3:first-child { margin-top: 0; }
+  .markdown-body ul,.markdown-body ol { padding-left: 1.4em; margin: 4px 0; }
+  .markdown-body li { margin-bottom: 2px; }
+  .markdown-body p { margin: 0 0 6px; }
+  .markdown-body p:last-child { margin-bottom: 0; }
+  .markdown-body strong { font-weight: 700; }
+  .markdown-body em { font-style: italic; }
+  .markdown-body code { background: #f1f1f7; padding: 1px 5px; border-radius: 3px; font-size: .88em; font-family: monospace; }
+  .markdown-body pre { background: #f1f1f7; padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
+  .markdown-body pre code { background: none; padding: 0; }
+  .markdown-body table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: .9em; }
+  .markdown-body td,.markdown-body th { border: 1px solid #e5e7eb; padding: 5px 8px; }
+  .markdown-body th { background: #f8f8fc; font-weight: 600; }
+  .markdown-body a { color: #4f46e5; text-decoration: none; }
+  .markdown-body a:hover { text-decoration: underline; }
+  .markdown-body hr { border: none; border-top: 1px solid #e5e7eb; margin: 10px 0; }
 
   /* ── 섹션 collapse ── */
   .sec-hd {
@@ -1171,7 +1181,9 @@
         const projPart = projectUrl
           ? `<a href="${escHtml(projectUrl)}" target="_blank" style="${lightStyle}">${escHtml(projectKey)}</a>`
           : (projectKey ? `<span style="${lightStyle}">${escHtml(projectKey)}</span>` : '');
-        const issueText = r.issue_key ? `[${escHtml(r.issue_key)}] ${escHtml(r.title)}` : escHtml(r.title);
+        let rTitle = r.title || '';
+        if (r.issue_key && rTitle.startsWith(`[${r.issue_key}]`)) rTitle = rTitle.slice(`[${r.issue_key}]`.length).trim();
+        const issueText = r.issue_key ? `[${escHtml(r.issue_key)}] ${escHtml(rTitle)}` : escHtml(rTitle);
         mainLink = r.url
           ? `<a href="${escHtml(r.url)}" target="_blank" style="${mainStyle}">${issueText}</a>`
           : `<span style="${mainStyle}">${issueText}</span>`;
