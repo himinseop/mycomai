@@ -24,6 +24,7 @@ from company_llm_rag.data_extraction.m365.file_parser import (
 logger = get_logger(__name__)
 
 _PROGRESS_EVERY = 10
+_SKIP_FOLDER_NAMES = {"old", "version history", "archived"}
 
 def _fmt_elapsed(seconds: float) -> str:
     return str(timedelta(seconds=int(seconds)))
@@ -147,6 +148,16 @@ def get_drive_id_for_site(site_id: str, access_token: str) -> str:
     drive_info = call_graph_api(endpoint, access_token)
     return drive_info['id']
 
+
+def _should_skip_folder(folder_path: str, folder_name: str) -> bool:
+    """수집 대상에서 제외할 폴더인지 판정합니다."""
+    normalized_name = folder_name.strip().lower()
+    if normalized_name in _SKIP_FOLDER_NAMES:
+        return True
+
+    normalized_path = f"{folder_path}/{folder_name}".lower().replace("\\", "/")
+    return "/archived/" in normalized_path
+
 def get_files_in_folder(drive_id: str, folder_path: str, access_token: str, _depth: int = 0) -> List[Dict]:
     """
     폴더 내의 파일을 재귀적으로 가져옵니다.
@@ -184,7 +195,7 @@ def get_files_in_folder(drive_id: str, folder_path: str, access_token: str, _dep
                 all_files_metadata.append(item)
             elif 'folder' in item:
                 # 폴더는 날짜 필터 없이 항상 재귀 탐색
-                if item['name'].lower() in ('old', 'version history'):
+                if _should_skip_folder(folder_path, item['name']):
                     logger.info(f"  - Skipping '{item['name']}' folder: {os.path.join(folder_path, item['name'])}")
                     continue
                 new_folder_path = os.path.join(folder_path, item['name'])
