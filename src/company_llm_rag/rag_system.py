@@ -122,15 +122,16 @@ def _doc_source_label(meta: dict) -> str:
 
 
 _REF_PATTERN = re.compile(r'\[REF(\d+)\]')
+# 답변 내 직접 언급된 Jira 이슈 키 패턴 — 이미 마크다운 링크화된 경우([KEY](url))는 제외
+_JIRA_INLINE_RE = re.compile(r'\[([A-Z]+-\d+)\](?!\()')
 
 
 def _doc_display_name(meta: dict) -> str:
-    """문서 표시명 — Jira: 이슈키+제목, SharePoint: 파일명, 그 외: 제목"""
+    """문서 표시명 — Jira: 이슈키, SharePoint: 파일명, 그 외: 제목"""
     source = meta.get("source", "")
     if source == "jira":
-        key   = meta.get("jira_issue_key", "")
-        title = meta.get("title", "")
-        return f"{key}: {title}" if key else (title or "Jira")
+        key = meta.get("jira_issue_key", "")
+        return key if key else (meta.get("title", "") or "Jira")
     if source == "confluence":
         return meta.get("title", "") or "Confluence"
     if source == "sharepoint":
@@ -164,18 +165,28 @@ def _doc_display_name(meta: dict) -> str:
 def _resolve_citations(answer: str, retrieved_docs: List[Dict]) -> Tuple[str, set]:
     """
     답변 내 [REF1] 형식 인용을 '문서명(url)' 마크다운 링크로 치환합니다.
+    추가로 답변에 직접 언급된 Jira 이슈 키([WMPO-1234] 형식)도 링크로 변환합니다.
     실제 인용된 doc 인덱스 집합을 함께 반환합니다.
-    인용이 하나도 없으면 cited = set() 반환 (호출자가 fallback 처리).
     """
     cited: set = set()
+
+    # Jira 이슈 키 → (doc_index, url) 빠른 조회용 맵
+    jira_key_map: dict = {}
+    for i, doc in enumerate(retrieved_docs):
+        meta = doc["metadata"]
+        if meta.get("source") == "jira":
+            key = meta.get("jira_issue_key", "")
+            if key and key not in jira_key_map:
+                url = meta.get("url", "") or ""
+                jira_key_map[key] = (i, url)
 
     def replace_ref(m: re.Match) -> str:
         try:
             idx = int(m.group(1)) - 1
         except ValueError:
-            return m.group(0)
+            return ""  # 잘못된 형식 → 제거
         if idx < 0 or idx >= len(retrieved_docs):
-            return m.group(0)
+            return ""  # 범위 초과 → [REFn] 리터럴 대신 제거
         cited.add(idx)
         doc  = retrieved_docs[idx]
         meta = doc["metadata"]
@@ -186,6 +197,17 @@ def _resolve_citations(answer: str, retrieved_docs: List[Dict]) -> Tuple[str, se
         return f"[{name}]({url})" if url else name
 
     new_answer = _REF_PATTERN.sub(replace_ref, answer)
+
+    # 답변에 직접 언급된 Jira 이슈 키를 링크로 변환 (이미 링크화된 경우 제외)
+    def replace_jira_inline(m: re.Match) -> str:
+        key = m.group(1)
+        if key in jira_key_map:
+            idx, url = jira_key_map[key]
+            cited.add(idx)
+            return f"[{key}]({url})" if url else f"[{key}]"
+        return m.group(0)
+
+    new_answer = _JIRA_INLINE_RE.sub(replace_jira_inline, new_answer)
     return new_answer, cited
 
 
