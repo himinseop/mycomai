@@ -1,3 +1,7 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
 # Environment variables
 .env
 
@@ -7,6 +11,11 @@
 
 # Database
 chroma_db/
+db/chroma_db/
+db/*.db
+db/*.db-shm
+db/*.db-wal
+
 
 # Python
 __pycache__/

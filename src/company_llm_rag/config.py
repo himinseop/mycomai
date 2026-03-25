@@ -23,7 +23,7 @@ class Settings:
     OPENAI_TEMPERATURE: float = float(os.getenv("OPENAI_TEMPERATURE", "0.7"))
 
     # ChromaDB 설정
-    CHROMA_DB_PATH: str = os.getenv("CHROMA_DB_PATH", "./chroma_db")
+    CHROMA_DB_PATH: str = os.getenv("CHROMA_DB_PATH", "./db/chroma_db")
     COLLECTION_NAME: str = os.getenv("COLLECTION_NAME", "company_llm_rag_collection")
 
     # Jira 설정

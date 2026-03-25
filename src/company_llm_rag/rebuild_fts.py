@@ -41,8 +41,7 @@ def rebuild_fts() -> None:
 
     # SQLite에 직접 연결해 속도 최적화 pragma 적용
     # (durability 불필요 — 재실행 가능한 rebuild 작업)
-    con = sqlite3.connect(str(_DB_PATH))
-    con.execute("PRAGMA journal_mode = OFF")      # WAL/롤백 저널 비활성화
+    con = sqlite3.connect(str(_DB_PATH), timeout=30)
     con.execute("PRAGMA synchronous = OFF")        # fsync 생략
     con.execute("PRAGMA cache_size = -65536")      # 64 MB 캐시
     con.execute("PRAGMA temp_store = MEMORY")      # 임시 데이터 메모리 사용
@@ -94,8 +93,6 @@ def rebuild_fts() -> None:
         con.close()
         raise
     finally:
-        # pragma 복원
-        con.execute("PRAGMA journal_mode = WAL")
         con.execute("PRAGMA synchronous = NORMAL")
         con.close()
 

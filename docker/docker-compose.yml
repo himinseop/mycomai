@@ -7,9 +7,9 @@ services:
     env_file:
       - ../.env
     volumes:
-      - ../chroma_db:/app/chroma_db
+      - ../db/chroma_db:/app/chroma_db
       - ../src/company_llm_rag:/app/company_llm_rag
-      - ../query_history.db:/app/query_history.db
+      - ../db/query_history.db:/app/query_history.db
     networks:
       - me
 
