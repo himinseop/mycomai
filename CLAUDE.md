@@ -1,5 +1,8 @@
 # Mycomai - RAG AI 프로젝트 컨텍스트
 
+> 이 문서는 코드를 이해하는 데 필요한 정보만 유지합니다.
+> 작업 이력·버그 수정 내역은 git log와 GitHub 이슈(docs/issues/)에서 확인하세요.
+
 ## 프로젝트 개요
 회사 전용 LLM RAG 시스템. Jira, Confluence, SharePoint, Teams 데이터를 수집하여 ChromaDB에 저장하고, OpenAI GPT를 통해 질의응답하는 시스템.
 
