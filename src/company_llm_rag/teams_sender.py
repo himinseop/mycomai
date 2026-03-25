@@ -80,19 +80,16 @@ def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bo
     ai_name = settings.AI_NAME or "오사장AI"
 
     body_blocks = [
-        # ── 헤더 ──────────────────────────────────────────────────
+        # ── 안내문 ─────────────────────────────────────────────────
         {
             "type": "TextBlock",
-            "text": f"💬 [{ai_name}] 답변을 찾지 못한 질문입니다",
-            "weight": "Bolder",
-            "wrap": True,
-        },
-        {
-            "type": "TextBlock",
-            "text": "아래 질문에 대해 아는 내용이 있다면 **이 메시지에 답글**로 남겨주세요.\n답글은 AI 지식베이스 학습에 자동 반영됩니다.",
+            "text": (
+                "아래 질문에 대해 아는 내용이 있다면 **이 메시지에 답글**로 남겨주세요. "
+                "정확한 정보, 참고 문서 링크, 담당자 안내 등 어떤 내용이든 환영합니다. "
+                "답글은 AI 지식베이스 학습에 자동 반영됩니다."
+            ),
             "wrap": True,
             "isSubtle": True,
-            "spacing": "Small",
         },
         # ── [질문] ────────────────────────────────────────────────
         {
@@ -126,24 +123,6 @@ def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bo
                 "spacing": "Small",
             },
         ]
-
-    body_blocks += [
-        {
-            "type": "TextBlock",
-            "text": "**[답변]** ← 답글로 작성해 주세요",
-            "weight": "Bolder",
-            "color": "Good",
-            "spacing": "Medium",
-            "separator": True,
-        },
-        {
-            "type": "TextBlock",
-            "text": "정확한 정보, 참고 문서 링크, 담당자 안내 등 어떤 내용이든 환영합니다.",
-            "wrap": True,
-            "isSubtle": True,
-            "spacing": "Small",
-        },
-    ]
 
     payload = {
         "type": "message",
