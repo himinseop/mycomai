@@ -276,6 +276,7 @@ async def feedback(req: FeedbackRequest):
                         record["answer"],
                         bool(record["is_no_answer"]),
                         session_id=req.session_id if req.scope == "group" else None,
+                        group_feedback=-1,
                     )
                 )
 
@@ -544,6 +545,7 @@ async def admin_session_analyze(request: Request, session_id: str):
             last["answer"] or "",
             bool(last["is_no_answer"]),
             session_id=session_id,
+            group_feedback=detail.get("group_feedback") or 0,
         )
     )
     return {"success": True}

@@ -1147,61 +1147,117 @@
   // ── 참고문서 HTML 빌더 ────────────────────────────────────────────────────
   function buildRefsHtml(refs) {
     if (!refs || !refs.length) return '<p style="color:#aaa;padding:6px 0;font-size:0.85rem">참고 문서 없음</p>';
-    const SRC_META = {
-      jira:       { label:'J', bg:'#0052CC' },
-      confluence: { label:'C', bg:'#0065FF' },
-      sharepoint: { label:'S', bg:'#038387' },
-      teams:      { label:'T', bg:'#6264A7' },
-    };
-    function refTitle(r) {
+    const SRC_COLORS = { jira:'#0052CC', confluence:'#0065FF', sharepoint:'#038387', teams:'#6264A7' };
+    const SRC_LABEL  = { jira:'J', confluence:'C', sharepoint:'S', teams:'T' };
+    const sep = '<span style="color:#ddd;margin:0 4px">/</span>';
+    const lightStyle = 'color:#aaa;font-size:.78rem;text-decoration:none';
+    const mainStyle  = 'color:#1a1a2e;font-weight:600;font-size:.87rem;text-decoration:none;word-break:break-word';
+
+    function refCard(r) {
       const src = r.source || '';
-      if (src === 'jira') return r.issue_key ? `[${r.issue_key}] ${r.title}` : r.title;
-      if (src === 'confluence') {
-        const parts = [];
-        if (r.space_name) parts.push(r.space_name);
-        if (r.ancestors) r.ancestors.split(' / ').forEach(a => parts.push(a));
-        parts.push(r.title);
-        return parts.join(' / ');
+      const bg  = SRC_COLORS[src] || '#888';
+      const lbl = SRC_LABEL[src]  || '?';
+      const badge = `<span style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:5px;background:${bg};color:#fff;font-size:11px;font-weight:700;margin-top:2px">${lbl}</span>`;
+
+      let breadcrumb = '';
+      let mainLink   = '';
+
+      if (src === 'jira') {
+        const projectKey = r.project_key || (r.issue_key ? r.issue_key.split('-')[0] : '');
+        let projectUrl = '';
+        if (r.url && projectKey) {
+          try { const u = new URL(r.url); projectUrl = `${u.origin}/jira/software/projects/${projectKey}/boards`; } catch(_) {}
+        }
+        const projPart = projectUrl
+          ? `<a href="${escHtml(projectUrl)}" target="_blank" style="${lightStyle}">${escHtml(projectKey)}</a>`
+          : (projectKey ? `<span style="${lightStyle}">${escHtml(projectKey)}</span>` : '');
+        const issueText = r.issue_key ? `[${escHtml(r.issue_key)}] ${escHtml(r.title)}` : escHtml(r.title);
+        mainLink = r.url
+          ? `<a href="${escHtml(r.url)}" target="_blank" style="${mainStyle}">${issueText}</a>`
+          : `<span style="${mainStyle}">${issueText}</span>`;
+        breadcrumb = projPart ? projPart + sep : '';
+
+      } else if (src === 'confluence') {
+        const spaceKey  = r.space_key  || '';
+        const spaceName = r.space_name || spaceKey;
+        let spaceUrl = '';
+        if (r.url && spaceKey) {
+          try { const u = new URL(r.url); spaceUrl = `${u.origin}/wiki/spaces/${spaceKey}/overview`; } catch(_) {}
+        }
+        const spacePart = spaceUrl && spaceName
+          ? `<a href="${escHtml(spaceUrl)}" target="_blank" style="${lightStyle}">${escHtml(spaceName)}</a>`
+          : (spaceName ? `<span style="${lightStyle}">${escHtml(spaceName)}</span>` : '');
+        mainLink = r.url
+          ? `<a href="${escHtml(r.url)}" target="_blank" style="${mainStyle}">${escHtml(r.title)}</a>`
+          : `<span style="${mainStyle}">${escHtml(r.title)}</span>`;
+        breadcrumb = spacePart ? spacePart + sep : '';
+
+      } else if (src === 'sharepoint') {
+        const siteName = r.site_name || '';
+        const filePath = r.file_path || '';
+        let siteUrl = '', folderUrl = '', docName = r.title, folderName = '';
+        if (r.url) {
+          try {
+            const u = new URL(r.url);
+            const segs = u.pathname.split('/').filter(Boolean);
+            siteUrl = (segs.length >= 2 && segs[0].toLowerCase() === 'sites')
+              ? `${u.origin}/sites/${segs[1]}` : u.origin;
+            if (filePath) {
+              const parts = filePath.split('/');
+              docName   = parts[parts.length - 1] || r.title;
+              folderName = parts.slice(0, -1).join('/');
+              folderUrl  = folderName ? `${siteUrl}/${folderName}` : '';
+            }
+          } catch(_) {}
+        }
+        const siteDisplay = siteName || (siteUrl ? (() => { try { return new URL(siteUrl).hostname; } catch(_) { return ''; } })() : '');
+        const sitePart   = siteUrl && siteDisplay ? `<a href="${escHtml(siteUrl)}" target="_blank" style="${lightStyle}">${escHtml(siteDisplay)}</a>` : (siteDisplay ? `<span style="${lightStyle}">${escHtml(siteDisplay)}</span>` : '');
+        const folderPart = folderName && folderUrl ? `<a href="${escHtml(folderUrl)}" target="_blank" style="${lightStyle}">${escHtml(folderName)}</a>` + sep : (folderName ? `<span style="${lightStyle}">${escHtml(folderName)}</span>` + sep : '');
+        mainLink = r.url
+          ? `<a href="${escHtml(r.url)}" target="_blank" style="${mainStyle}">${escHtml(docName)}</a>`
+          : `<span style="${mainStyle}">${escHtml(docName)}</span>`;
+        breadcrumb = (sitePart ? sitePart + sep : '') + folderPart;
+
+      } else if (src === 'teams') {
+        const teamName    = (r.team_name    || '').replace(/^None$/,'');
+        const channelName = (r.channel_name || '').replace(/^None$/,'');
+        const chatTopic   = (r.chat_topic   || '').replace(/^(None|null)$/,'');
+        const location    = teamName && (channelName || chatTopic)
+          ? `${teamName}/${channelName || chatTopic}`
+          : teamName || channelName || chatTopic;
+        const author  = r.author  || '';
+        const snippet = (r.snippet || '').replace(/\s+/g,' ').slice(0, 70);
+        let dateStr = '';
+        if (r.created_at) {
+          try {
+            const d = new Date(r.created_at);
+            dateStr = `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+          } catch(_) {}
+        }
+        const locPart  = location ? `<span style="${lightStyle}">${escHtml(location)}</span>` + sep : '';
+        const msgText  = (author ? `[${escHtml(author)}]: ` : '') + escHtml(snippet || r.title);
+        const datePart = dateStr ? `<span style="color:#aaa;font-size:.72rem;margin-left:6px">${dateStr}</span>` : '';
+        mainLink = r.url
+          ? `<a href="${escHtml(r.url)}" target="_blank" style="${mainStyle}">${msgText}</a>`
+          : `<span style="${mainStyle}">${msgText}</span>`;
+        return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #eee;border-radius:8px;margin-bottom:6px" onmouseover="this.style.background='#f8f8ff'" onmouseout="this.style.background=''">
+          ${badge}
+          <div style="flex:1;min-width:0;line-height:1.7">${locPart}${mainLink}${datePart}</div>
+        </div>`;
+
+      } else {
+        mainLink = r.url
+          ? `<a href="${escHtml(r.url)}" target="_blank" style="${mainStyle}">${escHtml(r.title || r.url)}</a>`
+          : `<span style="${mainStyle}">${escHtml(r.title || r.url || '')}</span>`;
       }
-      if (src === 'sharepoint') {
-        try {
-          const u = new URL(r.url);
-          const fp = u.searchParams.get('file');
-          if (fp) return decodeURIComponent(fp);
-          const segs = u.pathname.split('/');
-          const last = decodeURIComponent(segs[segs.length - 1] || '');
-          if (last && !last.toLowerCase().endsWith('.aspx')) return last;
-        } catch (_) {}
-        return r.title;
-      }
-      if (src === 'teams') {
-        const pfx = r.team_name && r.channel_name ? `[${r.team_name}/${r.channel_name}] `
-          : r.chat_topic ? `[${r.chat_topic}] ` : '';
-        return pfx + (r.author ? `${r.author}: ` : '') + (r.snippet || '').replace(/\s+/g,' ').slice(0,60);
-      }
-      return r.title || r.url;
+
+      return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #eee;border-radius:8px;margin-bottom:6px" onmouseover="this.style.background='#f8f8ff'" onmouseout="this.style.background=''">
+        ${badge}
+        <div style="flex:1;min-width:0;line-height:1.7">${breadcrumb}${mainLink}</div>
+      </div>`;
     }
-    function refSub(r) {
-      const p = [];
-      if (r.author) p.push(`✍ ${escHtml(r.author)}`);
-      if (r.created_at) { try { const d=new Date(r.created_at); p.push(`📅 ${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()}`); } catch {} }
-      try { const h=new URL(r.url).hostname.replace('www.',''); p.push(`<span style="color:#ccc">${escHtml(h)}</span>`); } catch {}
-      return p.join('<span style="color:#ddd;margin:0 3px">·</span>');
-    }
-    return refs.map(r => {
-      const src  = r.source || '';
-      const m    = SRC_META[src] || { label:'?', bg:'#888' };
-      const title = refTitle(r);
-      const sub   = refSub(r);
-      return `<a href="${escHtml(r.url)}" target="_blank" rel="noopener noreferrer" style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #eee;border-radius:8px;text-decoration:none;color:inherit;margin-bottom:6px" onmouseover="this.style.background='#f8f8ff'" onmouseout="this.style.background=''">
-        <span style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:5px;background:${m.bg};color:#fff;font-size:11px;font-weight:700;margin-top:1px">${m.label}</span>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:.87rem;font-weight:600;color:#1a1a2e;word-break:break-word;line-height:1.4">${escHtml(title)}</div>
-          ${sub ? `<div style="margin-top:4px;font-size:.75rem;color:#999">${sub}</div>` : ''}
-        </div>
-        <span style="color:#bbb;font-size:12px;flex-shrink:0;margin-top:2px">↗</span>
-      </a>`;
-    }).join('');
+
+    return refs.map(refCard).join('');
   }
 
   // ── 응답시간 HTML 빌더 ────────────────────────────────────────────────────

@@ -529,10 +529,20 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False) -> List
         if source == "jira" and issue_key:
             seen_issue_keys.add(issue_key)
         space_name = ""
+        space_key = ""
         ancestors = ""
         if source == "confluence":
             space_name = meta.get("confluence_space_name") or meta.get("confluence_space_key") or ""
+            space_key = meta.get("confluence_space_key") or ""
             ancestors = meta.get("confluence_ancestors", "") or ""
+        project_key = ""
+        if source == "jira":
+            project_key = meta.get("jira_project_key") or (issue_key.split("-")[0] if issue_key else "") or ""
+        site_name = ""
+        file_path = ""
+        if source == "sharepoint":
+            site_name = meta.get("sharepoint_site_name") or ""
+            file_path = meta.get("sharepoint_file_path") or ""
         team_name = ""
         channel_name = ""
         chat_topic = ""
@@ -555,8 +565,12 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False) -> List
             "source": source,
             "content_type": meta.get("content_type", ""),
             "issue_key": issue_key,
+            "project_key": project_key,
             "space_name": space_name,
+            "space_key": space_key,
             "ancestors": ancestors,
+            "site_name": site_name,
+            "file_path": file_path,
             "team_name": team_name,
             "channel_name": channel_name,
             "chat_topic": chat_topic,

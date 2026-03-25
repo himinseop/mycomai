@@ -23,8 +23,8 @@ _ANALYSIS_PROMPT_NO_ANSWER = """\
 당신은 AI 검색 시스템의 품질 분석가입니다.
 사용자가 아래 질문을 했지만 AI가 답변을 찾지 못했고, 사용자가 불만족 피드백을 남겼습니다.
 
-[사용자 질문]
-{question}
+[질문 그룹 — 총 {turn_count}개 질문]
+{transcript}
 
 [재검색 결과 {n}건 — 순위/소스/제목/관련도/내용]
 {docs}
@@ -45,13 +45,10 @@ _ANALYSIS_PROMPT_NO_ANSWER = """\
 
 _ANALYSIS_PROMPT_WITH_ANSWER = """\
 당신은 AI 검색 시스템의 품질 분석가입니다.
-사용자가 아래 질문에 대한 답변을 받았지만 불만족 피드백을 남겼습니다.
+사용자가 아래 질문 그룹에 대한 답변을 받았지만 피드백을 남겼습니다.
 
-[사용자 질문]
-{question}
-
-[AI가 제공한 답변 (일부)]
-{answer}
+[질문 그룹 — 총 {turn_count}개 질문]
+{transcript}
 
 [재검색 결과 {n}건 — 순위/소스/제목/관련도/내용]
 {docs}
@@ -64,9 +61,7 @@ _ANALYSIS_PROMPT_WITH_ANSWER = """\
 <p>제공된 답변이 질문에 충분히 답했는지, 부정확하거나 누락된 내용은 없는지 검토합니다.</p>
 <h4>3. 검색 결과 분석</h4>
 <p>재검색된 문서들이 질문에 적합했는지, 더 관련성 높은 문서가 누락됐는지 분석합니다.</p>
-<h4>4. 불만족 원인 추정</h4>
-<p>사용자가 불만족한 이유를 구체적으로 추정합니다. (답변 부정확, 정보 부족, 관련 없는 내용 포함 등)</p>
-<h4>5. 개선 제안</h4>
+{dissatisfaction_section}<h4>{improve_num}. 개선 제안</h4>
 <ul><li>답변 품질 및 검색 정확도 개선을 위한 구체적인 방안을 제안합니다.</li></ul>
 """
 
@@ -92,6 +87,137 @@ def _source_badge(source: str) -> str:
 
 
 _RRF_MAX = 2 / 61  # rank=0 벡터+키워드 동시 1위일 때 최대값 ≈ 0.03279
+
+
+def _build_ref_link_html(meta: dict, title_esc: str, url: str) -> str:
+    """참고문서 링크를 소스별 계층 형식 HTML로 반환합니다."""
+    from urllib.parse import urlparse
+    source = meta.get("source", "")
+    light = "color:#aaa;font-size:0.78rem;text-decoration:none"
+    main_style = "color:#0052cc;text-decoration:none"
+    sep = '<span style="color:#ddd;margin:0 3px">/</span>'
+
+    def a(href, text, style=None):
+        s = style or main_style
+        return f'<a href="{href}" target="_blank" style="{s}">{text}</a>'
+
+    if source == "jira":
+        project_key = meta.get("jira_project_key") or (
+            meta.get("jira_issue_key", "").split("-")[0] if meta.get("jira_issue_key") else ""
+        )
+        issue_key = meta.get("jira_issue_key", "")
+        try:
+            parsed = urlparse(url)
+            project_url = (
+                f"{parsed.scheme}://{parsed.netloc}/jira/software/projects/{project_key}/boards"
+                if project_key else ""
+            )
+        except Exception:
+            project_url = ""
+        proj_part = (
+            a(project_url, project_key, light) if project_url
+            else (f'<span style="{light}">{project_key}</span>' if project_key else "")
+        )
+        issue_text = f"[{issue_key}] {title_esc}" if issue_key else title_esc
+        doc_link = a(url, issue_text) if url else f'<span style="{main_style}">{issue_text}</span>'
+        return f'{proj_part}{sep}{doc_link}' if proj_part else doc_link
+
+    elif source == "confluence":
+        space_key = meta.get("confluence_space_key", "")
+        space_name = meta.get("confluence_space_name") or space_key
+        try:
+            parsed = urlparse(url)
+            space_url = (
+                f"{parsed.scheme}://{parsed.netloc}/wiki/spaces/{space_key}/overview"
+                if space_key else ""
+            )
+        except Exception:
+            space_url = ""
+        space_part = (
+            a(space_url, space_name, light) if space_url and space_name
+            else (f'<span style="{light}">{space_name}</span>' if space_name else "")
+        )
+        doc_link = a(url, title_esc) if url else f'<span>{title_esc}</span>'
+        return f'{space_part}{sep}{doc_link}' if space_part else doc_link
+
+    elif source == "sharepoint":
+        site_name = meta.get("sharepoint_site_name", "")
+        file_path = meta.get("sharepoint_file_path", "")
+        try:
+            parsed = urlparse(url)
+            segs = [s for s in parsed.path.split("/") if s]
+            site_url = (
+                f"{parsed.scheme}://{parsed.netloc}/sites/{segs[1]}"
+                if len(segs) >= 2 and segs[0].lower() == "sites"
+                else f"{parsed.scheme}://{parsed.netloc}"
+            )
+        except Exception:
+            site_url = ""
+        if file_path:
+            parts = file_path.split("/")
+            doc_name_esc = parts[-1].replace("<", "&lt;").replace(">", "&gt;")
+            folder_raw = "/".join(parts[:-1])
+            folder_esc = folder_raw.replace("<", "&lt;").replace(">", "&gt;")
+            folder_url = f"{site_url}/{folder_raw}" if folder_raw and site_url else ""
+        else:
+            doc_name_esc = title_esc
+            folder_esc = ""
+            folder_url = ""
+        try:
+            site_display = site_name or urlparse(site_url).netloc
+        except Exception:
+            site_display = site_name
+        site_part = (
+            a(site_url, site_display.replace("<", "&lt;").replace(">", "&gt;"), light)
+            if site_url and site_display else ""
+        )
+        folder_part = (
+            a(folder_url, folder_esc, light) if folder_url and folder_esc
+            else (f'<span style="{light}">{folder_esc}</span>' if folder_esc else "")
+        )
+        doc_link = a(url, doc_name_esc) if url else f'<span>{doc_name_esc}</span>'
+        parts_html = [p for p in [site_part, folder_part, doc_link] if p]
+        return sep.join(parts_html) if parts_html else doc_link
+
+    elif source == "teams":
+        team_name = meta.get("teams_team_name") or ""
+        channel_name = meta.get("teams_channel_name") or ""
+        chat_topic = meta.get("teams_chat_topic") or ""
+        if team_name in ("None",): team_name = ""
+        if channel_name in ("None",): channel_name = ""
+        if chat_topic in ("None", "null"): chat_topic = ""
+        author = meta.get("author") or ""
+        created_at = meta.get("created_at") or ""
+        channel_label = channel_name or chat_topic
+        location = (
+            f"{team_name}/{channel_label}" if team_name and channel_label
+            else team_name or channel_label
+        )
+        date_str = ""
+        if created_at:
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(created_at.rstrip("Z"))
+                date_str = dt.strftime("%Y.%m.%d %H:%M")
+            except Exception:
+                date_str = created_at[:16]
+        snippet = (meta.get("content") or "")[:60].replace("<", "&lt;").replace(">", "&gt;").replace("\n", " ")
+        author_prefix = f"[{author}]: " if author else ""
+        msg_text = f"{author_prefix}{snippet}" if snippet else title_esc
+        loc_span = (
+            f'<span style="{light}">{location.replace("<", "&lt;").replace(">", "&gt;")}</span>'
+            if location else ""
+        )
+        msg_link = a(url, msg_text) if url else f'<span>{msg_text}</span>'
+        date_span = (
+            f'<span style="color:#aaa;font-size:0.72rem;margin-left:6px">{date_str}</span>'
+            if date_str else ""
+        )
+        parts_html = [p for p in [loc_span, msg_link] if p]
+        return sep.join(parts_html) + date_span
+
+    # Default
+    return a(url, title_esc) if url else f'<span>{title_esc}</span>'
 
 
 def _build_docs_html(docs: list, ref_urls: set = None) -> str:
@@ -147,10 +273,8 @@ def _build_docs_html(docs: list, ref_urls: set = None) -> str:
         if not url and source == "teams":
             from company_llm_rag.rag_system import _build_teams_url
             url = _build_teams_url(meta)
-        if url:
-            title_cell = f'<a href="{url}" target="_blank" style="color:#0052cc;text-decoration:none" title="{title_esc}">{title_esc}</a>'
-        else:
-            title_cell = f'<span title="{title_esc}">{title_esc}</span>'
+
+        title_cell = _build_ref_link_html(meta, title_esc, url)
 
         is_ref = url in ref_urls
         if is_ref:
@@ -164,7 +288,7 @@ def _build_docs_html(docs: list, ref_urls: set = None) -> str:
             f'<tr style="background:{bg};border-bottom:1px solid #f0f0f0">'
             f'<td style="text-align:center;color:#999;font-size:0.78rem;padding:5px 4px">{i}</td>'
             f'<td style="padding:5px 4px">{_source_badge(source)}</td>'
-            f'<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 4px;max-width:280px">{title_cell}{ref_badge}</td>'
+            f'<td style="padding:5px 4px;max-width:300px;word-break:break-word;line-height:1.5">{title_cell}{ref_badge}</td>'
             f'<td style="padding:5px 8px;min-width:140px">{bar}</td>'
             f'<td style="text-align:center;font-size:0.78rem;padding:5px 4px">{v_cell}</td>'
             f'<td style="text-align:center;font-size:0.78rem;padding:5px 4px">{k_cell}</td>'
@@ -219,11 +343,12 @@ async def analyze_bad_feedback(
     is_no_answer: bool,
     conversation_history=None,
     session_id: Optional[str] = None,
+    group_feedback: int = 0,
 ) -> None:
     """
     👎 피드백을 받은 대화에 대해 LLM 분석을 수행하고 DB에 저장합니다.
     질문을 재검색한 후, 답변 유무에 따라 적합한 프롬프트로 분석합니다.
-    session_id가 제공되면 그룹 전체 transcript를 컨텍스트로 사용합니다.
+    session_id가 제공되면 그룹 전체 transcript를 대상으로 분석합니다.
     """
     try:
         if session_id:
@@ -232,49 +357,81 @@ async def analyze_bad_feedback(
             set_analysis_pending(record_id)
         logger.info(f"[Analyzer] 분석 시작 record_id={record_id} no_answer={is_no_answer} session_id={session_id}")
 
-        docs = retrieve_documents(question, n_results=15, return_scores=True)
-        docs_text = _build_docs_text(docs)
+        # 그룹 전체 턴 수집
+        all_turns_data = []
+        all_questions = [question]
 
-        # 질문 그룹 transcript 구성
-        history_prefix = ""
         if session_id:
             group = get_session_detail(session_id)
-            if group and len(group["turns"]) > 1:
-                turns_text = []
-                for t in group["turns"][:-1]:  # 마지막 턴은 질문/답변으로 별도 제공
-                    turns_text.append(
-                        f"Q{t['turn_index']}: {t['question']}\n"
-                        f"A{t['turn_index']}: {(t['answer'] or '')[:300]}"
-                    )
-                ctx = "\n\n".join(turns_text)
-                history_prefix = f"[질문 그룹 이전 턴 컨텍스트 — 같은 카드의 앞선 대화]\n{ctx}\n\n"
-        elif conversation_history and len(conversation_history) > 2:
+            if group and group.get("turns"):
+                all_turns_data = group["turns"]
+                all_questions = [t["question"] for t in all_turns_data]
+                # 마지막 턴으로 단건 데이터 갱신
+                last = all_turns_data[-1]
+                question = last["question"]
+                answer = last["answer"] or ""
+                is_no_answer = bool(last.get("is_no_answer", False))
+
+        # 모든 질문을 합쳐서 검색
+        combined_query = " ".join(all_questions)
+        docs = retrieve_documents(combined_query, n_results=15, return_scores=True)
+        docs_text = _build_docs_text(docs)
+
+        # 전체 대화 transcript 구성
+        if all_turns_data:
+            transcript_parts = []
+            for t in all_turns_data:
+                q_part = f"Q{t['turn_index']}: {t['question']}"
+                a_part = f"A{t['turn_index']}: {(t['answer'] or '')[:500]}"
+                transcript_parts.append(f"{q_part}\n{a_part}")
+            transcript = "\n\n".join(transcript_parts)
+            turn_count = len(all_turns_data)
+        elif conversation_history and len(conversation_history) >= 2:
             # 하위 호환: conversation_history 직접 전달 방식
-            turns = []
+            pairs = []
             i = 0
             while i < len(conversation_history) - 1:
-                if conversation_history[i]["role"] == "user" and conversation_history[i + 1]["role"] == "assistant":
-                    turns.append(
-                        f"Q: {conversation_history[i]['content']}\n"
-                        f"A: {(conversation_history[i + 1]['content'] or '')[:300]}"
+                if (conversation_history[i]["role"] == "user"
+                        and conversation_history[i + 1]["role"] == "assistant"):
+                    pairs.append(
+                        f"Q{len(pairs)+1}: {conversation_history[i]['content']}\n"
+                        f"A{len(pairs)+1}: {(conversation_history[i+1]['content'] or '')[:500]}"
                     )
                     i += 2
                 else:
                     i += 1
-            if len(turns) > 1:
-                ctx = "\n\n".join(turns[:-1])
-                history_prefix = f"[이전 대화 컨텍스트 — 사용자가 이 대화에서 나눈 이전 턴들]\n{ctx}\n\n"
+            if pairs:
+                transcript = "\n\n".join(pairs)
+                turn_count = len(pairs)
+            else:
+                transcript = f"Q1: {question}\nA1: {(answer or '')[:500]}"
+                turn_count = 1
+        else:
+            transcript = f"Q1: {question}\nA1: {(answer or '')[:500]}"
+            turn_count = 1
 
         if is_no_answer:
-            prompt = history_prefix + _ANALYSIS_PROMPT_NO_ANSWER.format(
-                question=question, n=len(docs), docs=docs_text,
+            prompt = _ANALYSIS_PROMPT_NO_ANSWER.format(
+                transcript=transcript, turn_count=turn_count, n=len(docs), docs=docs_text,
             )
         else:
-            prompt = history_prefix + _ANALYSIS_PROMPT_WITH_ANSWER.format(
-                question=question,
-                answer=(answer or "")[:500],
+            if group_feedback == -1:
+                dissatisfaction_section = (
+                    "<h4>4. 불만족 원인 추정</h4>\n"
+                    "<p>사용자가 불만족한 이유를 구체적으로 추정합니다. "
+                    "(답변 부정확, 정보 부족, 관련 없는 내용 포함 등)</p>\n"
+                )
+                improve_num = 5
+            else:
+                dissatisfaction_section = ""
+                improve_num = 4
+            prompt = _ANALYSIS_PROMPT_WITH_ANSWER.format(
+                transcript=transcript,
+                turn_count=turn_count,
                 n=len(docs),
                 docs=docs_text,
+                dissatisfaction_section=dissatisfaction_section,
+                improve_num=improve_num,
             )
 
         llm_html = default_llm.chat(
@@ -283,19 +440,14 @@ async def analyze_bad_feedback(
         )
 
         docs_html = _build_docs_html(docs)
-        q_esc = question.replace("<", "&lt;").replace(">", "&gt;")
 
         html = (
             '<div style="font-family:inherit;font-size:0.85rem">'
-            '<div style="margin-bottom:14px">'
-            '<div style="font-size:0.72rem;color:#999;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">질문</div>'
-            f'<div style="background:#f8f8f8;border-left:3px solid #6264a7;padding:8px 12px;border-radius:0 4px 4px 0">{q_esc}</div>'
-            '</div>'
-            '<div style="border-top:1px solid #eee;padding-top:14px">'
+            '<div style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid #eee">'
             '<div style="font-size:0.72rem;color:#999;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">분석 작업 보고서</div>'
             f'<div style="line-height:1.75;color:#333">{llm_html}</div>'
             '</div>'
-            f'<div style="margin-top:14px"><div style="font-size:0.72rem;color:#999;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">재검색 결과 {len(docs)}건</div>'
+            f'<div><div style="font-size:0.72rem;color:#999;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">재검색 결과 {len(docs)}건</div>'
             f'{docs_html}</div>'
             '</div>'
         )
@@ -318,5 +470,3 @@ async def analyze_bad_feedback(
 # 하위 호환: 기존 코드에서 참조할 수 있는 함수 (deprecated → analyze_bad_feedback 사용 권장)
 async def analyze_no_answer(record_id: int, question: str) -> None:
     await analyze_bad_feedback(record_id, question, "", True)
-
-
