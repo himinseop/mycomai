@@ -32,6 +32,29 @@ from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
 
+
+def _compact_retrieved_docs(docs: list) -> list:
+    """retrieved_docs를 DB 저장용 compact 형식으로 변환합니다 (content 제외)."""
+    result = []
+    for d in docs:
+        meta = d.get("metadata", {})
+        url = meta.get("url", "") or ""
+        if not url:
+            from company_llm_rag.rag_system import _build_teams_url
+            url = _build_teams_url(meta)
+        result.append({
+            "source": meta.get("source", ""),
+            "title": meta.get("title", "") or "",
+            "url": url,
+            "_rrf": d.get("_rrf", 0),
+            "_vector_rank": d.get("_vector_rank"),
+            "_keyword_rank": d.get("_keyword_rank"),
+            "_injected": d.get("_injected", False),
+            "_distance": d.get("_distance", 1.0),
+        })
+    return result
+
+
 app = FastAPI(title="오사장 - 슈퍼커넥트 AI")
 app.mount("/static", StaticFiles(directory="/app/company_llm_rag/static"), name="static")
 
@@ -156,6 +179,7 @@ async def chat(req: ChatRequest):
         perf=timing,
         turn_index=turn_index,
         parent_record_id=parent_record_id,
+        retrieved_docs=_compact_retrieved_docs(docs_holder),
     )
 
     return ChatResponse(
@@ -228,6 +252,7 @@ async def chat_stream(req: ChatRequest):
                 perf=timing,
                 turn_index=turn_index,
                 parent_record_id=parent_record_id,
+                retrieved_docs=_compact_retrieved_docs(docs_holder),
             )
 
             meta_ev = {

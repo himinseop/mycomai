@@ -772,6 +772,8 @@
           <div class="modal-section"><label>답변</label><div class="content-box markdown-body">${renderMd(t.answer)}</div></div>
           <div class="sec-hd" style="margin-top:6px" onclick="toggleSec(this)"><span>📄 참고문서 <span style="color:#aaa;font-weight:400;font-size:.8rem">${refs.length}건</span></span><span class="arr">▶</span></div>
           <div class="sec-bd">${buildRefsHtml(refs)}</div>
+          <div class="sec-hd" onclick="toggleSec(this)"><span>🔍 검색 결과 <span style="color:#aaa;font-weight:400;font-size:.8rem">${(t.retrieved_docs||[]).length}건</span></span><span class="arr">▶</span></div>
+          <div class="sec-bd">${buildRetrievedDocsHtml(t.retrieved_docs||[], new Set((refs).map(r=>r.url).filter(Boolean)))}</div>
           <div class="sec-hd" onclick="toggleSec(this)"><span>⏱ 응답시간 <span style="color:#aaa;font-weight:400;font-size:.8rem">${fmtMs(t.response_time_ms)}</span></span><span class="arr">▶</span></div>
           <div class="sec-bd">${buildPerfHtml(t.perf, t.response_time_ms)}</div>
         </div>
@@ -1340,6 +1342,76 @@
     }
 
     return refs.map(refCard).join('');
+  }
+
+  // ── 검색 결과 HTML 빌더 (retrieved_docs_json) ──────────────────────────────
+  function buildRetrievedDocsHtml(docs, refUrls) {
+    if (!docs || !docs.length) return '<p style="color:#aaa;padding:6px 0;font-size:0.85rem">검색 결과 없음</p>';
+    const RRF_MAX = 2 / 61;
+    const SRC_COLORS = { jira:'#0052CC', confluence:'#0065FF', sharepoint:'#038387', teams:'#6264A7' };
+    const SRC_LABEL  = { jira:'J', confluence:'C', sharepoint:'S', teams:'T' };
+
+    const rows = docs.map((doc, i) => {
+      const src   = doc.source || '?';
+      const bg    = SRC_COLORS[src] || '#888';
+      const lbl   = SRC_LABEL[src] || '?';
+      const badge = `<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:3px;background:${bg};color:#fff;font-size:10px;font-weight:700;flex-shrink:0">${lbl}</span>`;
+
+      const rrf   = doc._rrf || 0;
+      const vRank = doc._vector_rank;
+      const kRank = doc._keyword_rank;
+      const isInj = doc._injected || false;
+
+      const vCell = vRank != null ? `<span style="color:#0052cc;font-size:.78rem">#${vRank+1}</span>` : '<span style="color:#ccc">—</span>';
+      const kCell = kRank != null ? `<span style="color:#038387;font-size:.78rem">#${kRank+1}</span>` : '<span style="color:#ccc">—</span>';
+      const dCell = isInj
+        ? `<span style="display:inline-block;padding:1px 4px;border-radius:3px;font-size:.68rem;font-weight:600;color:#fff;background:#6264a7">직접조회</span>`
+        : '<span style="color:#ccc">—</span>';
+
+      let bar;
+      if (isInj) {
+        bar = `<div style="display:flex;align-items:center;gap:5px"><div style="width:70px;height:4px;background:#eee;border-radius:2px;flex-shrink:0"><div style="width:100%;height:100%;background:#6264a7;border-radius:2px"></div></div><span style="font-size:.75rem;font-weight:600;color:#6264a7">직접조회</span></div>`;
+      } else {
+        const pct = Math.min(rrf / RRF_MAX * 100, 100);
+        const barPct = Math.round(pct);
+        const pctColor = pct >= 80 ? '#2e7d32' : pct >= 10 ? '#f57c00' : '#9e9e9e';
+        bar = `<div style="display:flex;align-items:center;gap:5px"><div style="width:70px;height:4px;background:#eee;border-radius:2px;flex-shrink:0"><div style="width:${barPct}%;height:100%;background:${pctColor};border-radius:2px"></div></div><span style="font-size:.75rem;font-weight:600;color:${pctColor}">${pct.toFixed(0)}%</span></div>`;
+      }
+
+      const url   = doc.url || '';
+      const title = escHtml(doc.title || '제목 없음');
+      const titleCell = url
+        ? `<a href="${escHtml(url)}" target="_blank" style="color:#0052cc;text-decoration:none;font-size:.82rem;word-break:break-word">${title}</a>`
+        : `<span style="font-size:.82rem">${title}</span>`;
+
+      const isRef = refUrls && url && refUrls.has(url);
+      const rowBg = isRef ? '#e8f5e9' : (i < 3 ? '#fffde7' : '');
+      const refMark = isRef
+        ? `<span style="display:inline-block;margin-left:5px;padding:1px 4px;border-radius:3px;font-size:.67rem;font-weight:600;color:#fff;background:#2e7d32;vertical-align:middle">참고문서</span>`
+        : '';
+
+      return `<tr style="background:${rowBg};border-bottom:1px solid #f0f0f0">
+        <td style="text-align:center;color:#bbb;font-size:.75rem;padding:4px 3px">${i+1}</td>
+        <td style="padding:4px 3px">${badge}</td>
+        <td style="padding:4px 6px;max-width:260px;word-break:break-word;line-height:1.4">${titleCell}${refMark}</td>
+        <td style="padding:4px 6px;min-width:110px">${bar}</td>
+        <td style="text-align:center;padding:4px 3px">${vCell}</td>
+        <td style="text-align:center;padding:4px 3px">${kCell}</td>
+        <td style="text-align:center;padding:4px 3px">${dCell}</td>
+      </tr>`;
+    }).join('');
+
+    const th = 'style="padding:4px 3px;font-weight:600;font-size:.72rem;color:#888;white-space:nowrap"';
+    const header = `<thead><tr style="background:#f7f7f7;border-bottom:2px solid #eee">
+      <th ${th}>#</th><th ${th}>소스</th><th ${th}>제목</th>
+      <th ${th}>관련도</th><th ${th} title="벡터 검색 순위">벡터</th>
+      <th ${th} title="키워드 검색 순위">키워드</th><th ${th} title="이슈키 직접 조회">직접조회</th>
+    </tr></thead>`;
+
+    return `<div style="overflow-x:auto;border:1px solid #eee;border-radius:6px">
+      <table style="width:100%;border-collapse:collapse;font-size:.8rem">
+        ${header}<tbody>${rows}</tbody>
+      </table></div>`;
   }
 
   // ── 응답시간 HTML 빌더 ────────────────────────────────────────────────────

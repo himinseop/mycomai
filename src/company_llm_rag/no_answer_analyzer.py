@@ -31,12 +31,18 @@ _ANALYSIS_PROMPT_NO_ANSWER = """\
 [재검색 결과 {n}건 — 순위/소스/제목/관련도/내용]
 {docs}
 
+[원본 답변에 제공된 참고문서]
+{original_refs}
+
+[원본 답변 vs 재검색 비교]
+{comparison}
+
 다음 순서로 분석 작업을 수행하고 결과를 HTML로 작성하세요 (마크다운 사용 금지).
 
 <h4>1. 질문 분석</h4>
 <p>질문의 핵심 의도, 키워드, 요구하는 정보 유형을 분석합니다.</p>
 <h4>2. 검색 결과 검토</h4>
-<p>검색된 {n}건의 문서가 질문에 얼마나 관련이 있는지 검토합니다. 상위 문서의 내용과 질문의 연관성을 평가합니다.</p>
+<p>재검색된 {n}건의 문서와 원본 답변 참고문서를 비교합니다. 원본에서 누락된 관련 문서가 있는지, 원본 참고문서의 관련도가 적절했는지 분석합니다.</p>
 <h4>3. 답변 불가 원인</h4>
 <p>AI가 답변하지 못한 구체적인 이유를 서술합니다. (정보 부재, 검색 정확도 문제, 질문 모호성 등)</p>
 <h4>4. 부족한 정보</h4>
@@ -55,6 +61,12 @@ _ANALYSIS_PROMPT_WITH_ANSWER = """\
 [재검색 결과 {n}건 — 순위/소스/제목/관련도/내용]
 {docs}
 
+[원본 답변에 제공된 참고문서]
+{original_refs}
+
+[원본 답변 vs 재검색 비교]
+{comparison}
+
 다음 순서로 분석 작업을 수행하고 결과를 HTML로 작성하세요 (마크다운 사용 금지).
 
 <h4>1. 질문 분석</h4>
@@ -62,7 +74,7 @@ _ANALYSIS_PROMPT_WITH_ANSWER = """\
 <h4>2. 답변 적절성 검토</h4>
 <p>제공된 답변이 질문에 충분히 답했는지, 부정확하거나 누락된 내용은 없는지 검토합니다.</p>
 <h4>3. 검색 결과 분석</h4>
-<p>재검색된 문서들이 질문에 적합했는지, 더 관련성 높은 문서가 누락됐는지 분석합니다.</p>
+<p>재검색된 {n}건의 문서와 원본 답변 참고문서를 비교합니다. 원본에서 누락된 관련도 높은 문서가 있는지, 원본 참고문서의 관련도가 적절했는지 분석합니다.</p>
 {dissatisfaction_section}<h4>{improve_num}. 개선 제안</h4>
 <ul><li>답변 품질 및 검색 정확도 개선을 위한 구체적인 방안을 제안합니다.</li></ul>
 """
@@ -386,6 +398,66 @@ async def analyze_bad_feedback(
         docs = await asyncio.to_thread(
             retrieve_documents, combined_query, n_results=15, return_scores=True
         )
+
+        # 원본 참고문서 URL 수집
+        original_ref_urls: set = set()
+        if all_turns_data:
+            for t in all_turns_data:
+                for r in t.get("references", []):
+                    u = r.get("url", "")
+                    if u:
+                        original_ref_urls.add(u)
+
+        # 원본 참고문서 텍스트
+        if original_ref_urls:
+            original_refs_text = "\n".join(
+                f"- {url}" for url in sorted(original_ref_urls)
+            )
+        else:
+            original_refs_text = "원본 답변에 참고문서 없음"
+
+        # 재검색 결과 vs 원본 비교
+        discovery_docs = []  # 원본에 미포함이지만 관련도 높은 문서
+        in_original = []     # 원본에 포함되고 재검색에서도 상위인 문서
+        missed_in_original = []  # 재검색 상위이지만 원본에 미포함
+
+        _RRF_THRESHOLD = _RRF_MAX * 0.10  # 관련도 10% 이상
+
+        for doc in docs:
+            meta = doc.get("metadata", {})
+            url = meta.get("url", "") or ""
+            rrf = doc.get("_rrf", 0)
+            dist = doc.get("_distance", 1.0)
+            title = meta.get("title", "") or "제목 없음"
+            source = meta.get("source", "?")
+
+            if rrf < _RRF_THRESHOLD:
+                continue
+
+            pct = min(rrf / _RRF_MAX * 100, 100)
+            entry = f"[{source}] {title} (관련도:{pct:.0f}%)"
+
+            if url and url in original_ref_urls:
+                in_original.append(entry)
+            elif dist <= 0.35:
+                missed_in_original.append(entry)
+                discovery_docs.append(doc)
+
+        # 비교 텍스트 구성
+        comparison_lines = []
+        if in_original:
+            comparison_lines.append(f"재검색에서도 상위이고 원본에도 포함된 문서 ({len(in_original)}건):")
+            for e in in_original:
+                comparison_lines.append(f"  ✓ {e}")
+        if missed_in_original:
+            comparison_lines.append(f"\n원본 답변에서 누락된 관련도 높은 문서 ({len(missed_in_original)}건):")
+            for e in missed_in_original:
+                comparison_lines.append(f"  ✗ {e}")
+        if not in_original and not missed_in_original:
+            comparison_lines.append("재검색 결과 중 관련도 높은 문서 없음")
+
+        comparison_text = "\n".join(comparison_lines)
+
         docs_text = _build_docs_text(docs)
 
         # 전체 대화 transcript 구성
@@ -424,6 +496,7 @@ async def analyze_bad_feedback(
         if is_no_answer:
             prompt = _ANALYSIS_PROMPT_NO_ANSWER.format(
                 transcript=transcript, turn_count=turn_count, n=len(docs), docs=docs_text,
+                original_refs=original_refs_text, comparison=comparison_text,
             )
         else:
             if group_feedback == -1:
@@ -443,6 +516,8 @@ async def analyze_bad_feedback(
                 docs=docs_text,
                 dissatisfaction_section=dissatisfaction_section,
                 improve_num=improve_num,
+                original_refs=original_refs_text,
+                comparison=comparison_text,
             )
 
         llm_html = await asyncio.to_thread(
@@ -453,18 +528,20 @@ async def analyze_bad_feedback(
             )
         )
 
-        docs_html = _build_docs_html(docs)
-
         html = (
             '<div style="font-family:inherit;font-size:0.85rem">'
-            '<div style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid #eee">'
             '<div style="font-size:0.72rem;color:#999;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">분석 작업 보고서</div>'
             f'<div style="line-height:1.75;color:#333">{llm_html}</div>'
             '</div>'
-            f'<div><div style="font-size:0.72rem;color:#999;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">재검색 결과 {len(docs)}건</div>'
-            f'{docs_html}</div>'
-            '</div>'
         )
+        if discovery_docs:
+            discovery_html = _build_docs_html(discovery_docs, original_ref_urls)
+            html += (
+                f'<div style="margin-top:14px;padding-top:14px;border-top:1px solid #eee">'
+                f'<div style="font-size:0.72rem;color:#e65100;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">'
+                f'발견된 관련 문서 {len(discovery_docs)}건 (원본 답변에서 누락)</div>'
+                f'{discovery_html}</div>'
+            )
 
         if session_id:
             save_group_analysis(session_id, html, status="done")

@@ -72,6 +72,7 @@ def _migrate_add_columns(con: sqlite3.Connection) -> None:
         ("turn_index",         "INTEGER DEFAULT 1"),
         ("group_feedback",     "INTEGER DEFAULT 0"),
         ("group_feedback_at",  "TEXT    DEFAULT NULL"),
+        ("retrieved_docs_json", "TEXT    DEFAULT NULL"),
     ]
     for col, definition in migrations:
         if col not in existing:
@@ -161,7 +162,8 @@ def init_db() -> None:
                 parent_record_id  INTEGER DEFAULT NULL,
                 turn_index        INTEGER DEFAULT 1,
                 group_feedback    INTEGER DEFAULT 0,
-                group_feedback_at TEXT    DEFAULT NULL
+                group_feedback_at TEXT    DEFAULT NULL,
+                retrieved_docs_json TEXT    DEFAULT NULL
             )
         """)
         _migrate_add_columns(con)
@@ -196,6 +198,7 @@ def save(
     perf: Optional[Dict] = None,
     turn_index: int = 1,
     parent_record_id: Optional[int] = None,
+    retrieved_docs: Optional[List[Dict]] = None,
 ) -> int:
     """Q&A 한 건을 저장하고 record_id를 반환합니다."""
     refs = references or []
@@ -206,8 +209,8 @@ def save(
             """INSERT INTO chat_history
                (session_id, created_at, question, answer, references_json, teams_sent,
                 response_time_ms, is_no_answer, ref_count, ref_sources_json, feedback,
-                perf_json, turn_index, parent_record_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)""",
+                perf_json, turn_index, parent_record_id, retrieved_docs_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)""",
             (
                 session_id,
                 datetime.now(timezone.utc).isoformat(),
@@ -222,6 +225,7 @@ def save(
                 json.dumps(perf, ensure_ascii=False) if perf else None,
                 turn_index,
                 parent_record_id,
+                json.dumps(retrieved_docs, ensure_ascii=False) if retrieved_docs else None,
             ),
         )
         con.commit()
@@ -308,7 +312,7 @@ def get_session_detail(session_id: str) -> Optional[Dict]:
                       question, answer, references_json, is_no_answer,
                       feedback, group_feedback, group_feedback_at,
                       analysis_status, no_answer_analysis, response_time_ms,
-                      perf_json
+                      perf_json, retrieved_docs_json
                FROM chat_history
                WHERE session_id = ?
                ORDER BY turn_index ASC, created_at ASC""",
@@ -333,6 +337,7 @@ def get_session_detail(session_id: str) -> Optional[Dict]:
             "perf": json.loads(r["perf_json"]) if r["perf_json"] else None,
             "analysis_status": r["analysis_status"],
             "no_answer_analysis": r["no_answer_analysis"],
+            "retrieved_docs": json.loads(r["retrieved_docs_json"]) if r["retrieved_docs_json"] else [],
         }
         for r in rows
     ]

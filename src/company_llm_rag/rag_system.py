@@ -419,7 +419,7 @@ def _detect_filters(query: str) -> dict:
     return {'sources': sources, 'extensions': extensions}
 _NO_ANSWER_PHRASE = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
 _MAX_REFERENCES = 10   # 참고 링크 최대 표시 수
-_MAX_REF_DISTANCE = 0.5  # 벡터 거리 기준치 — 이 이상이면 참고문서에서 제외 (0.0=완전일치, 1.0=무관)
+_MAX_REF_DISTANCE = 0.3  # 벡터 거리 기준치 — 이 이상이면 참고문서에서 제외 (0.0=완전일치, 1.0=무관)
 _JIRA_KEY_RE = re.compile(r'\b([A-Z]+-\d+)\b')
 
 # 쓸모없는 문서 패턴 (검색 후 LLM 컨텍스트에서 제외)
@@ -500,7 +500,7 @@ def _extract_page_nums(content: str, pattern: re.Pattern) -> List[int]:
     return sorted({int(m) for m in pattern.findall(content)})
 
 
-def _build_references(retrieved_docs: List[Dict], listing: bool = False) -> List[Dict]:
+def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_indices: set = None) -> List[Dict]:
     """retrieved_docs에서 참고 링크 목록을 생성합니다."""
     # URL별 슬라이드/페이지 번호 사전 수집 (같은 파일의 여러 청크에서 합산)
     url_slides: dict = {}
@@ -525,12 +525,14 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False) -> List
     seen: set = set()          # URL 기반 중복 제거
     seen_issue_keys: set = set()  # Jira issue_key 기반 중복 제거
     references = []
-    for doc in retrieved_docs:
+    for i, doc in enumerate(retrieved_docs):
         if len(references) >= max_refs:
             break
         # 쿼리에 명시된 Jira 키와 일치하는 문서(_injected)는 항상 포함
+        # cited 문서는 거리와 무관하게 항상 포함
         # 나머지는 벡터 거리 기준치 초과 시 제외 (키워드 전용 문서는 _distance=1.0이므로 주의)
-        if not doc.get('_injected', False) and doc.get('_distance', 0.0) > _MAX_REF_DISTANCE:
+        is_cited = cited_indices is not None and i in cited_indices
+        if not is_cited and not doc.get('_injected', False) and doc.get('_distance', 0.0) > _MAX_REF_DISTANCE:
             continue
         meta = doc["metadata"]
         url = meta.get("url", "") or ""
@@ -712,12 +714,12 @@ def rag_query(
     if not return_refs:
         return llm_response
 
-    # 답변에 정보 없음 문구가 포함된 경우 참고 링크 없음
-    if _NO_ANSWER_PHRASE in llm_response:
-        return llm_response, [], timing
-
-    # [REFn] 인용 제거 이후: 검색된 전체 문서를 참고문서로 표시 (거리 필터는 _build_references 내부)
-    references = _build_references(retrieved_docs, listing)
+    is_no_answer = _NO_ANSWER_PHRASE in llm_response
+    if is_no_answer:
+        references = []
+    else:
+        # [REFn] 인용 제거 이후: 검색된 전체 문서를 참고문서로 표시 (거리 필터는 _build_references 내부)
+        references = _build_references(retrieved_docs, listing, cited_indices=cited)
     return llm_response, references, timing
 
 
@@ -814,7 +816,7 @@ def rag_query_stream(
         references = []
     else:
         # [REFn] 인용 제거 이후: 검색된 전체 문서를 참고문서로 표시 (거리 필터는 _build_references 내부)
-        references = _build_references(retrieved_docs, listing)
+        references = _build_references(retrieved_docs, listing, cited_indices=cited)
     yield {"type": "done", "answer": full_answer, "references": references, "timing": timing, "is_no_answer": is_no_answer}
 
 
