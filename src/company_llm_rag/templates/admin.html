@@ -773,7 +773,7 @@
           <div class="sec-hd" style="margin-top:6px" onclick="toggleSec(this)"><span>📄 참고문서 <span style="color:#aaa;font-weight:400;font-size:.8rem">${refs.length}건</span></span><span class="arr">▶</span></div>
           <div class="sec-bd">${buildRefsHtml(refs)}</div>
           <div class="sec-hd" onclick="toggleSec(this)"><span>⏱ 응답시간 <span style="color:#aaa;font-weight:400;font-size:.8rem">${fmtMs(t.response_time_ms)}</span></span><span class="arr">▶</span></div>
-          <div class="sec-bd">${buildPerfHtml(null, t.response_time_ms)}</div>
+          <div class="sec-bd">${buildPerfHtml(t.perf, t.response_time_ms)}</div>
         </div>
       </div>`;
     }).join('');
@@ -1321,8 +1321,8 @@
         const copyBtnT = r.doc_id ? `<button onclick="copyDocId(this,'${escHtml(r.doc_id)}')" title="리소스 ID 복사: ${escHtml(r.doc_id)}" style="flex-shrink:0;border:1px solid #ddd;background:#f9f9f9;color:#888;font-size:.68rem;padding:1px 5px;border-radius:4px;cursor:pointer;line-height:1.4;margin-top:3px" onmouseover="this.style.background='#eee'" onmouseout="this.style.background='#f9f9f9'">ID</button>` : '';
         return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #eee;border-radius:8px;margin-bottom:6px" onmouseover="this.style.background='#f8f8ff'" onmouseout="this.style.background=''">
           ${badge}
-          <div style="flex:1;min-width:0;line-height:1.7">${locPart}${mainLink}${datePart}</div>
           ${copyBtnT}
+          <div style="flex:1;min-width:0;line-height:1.7">${locPart}${mainLink}${datePart}</div>
         </div>`;
 
       } else {
@@ -1334,8 +1334,8 @@
       const copyBtn = r.doc_id ? `<button onclick="copyDocId(this,'${escHtml(r.doc_id)}')" title="리소스 ID 복사: ${escHtml(r.doc_id)}" style="flex-shrink:0;border:1px solid #ddd;background:#f9f9f9;color:#888;font-size:.68rem;padding:1px 5px;border-radius:4px;cursor:pointer;line-height:1.4;margin-top:3px" onmouseover="this.style.background='#eee'" onmouseout="this.style.background='#f9f9f9'">ID</button>` : '';
       return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #eee;border-radius:8px;margin-bottom:6px" onmouseover="this.style.background='#f8f8ff'" onmouseout="this.style.background=''">
         ${badge}
-        <div style="flex:1;min-width:0;line-height:1.7">${breadcrumb}${mainLink}</div>
         ${copyBtn}
+        <div style="flex:1;min-width:0;line-height:1.7">${breadcrumb}${mainLink}</div>
       </div>`;
     }
 

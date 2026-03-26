@@ -307,7 +307,8 @@ def get_session_detail(session_id: str) -> Optional[Dict]:
             """SELECT id, turn_index, parent_record_id, created_at,
                       question, answer, references_json, is_no_answer,
                       feedback, group_feedback, group_feedback_at,
-                      analysis_status, no_answer_analysis, response_time_ms
+                      analysis_status, no_answer_analysis, response_time_ms,
+                      perf_json
                FROM chat_history
                WHERE session_id = ?
                ORDER BY turn_index ASC, created_at ASC""",
@@ -329,6 +330,7 @@ def get_session_detail(session_id: str) -> Optional[Dict]:
             "is_no_answer": bool(r["is_no_answer"]),
             "feedback": r["feedback"],
             "response_time_ms": r["response_time_ms"],
+            "perf": json.loads(r["perf_json"]) if r["perf_json"] else None,
             "analysis_status": r["analysis_status"],
             "no_answer_analysis": r["no_answer_analysis"],
         }
