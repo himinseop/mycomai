@@ -6,6 +6,8 @@
 설정의 analyze_no_answer 플래그가 ON일 때만 트리거됩니다.
 """
 
+import asyncio
+import functools
 from typing import Optional
 
 from company_llm_rag.history_store import (
@@ -381,7 +383,9 @@ async def analyze_bad_feedback(
 
         # 모든 질문을 합쳐서 검색
         combined_query = " ".join(all_questions)
-        docs = retrieve_documents(combined_query, n_results=15, return_scores=True)
+        docs = await asyncio.to_thread(
+            retrieve_documents, combined_query, n_results=15, return_scores=True
+        )
         docs_text = _build_docs_text(docs)
 
         # 전체 대화 transcript 구성
@@ -441,9 +445,12 @@ async def analyze_bad_feedback(
                 improve_num=improve_num,
             )
 
-        llm_html = default_llm.chat(
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
+        llm_html = await asyncio.to_thread(
+            functools.partial(
+                default_llm.chat,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+            )
         )
 
         docs_html = _build_docs_html(docs)
