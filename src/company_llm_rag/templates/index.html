@@ -6,7 +6,8 @@
   <title>{{ company_name }} 지식허브</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+    html { height: 100%; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
 
     /* ── 헤더 ── */
     header {
@@ -24,6 +25,32 @@
     /* ── 메인 레이아웃 ── */
     #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 
+    /* ── 랜딩 (빈 상태: 중앙 배치) ── */
+    #empty-landing {
+      display: none;
+      flex-direction: column; align-items: center; text-align: center;
+      gap: 8px; padding: 0 20px 20px;
+    }
+    #empty-landing img { width: 100px; height: 100px; object-fit: contain; margin-bottom: 4px; }
+    #empty-landing h2 { font-size: 20px; color: #1a1a2e; font-weight: 700; }
+    #empty-landing p  { font-size: 14px; color: #888; }
+
+    /* is-empty: feed 숨기고 input을 랜딩에 통합 */
+    body.is-empty #main {
+      justify-content: center; align-items: center; gap: 0; padding: 0 0 12vh;
+    }
+    body.is-empty #empty-landing { display: flex; }
+    body.is-empty #feed-scroll   { display: none; }
+    body.is-empty #input-wrapper {
+      background: transparent; border-top: none;
+      width: 100%; max-width: 680px; padding: 0 20px;
+    }
+    body.is-empty #input-area { padding: 0; }
+    body.is-empty .input-box {
+      box-shadow: 0 4px 20px rgba(0,0,0,0.10);
+      border-color: #d8d8e8;
+    }
+
     /* 스크롤 피드 (전체 너비, 스크롤바 viewport 우측) */
     #feed-scroll { flex: 1; overflow-y: auto; min-height: 0; }
     #feed-scroll::-webkit-scrollbar { width: 4px; }
@@ -35,15 +62,6 @@
       padding: 20px 16px 16px;
       display: flex; flex-direction: column; gap: 12px;
     }
-
-    /* ── 빈 상태 ── */
-    .empty-state {
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      color: #888; gap: 8px; padding: 60px 0; text-align: center;
-    }
-    .empty-state h2 { font-size: 20px; color: #333; }
-    .empty-state p { font-size: 14px; }
 
     /* ── 질문 컨텍스트 카드 ── */
     .context-card {
@@ -195,26 +213,67 @@
 
     /* ── 하단 새 질문 입력창 ── */
     #input-wrapper {
-      background: white; border-top: 1px solid #e0e0e0; flex-shrink: 0;
+      background: white; border-top: 1px solid #ebebeb; flex-shrink: 0;
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
     }
     #input-area {
-      max-width: 800px; margin: 0 auto;
-      padding: 12px 16px; display: flex; gap: 10px;
+      max-width: 760px; margin: 0 auto;
+      padding: 10px 16px 4px;
+    }
+    /* 통합 입력 박스 (ChatGPT 스타일) */
+    .input-box {
+      display: flex; align-items: flex-end; gap: 8px;
+      background: white; border: 1.5px solid #e0e0e0; border-radius: 16px;
+      padding: 10px 10px 10px 16px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+      transition: border-color 0.18s, box-shadow 0.18s;
+    }
+    .input-box:focus-within {
+      border-color: #4f46e5;
+      box-shadow: 0 2px 12px rgba(79,70,229,0.10);
     }
     #input {
-      flex: 1; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px;
-      font-size: 14px; resize: none; height: 48px; max-height: 120px;
-      outline: none; font-family: inherit; color: #1a1a2e;
+      flex: 1; border: none; outline: none; background: transparent;
+      font-size: 15px; resize: none; height: 30px; max-height: 120px;
+      font-family: inherit; color: #1a1a2e; line-height: 1.6;
+      padding: 0;
     }
-    #input::placeholder { color: #aaa; }
-    #input:focus { border-color: #4f46e5; }
+    #input::placeholder { color: #b0b0b0; }
     #send-btn {
       background: #4f46e5; color: white; border: none;
-      padding: 0 20px; border-radius: 8px; cursor: pointer;
-      font-size: 14px; font-weight: 500; height: 48px;
+      width: 36px; height: 36px; border-radius: 10px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: background 0.15s;
     }
     #send-btn:hover { background: #4338ca; }
-    #send-btn:disabled { background: #c5c5c5; cursor: not-allowed; }
+    #send-btn:disabled { background: #d0d0d8; cursor: not-allowed; }
+    .input-hint {
+      text-align: center; font-size: 11px; color: #c8c8c8;
+      padding: 5px 0 2px;
+    }
+
+    /* ── 반응형 ── */
+    @media (max-width: 480px) {
+      header { padding: 0 12px; height: 52px; }
+      .header-title { font-size: 15px; gap: 8px; }
+      .header-btn { padding: 5px 10px; font-size: 12px; }
+      .feed-inner { padding: 12px 10px; gap: 8px; }
+      .qa-q { padding: 12px; }
+      .qa-a { padding: 12px; gap: 8px; }
+      .qa-a-avatar { width: 24px; height: 24px; }
+      .context-summary { padding: 10px 12px; }
+      .followup-area { padding: 8px 10px; }
+      .followup-input { height: 36px; font-size: 13px; }
+      .followup-btn { height: 36px; padding: 0 12px; font-size: 13px; }
+      .ctx-action-bar { padding: 0 10px 8px; gap: 6px; }
+      #input-area { padding: 8px 10px 2px; }
+      .input-box { border-radius: 14px; padding: 8px 8px 8px 14px; }
+      #input { font-size: 14px; }
+      #send-btn { width: 34px; height: 34px; border-radius: 9px; }
+      #empty-landing h2 { font-size: 18px; }
+      #empty-landing img { width: 72px; height: 72px; }
+      body.is-empty #input-wrapper { padding: 0 14px; }
+    }
   </style>
 </head>
 <body>
@@ -227,20 +286,30 @@
 </header>
 
 <div id="main">
-  <div id="feed-scroll">
-    <div class="feed-inner" id="feed">
-      <div class="empty-state" id="empty-state">
-        <img src="/static/osajang.png" alt="오사장" style="width:120px;height:120px;object-fit:contain;margin-bottom:8px;">
-        <h2>안녕하세요, 오사장입니다 👋</h2>
-        <p>슈퍼커넥트 업무에 관한 궁금한 점을 물어보세요.</p>
-      </div>
-    </div>
+  <!-- 랜딩 (빈 상태): 중앙 배치 -->
+  <div id="empty-landing">
+    <img src="/static/osajang.png" alt="오사장">
+    <h2>안녕하세요, 오사장입니다 👋</h2>
+    <p>슈퍼커넥트 업무에 관한 궁금한 점을 물어보세요.</p>
   </div>
 
+  <!-- 대화 피드 -->
+  <div id="feed-scroll">
+    <div class="feed-inner" id="feed"></div>
+  </div>
+
+  <!-- 입력창 (랜딩 / 하단 공용) -->
   <div id="input-wrapper">
     <div id="input-area">
-      <textarea id="input" placeholder="새로운 질문을 입력하세요... (Shift+Enter로 줄바꿈, Enter로 전송)" rows="1"></textarea>
-      <button id="send-btn" onclick="sendNewQuestion()">전송</button>
+      <div class="input-box">
+        <textarea id="input" placeholder="새로운 질문을 입력하세요." rows="1"></textarea>
+        <button id="send-btn" onclick="sendNewQuestion()" title="전송">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="input-hint" id="input-hint"></div>
     </div>
   </div>
 </div>
@@ -259,14 +328,16 @@
   const feed       = document.getElementById('feed');
   const input      = document.getElementById('input');
   const sendBtn    = document.getElementById('send-btn');
-  const emptyState = document.getElementById('empty-state');
+
+  // 초기 상태: 랜딩 중앙 배치
+  document.body.classList.add('is-empty');
 
   // ── 이벤트 ────────────────────────────────────────────────────────────
   input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendNewQuestion(); }
+    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); sendNewQuestion(); }
   });
   input.addEventListener('input', () => {
-    input.style.height = '48px';
+    input.style.height = '30px';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
   });
 
@@ -477,7 +548,7 @@
     if (!bar) return;
     ctxLastRecord[ctxId] = recordId;
     bar.innerHTML = `
-      <span class="feedback-label">이 질문 흐름이 도움이 됐나요?</span>
+      <span class="feedback-label">이 질문이 도움이 되었나요?</span>
       <button class="feedback-btn" data-rating="1" onclick="sendFeedback(this,${recordId},1,'${ctxId}')">👍</button>
       <button class="feedback-btn" data-rating="-1" onclick="sendFeedback(this,${recordId},-1,'${ctxId}')">👎</button>`;
   }
@@ -491,9 +562,10 @@
     if (activeCtxId) collapseContext(activeCtxId);
 
     input.value = '';
-    input.style.height = '48px';
+    input.style.height = '30px';
     sendBtn.disabled = true;
-    emptyState.style.display = 'none';
+    document.body.classList.remove('is-empty');
+    document.getElementById('input-hint').textContent = '오사장은 실수를 할 수 있습니다.';
 
     const { card, ctxId } = createContextCard();
     activeCtxId = ctxId;
@@ -642,10 +714,10 @@
     for (const k in ctxTurnIndex)   delete ctxTurnIndex[k];
     for (const k in ctxLastRecord)  delete ctxLastRecord[k];
     activeCtxId = null;
-    // 기존 카드 제거 후 빈 상태 복원
+    // 기존 카드 제거 후 랜딩 복원
     while (feed.firstChild) feed.removeChild(feed.firstChild);
-    emptyState.style.display = 'flex';
-    feed.appendChild(emptyState);
+    document.body.classList.add('is-empty');
+    document.getElementById('input-hint').textContent = '';
     sendBtn.disabled = false;
   }
 

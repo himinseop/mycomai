@@ -15,40 +15,49 @@
     color: #fff;
     padding: 0 24px;
     display: flex;
-    align-items: stretch;
-    gap: 12px;
+    align-items: center;
+    height: 56px;
+    flex-shrink: 0;
   }
   .header-title {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 16px 0;
-    font-size: 1.2rem;
+    font-size: 1rem;
     font-weight: 600;
     white-space: nowrap;
+    flex-shrink: 0;
   }
 
   /* 탭 네비게이션 */
   .tabs {
     display: flex;
-    align-items: flex-end;
-    gap: 2px;
-    margin-left: 16px;
+    align-items: center;
+    gap: 4px;
+    margin-left: 20px;
     flex: 1;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
+  .tabs::-webkit-scrollbar { display: none; }
   .tab-btn {
-    padding: 10px 20px;
+    padding: 7px 16px;
     background: transparent;
-    border: none;
-    color: #aaa;
-    font-size: 0.9rem;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: rgba(255,255,255,0.55);
+    font-size: 0.88rem;
     cursor: pointer;
-    border-bottom: 3px solid transparent;
-    transition: color .15s, border-color .15s;
+    transition: color .15s, background .15s, border-color .15s;
     white-space: nowrap;
+    flex-shrink: 0;
   }
-  .tab-btn:hover { color: #ddd; }
-  .tab-btn.active { color: #fff; border-bottom-color: #6264a7; }
+  .tab-btn:hover { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.07); }
+  .tab-btn.active {
+    color: #fff;
+    background: rgba(98,100,167,0.35);
+    border-color: rgba(98,100,167,0.55);
+  }
 
   main { padding: 24px; max-width: 1200px; margin: 0 auto; }
 
@@ -84,6 +93,28 @@
   .db-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
   @media (max-width: 900px) { .db-stats { grid-template-columns: repeat(3, 1fr); } }
   @media (max-width: 600px) { .db-stats { grid-template-columns: repeat(2, 1fr); } }
+
+  /* ── 반응형 ── */
+  @media (max-width: 768px) {
+    main { padding: 16px; }
+    .chart-wrap { height: 180px; }
+    .metrics { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 480px) {
+    header { padding: 0 12px; }
+    .header-title { font-size: 0.88rem; }
+    .tab-btn { padding: 6px 10px; font-size: 0.82rem; }
+    main { padding: 10px; }
+    .chart-wrap { height: 150px; }
+    .chart-card { padding: 14px 12px; }
+    .chart-card h2 { margin-bottom: 10px; }
+    .metrics { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .card { padding: 14px; }
+    .card .value { font-size: 1.6rem; }
+    .db-stats { grid-template-columns: repeat(2, 1fr); }
+    .history-card { padding: 14px 12px; }
+    .filter-bar input[type="date"] { width: 100px; }
+  }
   .db-card {
     background: #fff;
     border-radius: 10px;
@@ -396,7 +427,7 @@
 
 <header>
   <div class="header-title">
-    <span style="font-size:1.4rem;">📊</span>
+    <span style="font-size:1.2rem;">📊</span>
     {{ company_name }} 지식허브 어드민
   </div>
   <nav class="tabs">
@@ -541,20 +572,19 @@
         <button class="btn btn-secondary" onclick="resetGroupFilter()">초기화</button>
       </div>
 
-      <table id="group-table">
+      <table id="group-table" style="table-layout:fixed;width:100%">
         <thead>
           <tr>
-            <th style="width:40px">#</th>
-            <th style="width:110px">마지막 질문 시각</th>
-            <th>첫 질문</th>
-            <th style="width:50px">질문 수</th>
-            <th style="width:50px">Teams</th>
-            <th style="width:60px">피드백</th>
-            <th style="width:100px">결과분석</th>
+            <th style="width:36px;text-align:center">#</th>
+            <th style="width:76px;text-align:center;white-space:nowrap">일시</th>
+            <th>질문</th>
+            <th style="width:46px;text-align:center;white-space:nowrap">Teams</th>
+            <th style="width:52px;text-align:center;white-space:nowrap">피드백</th>
+            <th style="width:96px;text-align:center;white-space:nowrap">결과분석</th>
           </tr>
         </thead>
         <tbody id="group-tbody">
-          <tr><td colspan="7" class="empty">검색 버튼을 눌러 조회하세요.</td></tr>
+          <tr><td colspan="6" class="empty">검색 버튼을 눌러 조회하세요.</td></tr>
         </tbody>
       </table>
 
@@ -649,7 +679,7 @@
     if (feedback) params.set('group_feedback', feedback);
 
     const tbody = document.getElementById('group-tbody');
-    tbody.innerHTML = '<tr><td colspan="7" class="empty">로딩 중...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">로딩 중...</td></tr>';
 
     const res  = await fetch('/admin/sessions?' + params);
     const data = await res.json();
@@ -662,13 +692,13 @@
   function renderGroups(items, total) {
     const tbody = document.getElementById('group-tbody');
     if (!items.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="empty">데이터가 없습니다.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">데이터가 없습니다.</td></tr>';
       return;
     }
     tbody.innerHTML = items.map((g, i) => {
       const offset = (groupCurrentPage - 1) * 20;
       const num    = total - offset - i;
-      const ts     = g.latest_turn_at ? fmtDate(g.latest_turn_at) : '—';
+      const ts     = fmtRelDate(g.latest_turn_at);
       const fb     = g.group_feedback === 1  ? '<span class="badge badge-up">👍</span>'
                    : g.group_feedback === -1 ? '<span class="badge badge-down">👎</span>'
                    : '<span style="color:#ccc;font-size:0.8rem">—</span>';
@@ -682,12 +712,14 @@
       } else {
         ana = `<button class="btn-analyze" style="font-size:.75rem;padding:3px 8px" onclick="event.stopPropagation();trigGroupAnaFromTable('${sid}',this)">결과분석 요청</button>`;
       }
-      const q = escHtml((g.root_question || '').slice(0, 80));
+      const qText  = escHtml((g.root_question || '').slice(0, 80));
+      const extra  = (g.turn_count || 1) > 1
+        ? `<span style="display:inline-flex;align-items:center;justify-content:center;background:#ede9fe;color:#6d28d9;font-size:0.7rem;font-weight:700;border-radius:10px;padding:1px 6px;margin-left:6px;flex-shrink:0">+${g.turn_count - 1}</span>`
+        : '';
       return `<tr class="clickable" onclick="openGroupDetail('${sid}')">
         <td style="text-align:center;color:#aaa;font-size:0.8rem">${num}</td>
-        <td class="ts-text">${ts}</td>
-        <td class="q-text">${q}</td>
-        <td style="text-align:center">${g.turn_count}</td>
+        <td style="text-align:center" class="ts-text">${ts}</td>
+        <td class="q-text" style="overflow:hidden"><div style="display:flex;align-items:center;min-width:0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${qText}</span>${extra}</div></td>
         <td style="text-align:center">${teams}</td>
         <td style="text-align:center">${fb}</td>
         <td style="text-align:center">${ana}</td>
@@ -936,6 +968,27 @@
     });
   }
 
+  function fmtRelDate(iso) {
+    if (!iso) return '—';
+    try {
+      const d   = new Date(iso);
+      const now = new Date();
+      const hh  = String(d.getHours()).padStart(2,'0');
+      const mm  = String(d.getMinutes()).padStart(2,'0');
+      const time = `${hh}:${mm}`;
+      // 날짜(자정 기준) 차이
+      const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const thatMid  = new Date(d.getFullYear(),   d.getMonth(),   d.getDate());
+      const diffDays = Math.round((todayMid - thatMid) / 86400000);
+      if (diffDays === 0) return `오늘 ${time}`;
+      if (diffDays === 1) return `어제 ${time}`;
+      if (diffDays <  7)  return `${diffDays}일 전`;
+      if (diffDays < 30)  return `${Math.floor(diffDays / 7)}주 전`;
+      if (diffDays < 365) return `${Math.floor(diffDays / 30)}달 전`;
+      return `${Math.floor(diffDays / 365)}년 전`;
+    } catch { return '—'; }
+  }
+
   function fmtDate(iso) {
     if (!iso) return '';
     try {
@@ -1154,6 +1207,18 @@
     return (ms / 1000).toFixed(1) + 's';
   }
 
+  // ── 리소스 ID 클립보드 복사 ─────────────────────────────────────────────
+  function copyDocId(btn, id) {
+    navigator.clipboard.writeText(id).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = '복사됨';
+      btn.style.color = '#2e7d32';
+      setTimeout(() => { btn.textContent = orig; btn.style.color = '#888'; }, 1500);
+    }).catch(() => {
+      prompt('리소스 ID', id);
+    });
+  }
+
   // ── 참고문서 HTML 빌더 ────────────────────────────────────────────────────
   function buildRefsHtml(refs) {
     if (!refs || !refs.length) return '<p style="color:#aaa;padding:6px 0;font-size:0.85rem">참고 문서 없음</p>';
@@ -1253,9 +1318,11 @@
         mainLink = r.url
           ? `<a href="${escHtml(r.url)}" target="_blank" style="${mainStyle}">${msgText}</a>`
           : `<span style="${mainStyle}">${msgText}</span>`;
+        const copyBtnT = r.doc_id ? `<button onclick="copyDocId(this,'${escHtml(r.doc_id)}')" title="리소스 ID 복사: ${escHtml(r.doc_id)}" style="flex-shrink:0;border:1px solid #ddd;background:#f9f9f9;color:#888;font-size:.68rem;padding:1px 5px;border-radius:4px;cursor:pointer;line-height:1.4;margin-top:3px" onmouseover="this.style.background='#eee'" onmouseout="this.style.background='#f9f9f9'">ID</button>` : '';
         return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #eee;border-radius:8px;margin-bottom:6px" onmouseover="this.style.background='#f8f8ff'" onmouseout="this.style.background=''">
           ${badge}
           <div style="flex:1;min-width:0;line-height:1.7">${locPart}${mainLink}${datePart}</div>
+          ${copyBtnT}
         </div>`;
 
       } else {
@@ -1264,9 +1331,11 @@
           : `<span style="${mainStyle}">${escHtml(r.title || r.url || '')}</span>`;
       }
 
+      const copyBtn = r.doc_id ? `<button onclick="copyDocId(this,'${escHtml(r.doc_id)}')" title="리소스 ID 복사: ${escHtml(r.doc_id)}" style="flex-shrink:0;border:1px solid #ddd;background:#f9f9f9;color:#888;font-size:.68rem;padding:1px 5px;border-radius:4px;cursor:pointer;line-height:1.4;margin-top:3px" onmouseover="this.style.background='#eee'" onmouseout="this.style.background='#f9f9f9'">ID</button>` : '';
       return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #eee;border-radius:8px;margin-bottom:6px" onmouseover="this.style.background='#f8f8ff'" onmouseout="this.style.background=''">
         ${badge}
         <div style="flex:1;min-width:0;line-height:1.7">${breadcrumb}${mainLink}</div>
+        ${copyBtn}
       </div>`;
     }
 

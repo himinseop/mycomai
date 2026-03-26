@@ -586,6 +586,7 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False) -> List
             "url": url,
             "source": source,
             "content_type": meta.get("content_type", ""),
+            "doc_id": meta.get("original_doc_id", ""),
             "issue_key": issue_key,
             "project_key": project_key,
             "space_name": space_name,
