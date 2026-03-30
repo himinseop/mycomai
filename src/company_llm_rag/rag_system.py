@@ -418,6 +418,38 @@ def _detect_filters(query: str) -> dict:
 
     return {'sources': sources, 'extensions': extensions}
 _NO_ANSWER_PHRASE = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
+
+# Knowledge Hub 직접 응답: 1위 문서의 RRF 점수가 2위의 N배 이상이면 원문 직접 반환
+_HUB_DIRECT_RRF_RATIO = 2.0
+
+
+def _try_hub_direct_answer(retrieved_docs: List[Dict]) -> Optional[str]:
+    """Knowledge Hub 문서가 1위이고 충분히 우세하면 reply 원문을 직접 반환합니다."""
+    if not retrieved_docs or not settings.KNOWLEDGE_HUB_TEAM_NAME:
+        return None
+    top = retrieved_docs[0]
+    meta = top.get('metadata', {})
+    if meta.get('teams_team_name') != settings.KNOWLEDGE_HUB_TEAM_NAME:
+        return None
+    # RRF 점수 비교: 2위 대비 충분히 높을 때만
+    top_rrf = top.get('_rrf', 0)
+    second_rrf = retrieved_docs[1].get('_rrf', 0) if len(retrieved_docs) > 1 else 0
+    if second_rrf > 0 and top_rrf / second_rrf < _HUB_DIRECT_RRF_RATIO:
+        return None
+    # reply 원문 추출 (content에서 [Reply by ...] 이후 부분)
+    content = top.get('content', '')
+    reply_marker = '[Reply by '
+    idx = content.find(reply_marker)
+    if idx < 0:
+        return None
+    # reply 헤더 줄 건너뛰고 본문만 추출
+    reply_section = content[idx:]
+    newline_idx = reply_section.find('\n')
+    if newline_idx >= 0:
+        reply_body = reply_section[newline_idx:].strip()
+    else:
+        reply_body = reply_section
+    return reply_body if reply_body else None
 _MAX_REFERENCES = 10   # 참고 링크 최대 표시 수
 _MAX_REF_DISTANCE = 0.3  # 벡터 거리 기준치 — 이 이상이면 참고문서에서 제외 (0.0=완전일치, 1.0=무관)
 _JIRA_KEY_RE = re.compile(r'\b([A-Z]+-\d+)\b')
@@ -584,14 +616,6 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_i
                 chat_topic = ""
             created_at = meta.get("created_at", "") or ""
             snippet = (doc.get("content") or "").strip()[:90]
-        # Knowledge Hub 이미지
-        images_raw = meta.get("images", "")
-        images = []
-        if images_raw:
-            try:
-                images = json.loads(images_raw) if isinstance(images_raw, str) else images_raw
-            except (json.JSONDecodeError, TypeError):
-                pass
         page_nums = sorted(url_slides.get(url, set()))
         references.append({
             "title": title,
@@ -613,7 +637,6 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_i
             "created_at": created_at,
             "snippet": snippet,
             "page_nums": page_nums,
-            "images": images,
         })
     return references
 
@@ -707,6 +730,17 @@ def rag_query(
         timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm._default_model}
         return (answer, [], timing) if return_refs else answer
 
+    # Knowledge Hub 원문 직접 응답: 1위 문서가 Knowledge Hub이면 LLM 없이 원문 반환
+    hub_direct = _try_hub_direct_answer(retrieved_docs)
+    if hub_direct:
+        t_llm = time.monotonic()
+        total_ms = int((t_llm - t0) * 1000)
+        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "inject_ms": inject_ms, "llm_ms": 0, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": "knowledge_hub_direct"}
+        if not return_refs:
+            return hub_direct
+        references = _build_references(retrieved_docs, listing, cited_indices=set())
+        return hub_direct, references, timing
+
     prompt = build_rag_prompt(user_query, retrieved_docs, recency_window=recency_window, recency_explicit=(explicit_period is not None))
     llm_response = get_llm_response(prompt, conversation_history=conversation_history)
     t_llm = time.monotonic()
@@ -789,6 +823,16 @@ def rag_query_stream(
         answer = _NO_ANSWER_PHRASE
         timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm._default_model}
         yield {"type": "done", "answer": answer, "references": [], "timing": timing, "is_no_answer": True}
+        return
+
+    # Knowledge Hub 원문 직접 응답
+    hub_direct = _try_hub_direct_answer(retrieved_docs)
+    if hub_direct:
+        total_ms = int((time.monotonic() - t0) * 1000)
+        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "inject_ms": inject_ms, "llm_ms": 0, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": "knowledge_hub_direct"}
+        references = _build_references(retrieved_docs, listing, cited_indices=set())
+        yield {"type": "token", "text": hub_direct}
+        yield {"type": "done", "answer": hub_direct, "references": references, "timing": timing, "is_no_answer": False}
         return
 
     prompt = build_rag_prompt(user_query, retrieved_docs, recency_window=recency_window, recency_explicit=(explicit_period is not None))

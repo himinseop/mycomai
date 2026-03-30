@@ -47,17 +47,13 @@ def _download_graph_image(url: str, access_token: str) -> Optional[str]:
         return None
 
 
-def _parse_reply_html_with_images(html_content: str, access_token: str) -> tuple:
-    """Reply HTML에서 텍스트와 이미지를 분리 추출합니다.
-
-    Returns:
-        (plain_text, image_paths): 텍스트와 로컬 이미지 경로 리스트
-    """
-    from bs4 import BeautifulSoup
+def _parse_reply_html_with_images(html_content: str, access_token: str) -> str:
+    """Reply HTML을 텍스트로 변환하며, 이미지를 원래 위치에 마크다운으로 삽입합니다."""
+    from bs4 import BeautifulSoup, NavigableString
     import re
 
     if not html_content:
-        return "", []
+        return ""
 
     try:
         try:
@@ -65,17 +61,16 @@ def _parse_reply_html_with_images(html_content: str, access_token: str) -> tuple
         except Exception:
             soup = BeautifulSoup(html_content, "html.parser")
 
-        # 이미지 추출 및 다운로드
-        image_paths = []
+        # <img> → 마크다운 이미지로 치환 (원래 위치 유지)
         for img_tag in soup.find_all("img"):
             src = img_tag.get("src", "")
             if "graph.microsoft.com" in src:
                 local_path = _download_graph_image(src, access_token)
                 if local_path:
-                    image_paths.append(local_path)
+                    img_tag.replace_with(NavigableString(f"\n![참고 이미지]({local_path})\n"))
+                    continue
             img_tag.decompose()
 
-        # 나머지는 기존 parse_teams_html과 동일한 텍스트 추출
         for tag in soup.find_all(["attachment"]):
             tag.decompose()
         for tag in soup.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6",
@@ -88,11 +83,11 @@ def _parse_reply_html_with_images(html_content: str, access_token: str) -> tuple
         text = soup.get_text(separator=" ")
         text = re.sub(r"[ \t]+", " ", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
-        return text.strip(), image_paths
+        return text.strip()
 
     except Exception as e:
         logger.warning(f"Reply HTML 파싱 실패: {e}")
-        return html_content, []
+        return html_content
 
 
 def _extract_adaptive_card_text(attachments: List[Dict]) -> str:
@@ -297,15 +292,13 @@ def main():
 
                         # replies: content에 합치기
                         reply_blocks = []
-                        all_images = []
                         for reply in message.get('replies', []):
                             if reply.get('messageType') != 'message':
                                 continue
-                            # Knowledge Hub: 이미지 포함 파싱
+                            # Knowledge Hub: 이미지를 원래 위치에 마크다운으로 삽입
                             if is_hub:
-                                reply_body, images = _parse_reply_html_with_images(
+                                reply_body = _parse_reply_html_with_images(
                                     reply.get('body', {}).get('content', ""), access_token)
-                                all_images.extend(images)
                             else:
                                 reply_body = parse_teams_html(reply.get('body', {}).get('content', ""))
                             if not reply_body.strip():
@@ -335,8 +328,6 @@ def main():
                             "message_type": message.get('messageType'),
                             "reply_count": len(reply_blocks),
                         }
-                        if all_images:
-                            metadata["images"] = json.dumps(all_images)
 
                         extracted_data_schema = {
                             "id": f"teams-{msg_id}",
