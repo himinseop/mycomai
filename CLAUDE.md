@@ -99,14 +99,32 @@ PYTHONPATH=src python3 -c "from company_llm_rag.config import settings; print(se
 | `group_feedback_at` | TEXT | 그룹 피드백 입력 시각 (ISO8601) |
 
 ## Knowledge Hub 직접 응답 아키텍처
+Knowledge Hub 팀 채널에 담당자가 작성한 Q&A 답변을, 유사 질문 인입 시 원문 그대로 제공하는 시스템.
+
+### 데이터 흐름
+```
+[수집] Teams Knowledge Hub 채널
+  → Adaptive Card에서 [질문] 텍스트 추출
+  → Reply HTML에서 답변 원문 + 이미지(Graph API→로컬 다운로드) 추출
+  → ChromaDB: 질문만 임베딩 (is_hub_direct=True 메타데이터)
+  → SQLite hub_replies: 답변 원문 저장 (이미지 마크다운 인라인)
+
+[질의] 사용자 질문 인입
+  → 벡터 검색 (RRF 5.0x 부스트로 Hub 문서 우선)
+  → 1위가 Hub 문서 & 2위 대비 2배 이상 우세?
+    → Yes: gpt-4o-mini로 안내 멘트 생성 + SQLite에서 답변 원문 직접 반환
+    → No:  기존 LLM RAG 파이프라인
+```
+
+### 주요 동작
 - **임베딩**: 질문 텍스트만 ChromaDB에 저장 (Adaptive Card에서 `[질문]` 추출)
 - **원문 저장**: `hub_replies` 테이블(app_data.db)에 reply 원문 + 이미지 마크다운 보관
 - **검색**: 질문 임베딩으로 유사 질문 매칭, RRF 5.0x 부스트
-- **응답**: LLM 미사용, SQLite에서 원문 직접 반환 (이미지 포함)
-- **중복 처리**: 동일 질문 감지 시 기존 임베딩 재활용, 답변 포인터만 변경 (이전 답변 이력 보관)
+- **응답**: 안내 멘트(gpt-4o-mini) + 답변 원문(수정 없이 그대로, 이미지 포함)
+- **중복 처리**: 동일 질문 감지 시 기존 임베딩 재활용, 답변 포인터만 변경 (이전 답변은 is_active=0으로 이력 보관)
 - **참고문서**: Hub 직접 응답 시 비표시
 
-### hub_replies 스키마
+### hub_replies 스키마 (app_data.db)
 | 컬럼 | 타입 | 설명 |
 |---|---|---|
 | `doc_id` | TEXT | 원본 Teams 메시지 ID |
@@ -114,6 +132,17 @@ PYTHONPATH=src python3 -c "from company_llm_rag.config import settings; print(se
 | `reply_content` | TEXT | 답변 원문 (마크다운 이미지 포함) |
 | `created_at` | TEXT | 답변 저장 시각 (ISO8601) |
 | `is_active` | INTEGER | 활성 답변 여부 (1=현재, 0=이전 버전) |
+
+### 관련 파일
+| 파일 | 역할 |
+|------|------|
+| `config.py` | `KNOWLEDGE_HUB_TEAM_NAME`, `KNOWLEDGE_HUB_WEBHOOK_URL`, `KNOWLEDGE_HUB_RRF_BOOST` |
+| `teams_extractor.py` | Adaptive Card 질문 추출, reply 이미지 다운로드, 질문/답변 분리 |
+| `data_loader.py` | 질문만 임베딩, 답변 원문 SQLite 저장, 중복 질문 감지 |
+| `history_store.py` | `hub_upsert`, `hub_get_reply`, `hub_find_duplicate`, `hub_get_reply_history` |
+| `rag_system.py` | `_try_hub_direct_answer`, `_build_hub_intro` (안내 멘트 LLM 생성) |
+| `retrieval_module.py` | RRF 부스트 적용 |
+| `static/images/` | 다운로드된 Teams 이미지 파일 |
 
 ## 참고 문서
 - `REFACTORING_PLAN.md` - 전체 리팩토링 로드맵 및 진행 상황
