@@ -531,10 +531,12 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_i
         # 쿼리에 명시된 Jira 키와 일치하는 문서(_injected)는 항상 포함
         # cited 문서는 거리와 무관하게 항상 포함
         # 나머지는 벡터 거리 기준치 초과 시 제외 (키워드 전용 문서는 _distance=1.0이므로 주의)
-        is_cited = cited_indices is not None and i in cited_indices
-        if not is_cited and not doc.get('_injected', False) and doc.get('_distance', 0.0) > _MAX_REF_DISTANCE:
-            continue
         meta = doc["metadata"]
+        is_cited = cited_indices is not None and i in cited_indices
+        is_hub = (settings.KNOWLEDGE_HUB_TEAM_NAME
+                  and meta.get('teams_team_name', '') == settings.KNOWLEDGE_HUB_TEAM_NAME)
+        if not is_cited and not doc.get('_injected', False) and not is_hub and doc.get('_distance', 0.0) > _MAX_REF_DISTANCE:
+            continue
         url = meta.get("url", "") or ""
         if not url or url == "None":
             url = _build_teams_url(meta)
@@ -582,6 +584,14 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_i
                 chat_topic = ""
             created_at = meta.get("created_at", "") or ""
             snippet = (doc.get("content") or "").strip()[:90]
+        # Knowledge Hub 이미지
+        images_raw = meta.get("images", "")
+        images = []
+        if images_raw:
+            try:
+                images = json.loads(images_raw) if isinstance(images_raw, str) else images_raw
+            except (json.JSONDecodeError, TypeError):
+                pass
         page_nums = sorted(url_slides.get(url, set()))
         references.append({
             "title": title,
@@ -603,6 +613,7 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_i
             "created_at": created_at,
             "snippet": snippet,
             "page_nums": page_nums,
+            "images": images,
         })
     return references
 

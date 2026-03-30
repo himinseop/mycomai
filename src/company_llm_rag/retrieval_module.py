@@ -319,8 +319,8 @@ def retrieve_documents(
         )
 
         # ── 3. RRF 융합 ───────────────────────────────────────────
-        hub_teams = set(settings.TEAMS_KNOWLEDGE_HUB_TEAMS)
-        hub_rrf_boost = settings.BOOST_KNOWLEDGE_HUB_RRF
+        hub_team = settings.KNOWLEDGE_HUB_TEAM_NAME
+        hub_rrf_boost = settings.KNOWLEDGE_HUB_RRF_BOOST
 
         all_ids = set(vector_rank_map) | set(keyword_rank_map)
         scored: List[Dict] = []
@@ -334,9 +334,9 @@ def retrieve_documents(
             else:
                 rrf = v_score + k_score
             # Knowledge Hub 팀 문서 우선순위 부스트
-            if hub_teams:
+            if hub_team:
                 team = doc_map[doc_id].get('metadata', {}).get('teams_team_name', '')
-                if team in hub_teams:
+                if team == hub_team:
                     rrf *= hub_rrf_boost
             # 최신성 부스트: created_at 기반 가중치 적용
             if recency_boost:

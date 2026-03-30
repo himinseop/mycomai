@@ -297,8 +297,13 @@ def main():
         if settings.SHAREPOINT_SITE_NAME:
             target_sites.append(settings.SHAREPOINT_SITE_NAME)
 
-        # 규칙 2: TEAMS_GROUP_NAMES가 설정된 경우 각 팀의 연결된 SharePoint 사이트도 수집
-        for team_name in settings.TEAMS_GROUP_NAMES:
+        # 규칙 2: TEAMS_GROUP_NAMES + KNOWLEDGE_HUB_TEAM_NAME의 연결된 SharePoint 사이트도 수집
+        all_team_names = list(settings.TEAMS_GROUP_NAMES)
+        if settings.KNOWLEDGE_HUB_TEAM_NAME:
+            hub = settings.KNOWLEDGE_HUB_TEAM_NAME
+            if hub not in all_team_names:
+                all_team_names.append(hub)
+        for team_name in all_team_names:
             logger.info(f"Teams 그룹 '{team_name}'의 연결 SharePoint 사이트 탐색 중...")
             linked_site_id = get_site_id_for_teams_group(team_name, access_token)
             if linked_site_id:
@@ -308,7 +313,7 @@ def main():
                 logger.warning(f"Teams 그룹 '{team_name}'의 SharePoint 사이트를 찾을 수 없어 건너뜁니다.")
 
         if not target_sites:
-            logger.info("SHAREPOINT_SITE_NAME과 TEAMS_GROUP_NAME이 모두 설정되지 않아 SharePoint 수집을 건너뜁니다.")
+            logger.info("SHAREPOINT_SITE_NAME, TEAMS_GROUP_NAME, KNOWLEDGE_HUB_TEAM_NAME이 모두 설정되지 않아 SharePoint 수집을 건너뜁니다.")
             return
 
         for i, site_name in enumerate(target_sites):

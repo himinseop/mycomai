@@ -70,9 +70,10 @@ class Settings:
         c.strip() for c in os.getenv("TEAMS_CHAT_IDS", "").split(",") if c.strip()
     ]
 
-    # Teams 문의 채널 설정 (답변 부족 시 메시지 전송) — Incoming Webhook 방식
-    # 설정: Teams 채널 → ... → 커넥터 → Incoming Webhook → 구성 → URL 복사
-    TEAMS_INQUIRY_WEBHOOK_URL: str = os.getenv("TEAMS_INQUIRY_WEBHOOK_URL", "")
+    # Knowledge Hub 설정 (답변 우선순위 + 질문 전송)
+    KNOWLEDGE_HUB_TEAM_NAME: str = os.getenv("KNOWLEDGE_HUB_TEAM_NAME", "")
+    KNOWLEDGE_HUB_WEBHOOK_URL: str = os.getenv("KNOWLEDGE_HUB_WEBHOOK_URL", "")
+    KNOWLEDGE_HUB_RRF_BOOST: float = float(os.getenv("KNOWLEDGE_HUB_RRF_BOOST", "5.0"))
 
 
     # RAG 설정 (토큰 기준 — tiktoken 사용)
@@ -97,14 +98,6 @@ class Settings:
         "sharepoint":  float(os.getenv("BOOST_SHAREPOINT", "0.7")),
         "local":       float(os.getenv("BOOST_LOCAL", "0.7")),
     }
-
-    # Teams Knowledge Hub 우선순위 부스트
-    # TEAMS_KNOWLEDGE_HUB_TEAMS: 쉼표 구분 팀명 (teams_team_name 메타데이터 값, 비워두면 비활성화)
-    # BOOST_KNOWLEDGE_HUB_RRF: RRF 점수에 곱할 가중치 (클수록 순위 상승, 기본 3.0)
-    TEAMS_KNOWLEDGE_HUB_TEAMS: List[str] = [
-        t.strip() for t in os.getenv("TEAMS_KNOWLEDGE_HUB_TEAMS", "").split(",") if t.strip()
-    ]
-    BOOST_KNOWLEDGE_HUB_RRF: float = float(os.getenv("BOOST_KNOWLEDGE_HUB_RRF", "3.0"))
 
     # 소스별 검색 필터 키워드 (쿼리에 포함되면 해당 소스만 검색)
     SOURCE_FILTER_KEYWORDS: Dict[str, List[str]] = {
@@ -170,7 +163,7 @@ class Settings:
                 errors.append("CONFLUENCE_EMAIL is required when using Confluence")
 
         # Microsoft 365 설정 검증
-        if self.SHAREPOINT_SITE_NAME or self.TEAMS_GROUP_NAME:
+        if self.SHAREPOINT_SITE_NAME or self.TEAMS_GROUP_NAMES or self.KNOWLEDGE_HUB_TEAM_NAME:
             if not self.TENANT_ID:
                 errors.append("TENANT_ID is required when using Microsoft 365")
             if not self.CLIENT_ID:

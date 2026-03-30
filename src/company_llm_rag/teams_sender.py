@@ -7,7 +7,7 @@ RAG 답변이 부족할 때 지정된 Teams 채널에 문의 메시지를 남깁
 Incoming Webhook 방식 사용 (Azure AD Application 권한 불필요)
 설정 방법:
   Teams 채널 → ... → 커넥터 → Incoming Webhook → 구성 → URL 복사
-  → TEAMS_INQUIRY_WEBHOOK_URL 환경변수에 설정
+  → KNOWLEDGE_HUB_WEBHOOK_URL 환경변수에 설정
 """
 
 from typing import Dict, List
@@ -65,8 +65,8 @@ def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bo
     Returns:
         전송 성공 여부
     """
-    if not settings.TEAMS_INQUIRY_WEBHOOK_URL:
-        logger.warning("TEAMS_INQUIRY_WEBHOOK_URL이 설정되지 않았습니다.")
+    if not settings.KNOWLEDGE_HUB_WEBHOOK_URL:
+        logger.warning("KNOWLEDGE_HUB_WEBHOOK_URL이 설정되지 않았습니다.")
         return False
 
     # 대화의 가장 첫 번째 질문을 사용
@@ -141,7 +141,7 @@ def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bo
 
     try:
         response = requests.post(
-            settings.TEAMS_INQUIRY_WEBHOOK_URL,
+            settings.KNOWLEDGE_HUB_WEBHOOK_URL,
             json=payload,
             timeout=10,
         )
@@ -155,7 +155,7 @@ def send_inquiry_to_teams(question: str, conversation_history: List[Dict]) -> bo
 
 def is_inquiry_configured() -> bool:
     """Teams 문의 채널이 설정되어 있는지 확인합니다."""
-    return bool(settings.TEAMS_INQUIRY_WEBHOOK_URL)
+    return bool(settings.KNOWLEDGE_HUB_WEBHOOK_URL)
 
 
 def send_feedback_alert_to_teams(question: str, answer: str) -> bool:
@@ -176,7 +176,7 @@ def send_feedback_alert_to_teams(question: str, answer: str) -> bool:
     Returns:
         전송 성공 여부
     """
-    if not settings.TEAMS_INQUIRY_WEBHOOK_URL:
+    if not settings.KNOWLEDGE_HUB_WEBHOOK_URL:
         return False
 
     answer_text = answer[:500] + "…" if len(answer) > 500 else answer
@@ -259,7 +259,7 @@ def send_feedback_alert_to_teams(question: str, answer: str) -> bool:
 
     try:
         response = requests.post(
-            settings.TEAMS_INQUIRY_WEBHOOK_URL,
+            settings.KNOWLEDGE_HUB_WEBHOOK_URL,
             json=payload,
             timeout=10,
         )

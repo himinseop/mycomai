@@ -365,9 +365,16 @@ def load_data_to_chromadb(data_stream):
                 try:
                     existing = collection.get(ids=[chunk_id], include=["metadatas"])
                     if existing["ids"] and existing["metadatas"][0].get("content_hash") == content_hash:
-                        logger.debug(f"Skipping unchanged chunk {chunk_id}.")
-                        stats["skipped"] += 1
-                        continue
+                        # 메타데이터 변경 확인 (images 등 새 필드 추가 시)
+                        old_meta = existing["metadatas"][0]
+                        meta_changed = any(
+                            metadata_to_store.get(k) != old_meta.get(k)
+                            for k in metadata_to_store if k != "content_hash"
+                        )
+                        if not meta_changed:
+                            logger.debug(f"Skipping unchanged chunk {chunk_id}.")
+                            stats["skipped"] += 1
+                            continue
 
                     _upsert_with_fallback(collection, chunk, metadata_to_store, chunk_id, stats, existing["ids"], fts_buffer)
                     # FTS 버퍼가 일정 크기에 도달하면 일괄 저장

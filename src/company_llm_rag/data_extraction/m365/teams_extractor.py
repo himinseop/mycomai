@@ -1,8 +1,12 @@
+import hashlib
 import json
+import os
 import sys
 import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
+
+import requests
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
@@ -12,6 +16,101 @@ from company_llm_rag.data_extraction.html_utils import parse_teams_html
 logger = get_logger(__name__)
 
 _PROGRESS_EVERY = 50
+
+
+_IMAGES_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'static', 'images')
+
+
+def _download_graph_image(url: str, access_token: str) -> Optional[str]:
+    """Graph API 이미지를 로컬에 다운로드하고 /static/images/ 경로를 반환합니다."""
+    try:
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        content_type = resp.headers.get('Content-Type', '')
+        ext = '.png'
+        if 'jpeg' in content_type or 'jpg' in content_type:
+            ext = '.jpg'
+        elif 'gif' in content_type:
+            ext = '.gif'
+        filename = hashlib.md5(url.encode()).hexdigest() + ext
+        os.makedirs(_IMAGES_DIR, exist_ok=True)
+        filepath = os.path.join(_IMAGES_DIR, filename)
+        with open(filepath, 'wb') as f:
+            f.write(resp.content)
+        return f"/static/images/{filename}"
+    except Exception as e:
+        logger.warning(f"이미지 다운로드 실패: {e}")
+        return None
+
+
+def _parse_reply_html_with_images(html_content: str, access_token: str) -> tuple:
+    """Reply HTML에서 텍스트와 이미지를 분리 추출합니다.
+
+    Returns:
+        (plain_text, image_paths): 텍스트와 로컬 이미지 경로 리스트
+    """
+    from bs4 import BeautifulSoup
+    import re
+
+    if not html_content:
+        return "", []
+
+    try:
+        try:
+            soup = BeautifulSoup(html_content, "lxml")
+        except Exception:
+            soup = BeautifulSoup(html_content, "html.parser")
+
+        # 이미지 추출 및 다운로드
+        image_paths = []
+        for img_tag in soup.find_all("img"):
+            src = img_tag.get("src", "")
+            if "graph.microsoft.com" in src:
+                local_path = _download_graph_image(src, access_token)
+                if local_path:
+                    image_paths.append(local_path)
+            img_tag.decompose()
+
+        # 나머지는 기존 parse_teams_html과 동일한 텍스트 추출
+        for tag in soup.find_all(["attachment"]):
+            tag.decompose()
+        for tag in soup.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6",
+                                   "li", "tr", "br", "div", "section"]):
+            tag.insert_before("\n")
+            tag.insert_after("\n")
+        for tag in soup.find_all(["td", "th"]):
+            tag.insert_after("\t")
+
+        text = soup.get_text(separator=" ")
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip(), image_paths
+
+    except Exception as e:
+        logger.warning(f"Reply HTML 파싱 실패: {e}")
+        return html_content, []
+
+
+def _extract_adaptive_card_text(attachments: List[Dict]) -> str:
+    """Adaptive Card 첨부파일에서 TextBlock 텍스트를 추출합니다."""
+    texts = []
+    for att in attachments:
+        if att.get('contentType') != 'application/vnd.microsoft.card.adaptive':
+            continue
+        try:
+            card = json.loads(att.get('content', '{}'))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for block in card.get('body', []):
+            if block.get('type') == 'TextBlock':
+                text = (block.get('text') or '').strip()
+                if text:
+                    texts.append(text)
+    return '\n'.join(texts)
 
 def _fmt_elapsed(seconds: float) -> str:
     return str(timedelta(seconds=int(seconds)))
@@ -140,11 +239,15 @@ def main():
         access_token = get_access_token()
         logger.info("Successfully acquired access token.")
 
-        if not settings.TEAMS_GROUP_NAMES:
-            logger.info("TEAMS_GROUP_NAME이 설정되지 않아 Teams 채널 수집을 건너뜁니다.")
-            return
+        target_teams = list(settings.TEAMS_GROUP_NAMES)
+        if settings.KNOWLEDGE_HUB_TEAM_NAME:
+            hub = settings.KNOWLEDGE_HUB_TEAM_NAME
+            if hub not in target_teams:
+                target_teams.append(hub)
 
-        target_teams = settings.TEAMS_GROUP_NAMES
+        if not target_teams:
+            logger.info("TEAMS_GROUP_NAME과 KNOWLEDGE_HUB_TEAM_NAME이 모두 설정되지 않아 Teams 채널 수집을 건너뜁니다.")
+            return
         team_map = {}
 
         for i, group_name in enumerate(target_teams):
@@ -167,8 +270,14 @@ def main():
                         logger.info(f"[Teams][{group_name}][{channel_display_name}] {total_msgs}개 메시지 발견. 수집 시작...")
                     ch_start = time.time()
                     ch_count = 0
+                    is_hub = (settings.KNOWLEDGE_HUB_TEAM_NAME
+                              and group_name == settings.KNOWLEDGE_HUB_TEAM_NAME)
                     for message in messages:
                         if message.get('messageType') != 'message':
+                            continue
+
+                        # Knowledge Hub: 답변(reply)이 있는 메시지만 수집
+                        if is_hub and not message.get('replies'):
                             continue
 
                         author_info = message.get('from', {})
@@ -179,17 +288,26 @@ def main():
                             elif author_info.get('application'):
                                 author_name = author_info['application'].get('displayName', "Unknown Application")
 
-                        # 본문
+                        # 본문 (Adaptive Card인 경우 카드 텍스트 추출)
                         body_text = parse_teams_html(message.get('body', {}).get('content', ""))
-                        if len(body_text.strip()) < 50:
+                        if not body_text.strip():
+                            body_text = _extract_adaptive_card_text(message.get('attachments', []))
+                        if not is_hub and len(body_text.strip()) < 50:
                             continue
 
                         # replies: content에 합치기
                         reply_blocks = []
+                        all_images = []
                         for reply in message.get('replies', []):
                             if reply.get('messageType') != 'message':
                                 continue
-                            reply_body = parse_teams_html(reply.get('body', {}).get('content', ""))
+                            # Knowledge Hub: 이미지 포함 파싱
+                            if is_hub:
+                                reply_body, images = _parse_reply_html_with_images(
+                                    reply.get('body', {}).get('content', ""), access_token)
+                                all_images.extend(images)
+                            else:
+                                reply_body = parse_teams_html(reply.get('body', {}).get('content', ""))
                             if not reply_body.strip():
                                 continue
                             reply_author_info = reply.get('from', {})
@@ -209,6 +327,17 @@ def main():
                         msg_id = message.get('id')
                         channel_url = f"https://teams.microsoft.com/l/message/{channel_id}/{msg_id}" if channel_id and msg_id else None
 
+                        metadata = {
+                            "teams_team_name": group_name,
+                            "teams_team_id": team_id,
+                            "teams_channel_name": channel_display_name,
+                            "teams_channel_id": channel_id,
+                            "message_type": message.get('messageType'),
+                            "reply_count": len(reply_blocks),
+                        }
+                        if all_images:
+                            metadata["images"] = json.dumps(all_images)
+
                         extracted_data_schema = {
                             "id": f"teams-{msg_id}",
                             "source": "teams",
@@ -220,14 +349,7 @@ def main():
                             "created_at": message.get('createdDateTime'),
                             "updated_at": message.get('lastModifiedDateTime'),
                             "author": author_name,
-                            "metadata": {
-                                "teams_team_name": group_name,
-                                "teams_team_id": team_id,
-                                "teams_channel_name": channel_display_name,
-                                "teams_channel_id": channel_id,
-                                "message_type": message.get('messageType'),
-                                "reply_count": len(reply_blocks),
-                            }
+                            "metadata": metadata,
                         }
 
                         print(json.dumps(extracted_data_schema, ensure_ascii=False))

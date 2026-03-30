@@ -125,6 +125,7 @@
     .qa-a-text th { background: #f8f8fc; font-weight: 600; }
     .qa-a-text a { color: #4f46e5; text-decoration: none; }
     .qa-a-text a:hover { text-decoration: underline; }
+    .qa-a-text img { max-width: 100%; height: auto; border-radius: 6px; margin: 8px 0; border: 1px solid #e5e7eb; }
 
     /* 스트리밍 커서 */
     .stream-cursor {
@@ -525,8 +526,16 @@
   }
 
   function finalizeTurnEl(turnEl, fullText, references) {
+    // Knowledge Hub 이미지를 답변 끝에 삽입
+    let enrichedText = fullText;
+    if (references && references.length > 0) {
+      const imgs = references.flatMap(r => r.images || []);
+      if (imgs.length > 0) {
+        enrichedText += '\n\n' + imgs.map(src => `![참고 이미지](${src})`).join('\n\n');
+      }
+    }
     const textEl = turnEl.querySelector('.qa-a-content');
-    textEl.innerHTML = renderText(fullText);
+    textEl.innerHTML = renderText(enrichedText);
     const body = turnEl.querySelector('.qa-a-body');
 
     if (references && references.length > 0) {
