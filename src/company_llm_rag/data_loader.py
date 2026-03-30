@@ -306,18 +306,26 @@ def load_data_to_chromadb(data_stream):
                 logger.warning(f"Skipping document due to missing ID or content: {document.get('id')}")
                 continue
 
+            # Knowledge Hub: 질문만 임베딩, 답변 원문은 SQLite에 저장 (이력 보관)
+            is_hub_doc = metadata_from_source.get('is_hub_direct', False)
+            if is_hub_doc:
+                hub_reply = metadata_from_source.pop('hub_reply_content', '')
+                if hub_reply:
+                    from company_llm_rag.history_store import hub_upsert, hub_find_duplicate
+                    # 동일 질문 중복 감지: 기존 문서의 포인터에 새 답변 추가 (기존 답변은 비활성화하여 이력 보관)
+                    existing_doc = hub_find_duplicate(content)
+                    if existing_doc and existing_doc != doc_id:
+                        hub_upsert(existing_doc, hub_reply, content)
+                        logger.info(f"[{doc_id}] 중복 질문 감지 → 기존 문서 {existing_doc}의 답변 업데이트 (이전 답변 이력 보관)")
+                        continue
+                    hub_upsert(doc_id, hub_reply, content)
+                    logger.debug(f"[{doc_id}] Knowledge Hub 원문 저장 완료 ({len(hub_reply)}자)")
+
             embed_text = f"{title}\n\n{content}" if title else content
             embed_text, sql_removed = strip_sql(embed_text)
             if sql_removed:
                 logger.debug(f"[{doc_id}] SQL {sql_removed}개 블록 제거됨")
-            # Knowledge Hub 문서는 청킹 없이 원문 전체를 하나의 문서로 저장
-            is_hub_doc = (metadata_from_source.get('teams_team_name', '')
-                          == settings.KNOWLEDGE_HUB_TEAM_NAME
-                          and settings.KNOWLEDGE_HUB_TEAM_NAME)
-            if is_hub_doc:
-                chunks = [embed_text]
-            else:
-                chunks = chunk_content(embed_text)
+            chunks = chunk_content(embed_text)
             doc_count += 1
             chunk_count += len(chunks)
 

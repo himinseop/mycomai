@@ -90,6 +90,22 @@ def _parse_reply_html_with_images(html_content: str, access_token: str) -> str:
         return html_content
 
 
+def _extract_hub_question(body_text: str) -> str:
+    """Knowledge Hub 본문에서 [질문] 섹션의 텍스트만 추출합니다."""
+    marker = '**[질문]**'
+    idx = body_text.find(marker)
+    if idx < 0:
+        return body_text  # 마커 없으면 전체 반환
+    after = body_text[idx + len(marker):].strip()
+    # 다음 섹션 시작([대화 맥락 요약], [오사장 답변] 등) 전까지 추출
+    for end_marker in ['**[대화 맥락 요약]**', '**[오사장 답변]**', '**[', '[Reply by ']:
+        end_idx = after.find(end_marker)
+        if end_idx >= 0:
+            after = after[:end_idx]
+            break
+    return after.strip()
+
+
 def _extract_adaptive_card_text(attachments: List[Dict]) -> str:
     """Adaptive Card 첨부파일에서 TextBlock 텍스트를 추출합니다."""
     texts = []
@@ -313,10 +329,6 @@ def main():
                             reply_date = (reply.get('createdDateTime') or '')[:10]
                             reply_blocks.append(f"[Reply by {reply_author} on {reply_date}]\n{reply_body.strip()}")
 
-                        content = body_text
-                        if reply_blocks:
-                            content = body_text + '\n\n' + '\n\n'.join(reply_blocks)
-
                         msg_id = message.get('id')
                         channel_url = f"https://teams.microsoft.com/l/message/{channel_id}/{msg_id}" if channel_id and msg_id else None
 
@@ -328,6 +340,20 @@ def main():
                             "message_type": message.get('messageType'),
                             "reply_count": len(reply_blocks),
                         }
+
+                        if is_hub:
+                            # Knowledge Hub: 질문만 임베딩, 답변 원문은 별도 저장
+                            content = _extract_hub_question(body_text)
+                            hub_reply = '\n\n'.join(
+                                block.split('\n', 1)[1].strip() if '\n' in block else block
+                                for block in reply_blocks
+                            )
+                            metadata["is_hub_direct"] = True
+                            metadata["hub_reply_content"] = hub_reply
+                        else:
+                            content = body_text
+                            if reply_blocks:
+                                content = body_text + '\n\n' + '\n\n'.join(reply_blocks)
 
                         extracted_data_schema = {
                             "id": f"teams-{msg_id}",

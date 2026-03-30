@@ -424,43 +424,24 @@ _HUB_DIRECT_RRF_RATIO = 2.0
 
 
 def _try_hub_direct_answer(retrieved_docs: List[Dict]) -> Optional[str]:
-    """Knowledge Hub 문서가 1위이고 충분히 우세하면 reply 원문을 직접 반환합니다."""
+    """Knowledge Hub 문서가 1위이고 충분히 우세하면 SQLite에서 원문을 직접 반환합니다."""
     if not retrieved_docs or not settings.KNOWLEDGE_HUB_TEAM_NAME:
         return None
     top = retrieved_docs[0]
     meta = top.get('metadata', {})
-    if meta.get('teams_team_name') != settings.KNOWLEDGE_HUB_TEAM_NAME:
+    if not meta.get('is_hub_direct'):
         return None
     # RRF 점수 비교: 2위 대비 충분히 높을 때만
     top_rrf = top.get('_rrf', 0)
     second_rrf = retrieved_docs[1].get('_rrf', 0) if len(retrieved_docs) > 1 else 0
     if second_rrf > 0 and top_rrf / second_rrf < _HUB_DIRECT_RRF_RATIO:
         return None
-    # 같은 원본 문서의 모든 청크를 순서대로 합치기
     doc_id = meta.get('original_doc_id', '')
     if not doc_id:
         return None
-    from company_llm_rag.database import db_manager
-    col = db_manager.get_collection()
-    all_chunks = col.get(
-        where={"original_doc_id": doc_id},
-        include=["documents"],
-    )
-    # chunk ID 기준 정렬 (chunk-0, chunk-1, ...)
-    pairs = sorted(zip(all_chunks['ids'], all_chunks['documents']))
-    full_content = '\n'.join(doc for _, doc in pairs)
-    # reply 원문 추출 (content에서 [Reply by ...] 이후 부분)
-    reply_marker = '[Reply by '
-    idx = full_content.find(reply_marker)
-    if idx < 0:
-        return None
-    reply_section = full_content[idx:]
-    newline_idx = reply_section.find('\n')
-    if newline_idx >= 0:
-        reply_body = reply_section[newline_idx:].strip()
-    else:
-        reply_body = reply_section
-    return reply_body if reply_body else None
+    from company_llm_rag.history_store import hub_get_reply
+    reply = hub_get_reply(doc_id)
+    return reply if reply else None
 _MAX_REFERENCES = 10   # 참고 링크 최대 표시 수
 _MAX_REF_DISTANCE = 0.3  # 벡터 거리 기준치 — 이 이상이면 참고문서에서 제외 (0.0=완전일치, 1.0=무관)
 _JIRA_KEY_RE = re.compile(r'\b([A-Z]+-\d+)\b')
@@ -749,8 +730,7 @@ def rag_query(
         timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "inject_ms": inject_ms, "llm_ms": 0, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": "knowledge_hub_direct"}
         if not return_refs:
             return hub_direct
-        references = _build_references(retrieved_docs, listing, cited_indices=set())
-        return hub_direct, references, timing
+        return hub_direct, [], timing
 
     prompt = build_rag_prompt(user_query, retrieved_docs, recency_window=recency_window, recency_explicit=(explicit_period is not None))
     llm_response = get_llm_response(prompt, conversation_history=conversation_history)
@@ -841,9 +821,8 @@ def rag_query_stream(
     if hub_direct:
         total_ms = int((time.monotonic() - t0) * 1000)
         timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "inject_ms": inject_ms, "llm_ms": 0, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": "knowledge_hub_direct"}
-        references = _build_references(retrieved_docs, listing, cited_indices=set())
         yield {"type": "token", "text": hub_direct}
-        yield {"type": "done", "answer": hub_direct, "references": references, "timing": timing, "is_no_answer": False}
+        yield {"type": "done", "answer": hub_direct, "references": [], "timing": timing, "is_no_answer": False}
         return
 
     prompt = build_rag_prompt(user_query, retrieved_docs, recency_window=recency_window, recency_explicit=(explicit_period is not None))

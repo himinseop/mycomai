@@ -51,6 +51,11 @@ SHAREPOINT_SITE_NAME=o2olab group
 TEAMS_GROUP_NAME=...
 TEAMS_CHAT_IDS=19:40aa52f10c82483382591a326c49c01a@thread.v2,19:692046332e64487c9108419d5341720a@thread.v2,19:d1224a505a37480b992c796a42a322ae@thread.v2
 
+# Knowledge Hub (답변 우선순위 + 질문/피드백 전송)
+KNOWLEDGE_HUB_TEAM_NAME=Knowledge Hub
+KNOWLEDGE_HUB_WEBHOOK_URL=...       # Incoming Webhook URL
+KNOWLEDGE_HUB_RRF_BOOST=5.0         # RRF 점수 배수
+
 # OpenAI
 OPENAI_API_KEY=...
 
@@ -92,6 +97,23 @@ PYTHONPATH=src python3 -c "from company_llm_rag.config import settings; print(se
 | `feedback` | INTEGER | 단건 턴 피드백 (1 / -1 / 0) |
 | `group_feedback` | INTEGER | 질문 그룹 대표 피드백 (1 / -1 / 0) |
 | `group_feedback_at` | TEXT | 그룹 피드백 입력 시각 (ISO8601) |
+
+## Knowledge Hub 직접 응답 아키텍처
+- **임베딩**: 질문 텍스트만 ChromaDB에 저장 (Adaptive Card에서 `[질문]` 추출)
+- **원문 저장**: `hub_replies` 테이블(app_data.db)에 reply 원문 + 이미지 마크다운 보관
+- **검색**: 질문 임베딩으로 유사 질문 매칭, RRF 5.0x 부스트
+- **응답**: LLM 미사용, SQLite에서 원문 직접 반환 (이미지 포함)
+- **중복 처리**: 동일 질문 감지 시 기존 임베딩 재활용, 답변 포인터만 변경 (이전 답변 이력 보관)
+- **참고문서**: Hub 직접 응답 시 비표시
+
+### hub_replies 스키마
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| `doc_id` | TEXT | 원본 Teams 메시지 ID |
+| `question` | TEXT | 질문 텍스트 |
+| `reply_content` | TEXT | 답변 원문 (마크다운 이미지 포함) |
+| `created_at` | TEXT | 답변 저장 시각 (ISO8601) |
+| `is_active` | INTEGER | 활성 답변 여부 (1=현재, 0=이전 버전) |
 
 ## 참고 문서
 - `REFACTORING_PLAN.md` - 전체 리팩토링 로드맵 및 진행 상황
