@@ -441,7 +441,16 @@ def _try_hub_direct_answer(retrieved_docs: List[Dict]) -> Optional[str]:
         return None
     from company_llm_rag.history_store import hub_get_reply
     reply = hub_get_reply(doc_id)
-    return reply if reply else None
+    if not reply:
+        return None
+    # 안내 메시지 + 원문 구성
+    # content에서 타이틀 줄을 제거하고 질문 텍스트만 추출
+    content_lines = top.get('content', '').strip()
+    title = meta.get('title', '')
+    if title and content_lines.startswith(title):
+        content_lines = content_lines[len(title):].strip()
+    intro = f"유사한 질문에 대한 답변이 있어 안내드립니다.\n\n> **Q.** {content_lines}\n\n---\n\n"
+    return intro + reply
 _MAX_REFERENCES = 10   # 참고 링크 최대 표시 수
 _MAX_REF_DISTANCE = 0.3  # 벡터 거리 기준치 — 이 이상이면 참고문서에서 제외 (0.0=완전일치, 1.0=무관)
 _JIRA_KEY_RE = re.compile(r'\b([A-Z]+-\d+)\b')
