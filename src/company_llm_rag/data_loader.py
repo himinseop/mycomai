@@ -310,7 +310,14 @@ def load_data_to_chromadb(data_stream):
             embed_text, sql_removed = strip_sql(embed_text)
             if sql_removed:
                 logger.debug(f"[{doc_id}] SQL {sql_removed}개 블록 제거됨")
-            chunks = chunk_content(embed_text)
+            # Knowledge Hub 문서는 청킹 없이 원문 전체를 하나의 문서로 저장
+            is_hub_doc = (metadata_from_source.get('teams_team_name', '')
+                          == settings.KNOWLEDGE_HUB_TEAM_NAME
+                          and settings.KNOWLEDGE_HUB_TEAM_NAME)
+            if is_hub_doc:
+                chunks = [embed_text]
+            else:
+                chunks = chunk_content(embed_text)
             doc_count += 1
             chunk_count += len(chunks)
 

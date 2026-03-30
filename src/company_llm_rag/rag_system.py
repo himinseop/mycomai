@@ -436,14 +436,25 @@ def _try_hub_direct_answer(retrieved_docs: List[Dict]) -> Optional[str]:
     second_rrf = retrieved_docs[1].get('_rrf', 0) if len(retrieved_docs) > 1 else 0
     if second_rrf > 0 and top_rrf / second_rrf < _HUB_DIRECT_RRF_RATIO:
         return None
+    # 같은 원본 문서의 모든 청크를 순서대로 합치기
+    doc_id = meta.get('original_doc_id', '')
+    if not doc_id:
+        return None
+    from company_llm_rag.database import db_manager
+    col = db_manager.get_collection()
+    all_chunks = col.get(
+        where={"original_doc_id": doc_id},
+        include=["documents"],
+    )
+    # chunk ID 기준 정렬 (chunk-0, chunk-1, ...)
+    pairs = sorted(zip(all_chunks['ids'], all_chunks['documents']))
+    full_content = '\n'.join(doc for _, doc in pairs)
     # reply 원문 추출 (content에서 [Reply by ...] 이후 부분)
-    content = top.get('content', '')
     reply_marker = '[Reply by '
-    idx = content.find(reply_marker)
+    idx = full_content.find(reply_marker)
     if idx < 0:
         return None
-    # reply 헤더 줄 건너뛰고 본문만 추출
-    reply_section = content[idx:]
+    reply_section = full_content[idx:]
     newline_idx = reply_section.find('\n')
     if newline_idx >= 0:
         reply_body = reply_section[newline_idx:].strip()
