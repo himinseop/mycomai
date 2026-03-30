@@ -46,6 +46,8 @@
 - 각 추출기를 순차 실행합니다.
 - 결과를 `data/*.jsonl` 로 저장합니다.
 - 모든 JSONL을 `data_loader.py` 로 흘려 ChromaDB/FTS에 적재합니다.
+- Knowledge Hub 문서는 질문만 임베딩하고, 답변 원문은 `app_data.db`의 `hub_replies` 테이블에 저장합니다.
+- Knowledge Hub 이미지는 Graph API에서 다운로드하여 `static/images/`에 캐시합니다.
 
 실행:
 
@@ -98,7 +100,6 @@ docker compose -f docker/docker-compose.yml up -d cron-scheduler
 ```bash
 cp .env.sample .env
 mkdir -p db/chroma_db data
-touch db/query_history.db
 ```
 
 ### 2. 이미지 빌드
@@ -140,7 +141,7 @@ docker compose -f docker/docker-compose.yml up -d cron-scheduler
 ## 주의할 점
 
 - Compose 파일은 `docker compose` 와 함께 `docker/docker-compose.yml` 을 직접 지정하는 방식이 가장 명확합니다.
-- 현재 기본 모드는 `DELETE` 이므로 최신 질의 이력은 `db/query_history.db` 본파일에서 바로 확인할 수 있습니다.
-- 만약 `WAL` 로 바꾸면 읽기/쓰기 동시성은 좋아지지만 최신 변경이 `query_history.db-wal`, `query_history.db-shm` 로 분리될 수 있습니다.
+- 현재 기본 모드는 `DELETE` 이므로 최신 질의 이력은 `db/app_data.db` 본파일에서 바로 확인할 수 있습니다.
+- 만약 `WAL` 로 바꾸면 읽기/쓰기 동시성은 좋아지지만 최신 변경이 `app_data.db-wal`, `app_data.db-shm` 로 분리될 수 있습니다.
 - `web` 서비스만으로도 대부분의 사용자 기능을 사용할 수 있습니다.
 - `rag-system` 은 웹 UI 대체 수단이지 주 서비스는 아닙니다.

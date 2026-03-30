@@ -11,6 +11,12 @@
 | `03_project_structure.md` | 디렉토리 구조와 주요 모듈 분석 |
 | `04_docker_deployment_guide.md` | Dockerfile, Compose 서비스, 스케줄러 운영 방식 |
 
+## 설계 문서 (Issues)
+
+| 문서 | 용도 |
+|------|------|
+| `issues/41/design.md` | Knowledge Hub 직접 응답 시스템 설계 |
+
 ## 읽는 순서
 
 1. 시스템을 이해하려면 `01_system_overview.md`

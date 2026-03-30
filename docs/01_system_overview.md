@@ -38,9 +38,9 @@ data_loader.py
         |
         +------------------> db/chroma_db
         |
-        +------------------> db/query_history.db
-                               - query_history
-                               - doc_fts
+        +------------------> db/app_data.db
+                               - chat_history
+                               - hub_replies
                                - app_settings
         |
         v
@@ -50,12 +50,13 @@ retrieval_module.py
  - FTS5 검색
  - RRF 재정렬
  - 소스/확장자 필터
+ - Knowledge Hub 5.0x 부스트
         |
         v
 [응답 생성]
 rag_system.py
- - 프롬프트 조립
- - OpenAI Chat Completions 호출
+ - Knowledge Hub 직접 응답 (LLM 미사용, 원문 반환)
+ - 일반 RAG 응답 (프롬프트 조립 → OpenAI 호출)
  - 참고문서 링크 구성
         |
         v
@@ -78,8 +79,8 @@ web_app.py
 | `retrieval_module.py` | 벡터 검색 + FTS5 검색 + RRF 랭킹 |
 | `rag_system.py` | 검색, 프롬프트 생성, 답변/참고문서 생성 |
 | `web_app.py` | FastAPI 웹 애플리케이션 |
-| `history_store.py` | 질의 이력, 피드백, FTS5, 설정 저장 |
-| `teams_sender.py` | 답변 부족/불만족 피드백을 Teams로 전달 |
+| `history_store.py` | 질의 이력, 피드백, FTS5, Knowledge Hub 원문 저장 |
+| `teams_sender.py` | 답변 부족/불만족 피드백을 Knowledge Hub 채널로 전달 |
 | `no_answer_analyzer.py` | 불만족 응답 분석 결과 생성 |
 
 ## 데이터 적재 방식
@@ -102,10 +103,22 @@ web_app.py
 2. 쿼리에서 핵심 키워드를 추출해 SQLite FTS5 검색을 수행합니다.
 3. 두 결과를 RRF(Reciprocal Rank Fusion)로 합칩니다.
 4. Jira/Teams/Confluence/SharePoint별 가중치를 적용합니다.
-5. 쿼리에 Jira 이슈 키가 있으면 직접 조회 결과를 앞쪽에 주입합니다.
-6. 필요 시 소스 필터와 파일 확장자 필터를 적용합니다.
+5. Knowledge Hub 문서에 5.0x RRF 부스트를 적용합니다.
+6. 쿼리에 Jira 이슈 키가 있으면 직접 조회 결과를 앞쪽에 주입합니다.
+7. 필요 시 소스 필터와 파일 확장자 필터를 적용합니다.
 
 이 구조 덕분에 자연어 질문과 정확한 키워드 검색을 둘 다 어느 정도 커버할 수 있습니다.
+
+## Knowledge Hub 직접 응답
+
+Teams Knowledge Hub 채널에 담당자가 작성한 Q&A 답변이 있을 때, 유사 질문이 인입되면 LLM을 거치지 않고 원문을 직접 반환합니다.
+
+1. **수집**: Adaptive Card에서 질문 텍스트 추출, Reply HTML에서 답변 원문 + 이미지 추출
+2. **저장**: ChromaDB에는 질문만 임베딩, SQLite `hub_replies` 테이블에 답변 원문 저장
+3. **검색**: 질문 벡터 매칭 후 Knowledge Hub 5.0x 부스트 적용
+4. **응답 판단**: 1위가 Hub 문서이고 2위 대비 2배 이상 우세하면 직접 응답
+5. **응답 구성**: gpt-4o-mini로 안내 멘트 생성 + SQLite에서 답변 원문 그대로 반환 (이미지 포함)
+6. **중복 처리**: 동일 질문 감지 시 기존 임베딩 재활용, 답변 포인터만 변경 (이전 답변 이력 보관)
 
 ## 웹 애플리케이션 기능
 
@@ -123,6 +136,7 @@ web_app.py
 ## 운영 시 기억할 점
 
 - ChromaDB 경로 기본값은 `./db/chroma_db` 입니다.
-- 질의 이력 DB는 `CHROMA_DB_PATH` 상위 디렉토리의 `query_history.db` 를 사용합니다.
+- 애플리케이션 DB(`app_data.db`)에 질의 이력, Knowledge Hub 원문, 앱 설정을 저장합니다.
+- 검색 인덱스 DB(`search_index.db`)에 FTS5 인덱스를 관리합니다.
 - Docker Compose 기준 `web` 서비스가 실제 웹 서버이고, `rag-system` 서비스는 CLI형 엔트리포인트입니다.
 - 자동 증분 수집은 `cron-scheduler` 컨테이너와 `docker/crontab` 으로 구성됩니다.

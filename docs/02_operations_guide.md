@@ -12,7 +12,6 @@
 ```bash
 cp .env.sample .env
 mkdir -p db/chroma_db data
-touch db/query_history.db
 ```
 
 첫 실행 전에는 `.env` 에 실제 자격 증명을 채워야 합니다.
@@ -24,7 +23,8 @@ mycomai/
 ├── data/                     # 수집된 JSONL 및 추출 로그
 ├── db/                       # 런타임 데이터
 │   ├── chroma_db/            # ChromaDB 영속 저장소
-│   └── query_history.db      # SQLite (이력, FTS5, 앱 설정)
+│   ├── app_data.db           # SQLite (이력, Hub 원문, 앱 설정)
+│   └── search_index.db      # SQLite (FTS5 검색 인덱스)
 ├── docker/                   # Dockerfile, compose, cron 설정
 ├── docs/                     # 프로젝트 문서
 ├── src/company_llm_rag/      # 애플리케이션 코드
@@ -113,7 +113,9 @@ PYTHONPATH=src uvicorn company_llm_rag.web_app:app --host 0.0.0.0 --port 8000 --
 | `RETRIEVAL_TOP_K` | 기본 검색 결과 개수 | `3` |
 | `LOOKBACK_DAYS` | 증분 수집 기간(일) | 비어 있으면 전체 |
 | `ADMIN_PASSWORD` | `/admin` 접근 비밀번호 | 비어 있으면 비활성화 |
-| `TEAMS_INQUIRY_WEBHOOK_URL` | Teams 문의 Webhook | 없음 |
+| `KNOWLEDGE_HUB_TEAM_NAME` | Knowledge Hub 팀명 | 비어 있으면 비활성화 |
+| `KNOWLEDGE_HUB_WEBHOOK_URL` | Knowledge Hub 채널 Incoming Webhook URL | 없음 |
+| `KNOWLEDGE_HUB_RRF_BOOST` | Knowledge Hub RRF 점수 배수 | `5.0` |
 
 소스별 상세 변수는 `.env.sample` 을 기준으로 관리하는 것이 가장 안전합니다.
 
@@ -137,7 +139,7 @@ docker compose -f docker/docker-compose.yml run --rm web python -c \
 ### SQLite 무결성 확인
 
 ```bash
-sqlite3 db/query_history.db "PRAGMA integrity_check;"
+sqlite3 db/app_data.db "PRAGMA integrity_check;"
 ```
 
 정상이라면 `ok` 가 출력됩니다.
@@ -145,14 +147,14 @@ sqlite3 db/query_history.db "PRAGMA integrity_check;"
 ### 질의 이력 DB를 본파일로 직접 확인하고 싶을 때
 
 - 기본 설정은 `SQLITE_JOURNAL_MODE=DELETE` 입니다.
-- 이 모드에서는 최신 커밋이 `db/query_history.db` 본파일에 바로 반영됩니다.
-- 따라서 `sqlite3 db/query_history.db` 로 직접 조회해도 최신 이력을 볼 수 있습니다.
-- 반대로 `WAL` 모드에서는 최신 변경이 `query_history.db-wal` 에 남을 수 있어 본파일만 보면 일부 이력이 빠질 수 있습니다.
+- 이 모드에서는 최신 커밋이 `db/app_data.db` 본파일에 바로 반영됩니다.
+- 따라서 `sqlite3 db/app_data.db` 로 직접 조회해도 최신 이력을 볼 수 있습니다.
+- 반대로 `WAL` 모드에서는 최신 변경이 `-wal`, `-shm` 로 분리될 수 있습니다.
 
 ### FTS 문서 수 확인
 
 ```bash
-sqlite3 db/query_history.db "SELECT COUNT(*) FROM doc_fts;"
+sqlite3 db/search_index.db "SELECT COUNT(*) FROM doc_fts;"
 ```
 
 ### 질의 이력 단건 조회
@@ -165,7 +167,7 @@ python3 scripts/query_history.py 83 --analysis
 python3 scripts/query_history.py --tail 10
 ```
 
-이 스크립트는 `db/query_history.db` 와 함께 `db/query_history.db-wal`, `db/query_history.db-shm` 존재 여부와 크기도 같이 보여줍니다.
+이 스크립트는 `db/app_data.db` 와 함께 `db/app_data.db-wal`, `db/app_data.db-shm` 존재 여부와 크기도 같이 보여줍니다.
 
 ## 백업
 
@@ -178,7 +180,7 @@ cp -R db/chroma_db db/chroma_db.bak
 ### 이력 DB 백업
 
 ```bash
-cp db/query_history.db db/query_history.db.bak
+cp db/app_data.db db/app_data.db.bak
 ```
 
 ## 장애 대응
@@ -205,4 +207,16 @@ LOOKBACK_DAYS=1
 
 ### 답변 부족 시 사람 문의를 활성화하고 싶을 때
 
-`.env` 에 `TEAMS_INQUIRY_WEBHOOK_URL` 을 설정하면 됩니다. 답변을 찾지 못한 경우 웹 UI에서 Teams 문의 버튼을 노출합니다.
+`.env` 에 `KNOWLEDGE_HUB_WEBHOOK_URL` 을 설정하면 됩니다. 답변을 찾지 못한 경우 웹 UI에서 Teams 문의 버튼을 노출합니다.
+
+### Knowledge Hub 원문 확인
+
+```bash
+sqlite3 db/app_data.db "SELECT doc_id, question, is_active, created_at FROM hub_replies ORDER BY id DESC LIMIT 10;"
+```
+
+### Knowledge Hub 답변 이력 추적
+
+```bash
+sqlite3 db/app_data.db "SELECT id, created_at, is_active, length(reply_content) as len FROM hub_replies WHERE doc_id = 'teams-XXXXX' ORDER BY id DESC;"
+```
