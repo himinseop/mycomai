@@ -477,7 +477,7 @@ def _try_hub_direct_answer(retrieved_docs: List[Dict]) -> Optional[str]:
     intro = _build_hub_intro(content_lines)
     return intro + reply
 _MAX_REFERENCES = 10   # 참고 링크 최대 표시 수
-_MAX_REF_DISTANCE = 0.3  # 벡터 거리 기준치 — 이 이상이면 참고문서에서 제외 (0.0=완전일치, 1.0=무관)
+_MAX_REF_DISTANCE = 0.45  # 벡터 거리 기준치 — 이 이상이면 참고문서에서 제외 (0.0=완전일치, 1.0=무관)
 _JIRA_KEY_RE = re.compile(r'\b([A-Z]+-\d+)\b')
 
 # 쓸모없는 문서 패턴 (검색 후 LLM 컨텍스트에서 제외)
