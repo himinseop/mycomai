@@ -35,6 +35,10 @@ class OpenAIProvider(LLMProvider):
         # temperature 미지원 모델 여부 캐시 (한 번 실패하면 이후 요청부터 생략)
         self._temperature_unsupported = False
 
+    @property
+    def model_name(self) -> str:
+        return self._default_model
+
     def chat(
         self,
         messages: List[Dict[str, str]],

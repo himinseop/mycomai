@@ -82,6 +82,7 @@ def get_space_display_name(space_key: str) -> str:
     """스페이스 키로 표시 이름을 조회합니다."""
     try:
         url = f"{settings.CONFLUENCE_BASE_URL}/rest/api/space/{space_key}"
+        headers = settings.get_auth_header("confluence")
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         return response.json().get("name", space_key)

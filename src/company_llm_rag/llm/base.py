@@ -6,11 +6,16 @@ LLM 교체(OpenAI → Claude, Ollama 등) 시 Provider 구현체만 변경하면
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import Dict, Generator, List, Optional
 
 
 class LLMProvider(ABC):
     """LLM 제공자 추상 인터페이스."""
+
+    @property
+    @abstractmethod
+    def model_name(self) -> str:
+        """현재 사용 중인 모델명을 반환합니다."""
 
     @abstractmethod
     def chat(
@@ -34,4 +39,19 @@ class LLMProvider(ABC):
 
         Raises:
             LLMError: 호출 실패 시
+        """
+
+    @abstractmethod
+    def stream_chat(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> Generator[str, None, None]:
+        """
+        채팅 완성을 스트리밍으로 반환합니다.
+
+        Yields:
+            LLM 응답 토큰 문자열
         """
