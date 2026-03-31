@@ -32,11 +32,14 @@ class BGEReranker(RerankerProvider):
         self._model = CrossEncoder(self._model_name)
         logger.info(f"[Reranker] 모델 로딩 완료")
 
+    # 추론 속도를 위해 문서 내용을 앞부분만 사용 (cross-encoder는 앞부분에서 관련도 판단)
+    _MAX_DOC_CHARS = 256
+
     def rerank(self, query: str, docs: List[Dict], top_n: int) -> List[Dict]:
         if not docs:
             return docs
         self._load()
-        pairs = [(query, doc.get('content', '')) for doc in docs]
+        pairs = [(query, doc.get('content', '')[:self._MAX_DOC_CHARS]) for doc in docs]
         scores = self._model.predict(pairs).tolist()
         for doc, score in zip(docs, scores):
             doc['_rerank_score'] = round(score, 6)
