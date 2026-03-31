@@ -22,23 +22,8 @@ _local = threading.local()  # 스레드별 연결 캐시
 
 def _conn() -> sqlite3.Connection:
     """스레드별 SQLite 연결을 캐싱하여 반환합니다."""
-    con = getattr(_local, 'fts_con', None)
-    if con is not None:
-        try:
-            con.execute("SELECT 1")
-            return con
-        except Exception:
-            _local.fts_con = None
-
-    _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(str(_DB_PATH), timeout=30)
-    con.row_factory = sqlite3.Row
-    journal_mode = settings.SQLITE_JOURNAL_MODE
-    actual = con.execute(f"PRAGMA journal_mode={journal_mode}").fetchone()[0]
-    con.execute("PRAGMA synchronous=NORMAL")
-    logger.info(f"[FTS] SQLite journal_mode={actual}")
-    _local.fts_con = con
-    return con
+    from company_llm_rag.sqlite_utils import create_connection
+    return create_connection(_DB_PATH, "FTS", _local, "fts_con")
 
 
 def init_fts_db() -> None:

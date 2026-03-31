@@ -35,24 +35,9 @@ _stats_cache_lock = threading.Lock()
 
 
 def _conn() -> sqlite3.Connection:
-    """스레드별 SQLite 연결을 캐싱하여 반환합니다. PRAGMA는 최초 1회만 실행됩니다."""
-    con = getattr(_local, 'con', None)
-    if con is not None:
-        try:
-            con.execute("SELECT 1")
-            return con
-        except Exception:
-            _local.con = None
-
-    _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(str(_DB_PATH), timeout=30)
-    con.row_factory = sqlite3.Row
-    journal_mode = settings.SQLITE_JOURNAL_MODE
-    actual_journal_mode = con.execute(f"PRAGMA journal_mode={journal_mode}").fetchone()[0]
-    con.execute("PRAGMA synchronous=NORMAL")
-    logger.info(f"[History] SQLite journal_mode={actual_journal_mode}")
-    _local.con = con
-    return con
+    """스레드별 SQLite 연결을 캐싱하여 반환합니다."""
+    from company_llm_rag.sqlite_utils import create_connection
+    return create_connection(_DB_PATH, "History", _local, "con")
 
 
 def _migrate_add_columns(con: sqlite3.Connection) -> None:
