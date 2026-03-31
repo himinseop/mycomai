@@ -2,18 +2,14 @@ import requests
 import json
 import sys
 import time
-from datetime import timedelta
-
 from company_llm_rag.config import settings
+from company_llm_rag.data_extraction.common import fmt_elapsed as _fmt_elapsed
 from company_llm_rag.logger import get_logger
 from company_llm_rag.data_extraction.html_utils import parse_confluence_storage_format
 
 logger = get_logger(__name__)
 
 _PROGRESS_EVERY = 50
-
-def _fmt_elapsed(seconds: float) -> str:
-    return str(timedelta(seconds=int(seconds)))
 
 
 def get_all_spaces():

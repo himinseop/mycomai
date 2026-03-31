@@ -3,7 +3,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
 
 import requests
@@ -12,6 +12,8 @@ from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
 from company_llm_rag.data_extraction.m365.auth import get_access_token, call_graph_api
 from company_llm_rag.data_extraction.html_utils import parse_teams_html
+
+from company_llm_rag.data_extraction.common import fmt_elapsed as _fmt_elapsed
 
 logger = get_logger(__name__)
 
@@ -123,8 +125,6 @@ def _extract_adaptive_card_text(attachments: List[Dict]) -> str:
                     texts.append(text)
     return '\n'.join(texts)
 
-def _fmt_elapsed(seconds: float) -> str:
-    return str(timedelta(seconds=int(seconds)))
 
 def get_all_teams(access_token: str) -> List[Dict]:
     """

@@ -3,7 +3,7 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import List, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -21,13 +21,12 @@ from company_llm_rag.data_extraction.m365.file_parser import (
     extract_xls_text,
 )
 
+from company_llm_rag.data_extraction.common import fmt_elapsed as _fmt_elapsed
+
 logger = get_logger(__name__)
 
 _PROGRESS_EVERY = 10
 _SKIP_FOLDER_NAMES = {"old", "version history", "archived"}
-
-def _fmt_elapsed(seconds: float) -> str:
-    return str(timedelta(seconds=int(seconds)))
 
 def get_all_sites(access_token: str) -> List[Dict]:
     """
