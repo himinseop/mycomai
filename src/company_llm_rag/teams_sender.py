@@ -16,12 +16,9 @@ import requests
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
-from company_llm_rag.llm.openai_provider import OpenAIProvider
+from company_llm_rag.llm.factory import summarizer_llm as _summarizer_llm
 
 logger = get_logger(__name__)
-
-# 요약용 경량 모델 사용
-_summarizer_llm = OpenAIProvider(default_model=settings.OPENAI_SUMMARIZE_MODEL, default_temperature=0.3)
 
 
 def _summarize_conversation(question: str, conversation_history: List[Dict]) -> str:

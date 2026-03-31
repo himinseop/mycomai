@@ -121,6 +121,3 @@ class OpenAIProvider(LLMProvider):
             logger.error(f"OpenAI stream error: {e}", exc_info=True)
             raise LLMError(str(e)) from e
 
-
-# 앱 전체에서 공유하는 기본 인스턴스
-default_llm = OpenAIProvider()

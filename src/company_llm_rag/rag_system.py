@@ -7,7 +7,7 @@ from typing import List, Dict, Optional, Tuple
 
 from company_llm_rag.config import settings
 from company_llm_rag.exceptions import LLMError
-from company_llm_rag.llm.openai_provider import default_llm
+from company_llm_rag.llm.factory import default_llm
 from company_llm_rag.rag.citations import (
     ensure_list, build_teams_url, doc_source_label, doc_display_name, resolve_citations,
 )

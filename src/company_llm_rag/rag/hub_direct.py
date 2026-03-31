@@ -15,18 +15,9 @@ logger = get_logger(__name__)
 # 1위 문서의 RRF 점수가 2위의 N배 이상이면 원문 직접 반환
 _HUB_DIRECT_RRF_RATIO = 2.0
 
-_hub_intro_llm = None
-
-
 def _build_hub_intro(question: str) -> str:
     """LLM으로 Knowledge Hub 안내 멘트를 생성합니다."""
-    global _hub_intro_llm
-    if _hub_intro_llm is None:
-        from company_llm_rag.llm.openai_provider import OpenAIProvider
-        _hub_intro_llm = OpenAIProvider(
-            default_model=settings.OPENAI_SUMMARIZE_MODEL,
-            default_temperature=0.3,
-        )
+    from company_llm_rag.llm.factory import summarizer_llm
     try:
         messages = [
             {"role": "system", "content": (
@@ -37,7 +28,7 @@ def _build_hub_intro(question: str) -> str:
             )},
             {"role": "user", "content": question},
         ]
-        intro = _hub_intro_llm.chat(messages).strip()
+        intro = summarizer_llm.chat(messages).strip()
     except Exception:
         intro = "유사한 질문에 대한 답변이 있어 안내드립니다."
     return intro + "\n\n---\n\n"

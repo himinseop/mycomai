@@ -16,7 +16,7 @@ from company_llm_rag.history_store import (
     get_session_detail,
 )
 from company_llm_rag.retrieval_module import retrieve_documents
-from company_llm_rag.llm.openai_provider import default_llm
+from company_llm_rag.llm.factory import default_llm
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
