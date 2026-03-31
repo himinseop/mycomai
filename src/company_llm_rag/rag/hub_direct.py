@@ -59,7 +59,7 @@ def try_hub_direct_answer(retrieved_docs: List[Dict]) -> Optional[str]:
     doc_id = meta.get('original_doc_id', '')
     if not doc_id:
         return None
-    from company_llm_rag.history_store import hub_get_reply
+    from company_llm_rag.hub_store import hub_get_reply
     reply = hub_get_reply(doc_id)
     if not reply:
         return None

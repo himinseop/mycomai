@@ -203,45 +203,8 @@ def init_db() -> None:
     _purge_expired()
 
 
-def hub_upsert(doc_id: str, reply_content: str, question: str = "") -> None:
-    """Knowledge Hub 답변을 추가합니다. 기존 답변은 비활성화(is_active=0)하고 새 답변을 활성화."""
-    now = datetime.now(timezone.utc).isoformat()
-    with _conn() as con:
-        # 같은 doc_id의 기존 활성 답변을 비활성화
-        con.execute("UPDATE hub_replies SET is_active = 0 WHERE doc_id = ? AND is_active = 1", (doc_id,))
-        # 새 답변 추가
-        con.execute(
-            "INSERT INTO hub_replies (doc_id, question, reply_content, created_at, is_active) VALUES (?, ?, ?, ?, 1)",
-            (doc_id, question, reply_content, now),
-        )
-        con.commit()
-
-
-def hub_get_reply(doc_id: str) -> Optional[str]:
-    """Knowledge Hub 현재 활성 답변을 조회합니다."""
-    row = _conn().execute(
-        "SELECT reply_content FROM hub_replies WHERE doc_id = ? AND is_active = 1 ORDER BY id DESC LIMIT 1",
-        (doc_id,),
-    ).fetchone()
-    return row["reply_content"] if row else None
-
-
-def hub_find_duplicate(question: str) -> Optional[str]:
-    """동일한 질문이 이미 존재하는지 확인합니다. 존재하면 기존 doc_id 반환."""
-    row = _conn().execute(
-        "SELECT doc_id FROM hub_replies WHERE question = ? AND is_active = 1 ORDER BY id DESC LIMIT 1",
-        (question,),
-    ).fetchone()
-    return row["doc_id"] if row else None
-
-
-def hub_get_reply_history(doc_id: str) -> List[Dict]:
-    """Knowledge Hub 답변 이력을 조회합니다 (최신순)."""
-    rows = _conn().execute(
-        "SELECT id, question, reply_content, created_at, is_active FROM hub_replies WHERE doc_id = ? ORDER BY id DESC",
-        (doc_id,),
-    ).fetchall()
-    return [dict(r) for r in rows]
+# Knowledge Hub 함수는 hub_store.py로 분리됨 — 하위 호환 re-export
+from company_llm_rag.hub_store import hub_upsert, hub_get_reply, hub_find_duplicate, hub_get_reply_history  # noqa: F401
 
 
 def _purge_expired() -> None:

@@ -311,7 +311,7 @@ def load_data_to_chromadb(data_stream):
             if is_hub_doc:
                 hub_reply = metadata_from_source.pop('hub_reply_content', '')
                 if hub_reply:
-                    from company_llm_rag.history_store import hub_upsert, hub_find_duplicate
+                    from company_llm_rag.hub_store import hub_upsert, hub_find_duplicate
                     # 동일 질문 중복 감지: 기존 문서의 포인터에 새 답변 추가 (기존 답변은 비활성화하여 이력 보관)
                     existing_doc = hub_find_duplicate(content)
                     if existing_doc and existing_doc != doc_id:
