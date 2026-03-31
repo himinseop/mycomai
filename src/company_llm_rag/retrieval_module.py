@@ -349,6 +349,17 @@ def retrieve_documents(
 
         scored.sort(key=lambda x: x['_rrf'], reverse=True)
 
+        # ── 3.5. Reranker (선택) ──────────────────────────────────
+        t_rerank_start = time.monotonic()
+        from company_llm_rag.reranker.factory import get_reranker
+        reranker = get_reranker()
+        if reranker:
+            rerank_candidates = scored[:settings.RERANKER_TOP_N]
+            scored = reranker.rerank(query, rerank_candidates, len(scored))
+        rerank_ms = int((time.monotonic() - t_rerank_start) * 1000)
+        if reranker:
+            logger.info(f"[검색 성능] rerank={rerank_ms}ms | 모델={reranker.model_name}")
+
         # ── 4. 후처리 필터 & 반환 ─────────────────────────────────
         if url_extensions:
             scored = [
@@ -366,6 +377,7 @@ def retrieve_documents(
                     "_rrf": round(c["_rrf"], 6),
                     "_vector_rank": c["_vector_rank"],
                     "_keyword_rank": c["_keyword_rank"],
+                    "_rerank_score": c.get("_rerank_score"),
                 }
                 for c in scored[:n_results]
             ]
@@ -376,7 +388,7 @@ def retrieve_documents(
             ]
 
         if return_timing:
-            timing = {"vector_ms": vector_ms, "keyword_ms": keyword_ms}
+            timing = {"vector_ms": vector_ms, "keyword_ms": keyword_ms, "rerank_ms": rerank_ms}
             return docs, timing
         return docs
 

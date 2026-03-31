@@ -89,6 +89,11 @@ class Settings:
     JIRA_MAX_RESULTS: int = int(os.getenv("JIRA_MAX_RESULTS", "50"))
     CONFLUENCE_PAGE_LIMIT: int = int(os.getenv("CONFLUENCE_PAGE_LIMIT", "25"))
 
+    # Reranker 설정 (cross-encoder 기반 검색 결과 재정렬)
+    RERANKER_ENABLED: bool = os.getenv("RERANKER_ENABLED", "false").lower() == "true"
+    RERANKER_MODEL: str = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+    RERANKER_TOP_N: int = int(os.getenv("RERANKER_TOP_N", "10"))
+
     # 소스별 검색 부스트 가중치 (낮을수록 거리 불이익 — 0~1 사이)
     # .env에서 개별 조정 가능: BOOST_JIRA=0.95
     SOURCE_BOOST_WEIGHTS: Dict[str, float] = {
