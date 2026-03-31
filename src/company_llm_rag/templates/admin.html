@@ -740,7 +740,7 @@
   }
 
   async function openGroupDetail(sessionId) {
-    showModal('그룹 상세', '<p style="color:#aaa;padding:16px 0">로딩 중...</p>');
+    showModal('질문 상세', '<p style="color:#aaa;padding:16px 0">로딩 중...</p>');
     let data;
     try {
       const res = await fetch(`/admin/sessions/${encodeURIComponent(sessionId)}`);
@@ -751,7 +751,7 @@
     const turns = data.turns || [];
 
     const meta = `<div class="modal-meta">
-      <span>세션: <code style="font-size:.78rem">${escHtml(sessionId)}</code></span>
+      <span>세션: <code style="font-size:.78rem">${escHtml(sessionId)}</code><span style="cursor:pointer;margin-left:4px;opacity:.5" title="세션 ID 복사" onclick="navigator.clipboard.writeText('${escHtml(sessionId)}');this.textContent='✔';setTimeout(()=>this.textContent='📋',1000)">📋</span></span>
       <span>${turns.length}개 질문</span>
       ${data.group_feedback === 1 ? '<span class="badge badge-up">👍 만족</span>'
         : data.group_feedback === -1 ? '<span class="badge badge-down">👎 불만족</span>' : ''}
@@ -763,6 +763,7 @@
       const noAnsBadge = t.is_no_answer ? '<span class="badge badge-no-answer">답변없음</span>' : '';
       return `<div class="turn-card">
         <div class="turn-card-hd">
+          <span style="color:#7c7cbe;font-weight:700">#${t.id}</span>
           <span>질문 ${t.turn_index}</span>
           <span style="font-weight:400;color:#999">${fmtDate(t.created_at)}</span>
           ${noAnsBadge}
@@ -796,7 +797,7 @@
         <div class="sec-bd">${buildAnaSec(anaStatus, anaContent, sessionId)}</div>
       </div>`;
 
-    document.getElementById('modal-title').textContent = '그룹 상세';
+    document.getElementById('modal-title').textContent = '질문 상세';
     document.getElementById('modal-body').innerHTML = meta + turnsHtml + anaSec;
   }
 
