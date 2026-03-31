@@ -4,11 +4,14 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
-from urllib.parse import quote
 
 from company_llm_rag.config import settings
 from company_llm_rag.exceptions import LLMError
 from company_llm_rag.llm.openai_provider import default_llm
+from company_llm_rag.rag.citations import (
+    ensure_list, build_teams_url, doc_source_label, doc_display_name, resolve_citations,
+)
+from company_llm_rag.rag.hub_direct import try_hub_direct_answer
 from company_llm_rag.retrieval_module import retrieve_documents
 from company_llm_rag.logger import get_logger
 
@@ -37,178 +40,14 @@ def _load_prompt(env_path: str, default_filename: str) -> str:
         return ""
 
 
-def _ensure_list(value) -> list:
-    """
-    값이 list이면 그대로 반환하고, str(직렬화된 JSON)이면 파싱합니다.
-    ChromaDB는 모든 메타데이터 값을 기본형(str/int/float/bool)로만
-    저장하므로, 코멘트/답글 구조체는 JSON으로 직렬화되어 저장됩니다.
-    retrieval_module의 JSON 파싱이 실패한 경우에도 안전하게 병 통과합니다.
 
-    Args:
-        value: 변환할 값 (list, str, 또는 None)
-
-    Returns:
-        list (파싱 실패 또는 None이면 빈 리스트)
-    """
-    if isinstance(value, list):
-        return value
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-            if isinstance(parsed, list):
-                return parsed
-        except (json.JSONDecodeError, ValueError):
-            logger.debug(f"Failed to parse metadata value as JSON list: {value[:80]}...")
-    return []
-
-def _build_teams_url(meta: dict) -> str:
-    """Teams 채널/채팅 메시지 딥링크 URL을 생성합니다."""
-    tenant_id = settings.TENANT_ID
-    if not tenant_id:
-        return ""
-
-    # source_id: teams_extractor에서 message.get('id')로 저장
-    source_id = meta.get('source_id', '')
-    if not source_id:
-        # original_doc_id 에서 추출 (예: "teams-1a2b3c")
-        orig = meta.get('original_doc_id', '')
-        if orig.startswith('teams-chat-'):
-            source_id = orig[len('teams-chat-'):]
-        elif orig.startswith('teams-'):
-            source_id = orig[len('teams-'):]
-
-    team_id = meta.get('teams_team_id', '')
-    channel_id = meta.get('teams_channel_id', '')
-    chat_id = meta.get('teams_chat_id', '')
-
-    if team_id and channel_id and source_id:
-        team_name = quote(meta.get('teams_team_name', ''), safe='')
-        channel_name = quote(meta.get('teams_channel_name', ''), safe='')
-        return (
-            f"https://teams.microsoft.com/l/message/{channel_id}/{source_id}"
-            f"?tenantId={tenant_id}&groupId={team_id}"
-            f"&parentMessageId={source_id}&teamName={team_name}&channelName={channel_name}"
-        )
-    if chat_id and source_id:
-        # 일반 채팅 특정 메시지 딥링크
-        return (
-            f"https://teams.microsoft.com/l/message/{chat_id}/{source_id}"
-            f"?tenantId={tenant_id}&parentMessageId={source_id}"
-        )
-    if chat_id:
-        # 메시지 ID 없으면 채팅방 루트로
-        return f"https://teams.microsoft.com/l/chat/{chat_id}/0?tenantId={tenant_id}"
-    return ""
-
-
-def _doc_source_label(meta: dict) -> str:
-    """프롬프트용 출처 한 줄 레이블을 생성합니다."""
-    source = meta.get('source', 'unknown')
-    title = meta.get('title', '')
-    url = meta.get('url') or _build_teams_url(meta) or ''
-    author = meta.get('author', '')
-    date = (meta.get('created_at') or meta.get('updated_at') or '')[:10]
-
-    if source == 'jira':
-        return f"[Jira] 제목: {title} | URL: {url} | 담당자: {author} | 날짜: {date}"
-    if source == 'confluence':
-        return f"[Confluence] 제목: {title} | URL: {url} | 작성자: {author} | 날짜: {date}"
-    if source == 'sharepoint':
-        return f"[SharePoint] 제목: {title} | URL: {url} | 작성자: {author} | 날짜: {date}"
-    if source == 'teams':
-        channel = meta.get('teams_channel_name') or meta.get('teams_chat_topic', '')
-        return f"[Teams] 채널/채팅: {channel} | 작성자: {author} | 날짜: {date} | URL: {url}"
-    return f"[{source}] 제목: {title} | URL: {url}"
-
-
-_REF_PATTERN = re.compile(r'\[REF(\d+)\]')
-# 답변 내 직접 언급된 Jira 이슈 키 패턴 — 이미 마크다운 링크화된 경우([KEY](url))는 제외
-_JIRA_INLINE_RE = re.compile(r'\[([A-Z]+-\d+)\](?!\()')
-
-
-def _doc_display_name(meta: dict) -> str:
-    """문서 표시명 — Jira: 이슈키, SharePoint: 파일명, 그 외: 제목"""
-    source = meta.get("source", "")
-    if source == "jira":
-        key = meta.get("jira_issue_key", "")
-        return key if key else (meta.get("title", "") or "Jira")
-    if source == "confluence":
-        return meta.get("title", "") or "Confluence"
-    if source == "sharepoint":
-        url = meta.get("url", "") or ""
-        try:
-            from urllib.parse import urlparse, unquote, parse_qs
-            u  = urlparse(url)
-            qs = parse_qs(u.query)
-            if "file" in qs:
-                return unquote(qs["file"][0].split("/")[-1])
-            segs = [s for s in u.path.split("/") if s]
-            if segs:
-                last = unquote(segs[-1])
-                if not last.lower().endswith(".aspx"):
-                    return last
-        except Exception:
-            pass
-        return meta.get("title", "") or "SharePoint"
-    if source == "teams":
-        tn = meta.get("teams_team_name") or ""
-        cn = meta.get("teams_channel_name") or ""
-        ct = meta.get("teams_chat_topic") or ""
-        if tn and cn:
-            return f"Teams {tn}/{cn}"
-        if ct:
-            return f"Teams {ct}"
-        return "Teams"
-    return meta.get("title", "") or source
-
-
-def _resolve_citations(answer: str, retrieved_docs: List[Dict]) -> Tuple[str, set]:
-    """
-    답변 내 [REF1] 형식 인용을 '문서명(url)' 마크다운 링크로 치환합니다.
-    추가로 답변에 직접 언급된 Jira 이슈 키([WMPO-1234] 형식)도 링크로 변환합니다.
-    실제 인용된 doc 인덱스 집합을 함께 반환합니다.
-    """
-    cited: set = set()
-
-    # Jira 이슈 키 → (doc_index, url) 빠른 조회용 맵
-    jira_key_map: dict = {}
-    for i, doc in enumerate(retrieved_docs):
-        meta = doc["metadata"]
-        if meta.get("source") == "jira":
-            key = meta.get("jira_issue_key", "")
-            if key and key not in jira_key_map:
-                url = meta.get("url", "") or ""
-                jira_key_map[key] = (i, url)
-
-    def replace_ref(m: re.Match) -> str:
-        try:
-            idx = int(m.group(1)) - 1
-        except ValueError:
-            return ""  # 잘못된 형식 → 제거
-        if idx < 0 or idx >= len(retrieved_docs):
-            return ""  # 범위 초과 → [REFn] 리터럴 대신 제거
-        cited.add(idx)
-        doc  = retrieved_docs[idx]
-        meta = doc["metadata"]
-        url  = meta.get("url", "") or ""
-        if not url or url == "None":
-            url = _build_teams_url(meta)
-        name = _doc_display_name(meta)
-        return f"[{name}]({url})" if url else name
-
-    new_answer = _REF_PATTERN.sub(replace_ref, answer)
-
-    # 답변에 직접 언급된 Jira 이슈 키를 링크로 변환 (이미 링크화된 경우 제외)
-    def replace_jira_inline(m: re.Match) -> str:
-        key = m.group(1)
-        if key in jira_key_map:
-            idx, url = jira_key_map[key]
-            cited.add(idx)
-            return f"[{key}]({url})" if url else f"[{key}]"
-        return m.group(0)
-
-    new_answer = _JIRA_INLINE_RE.sub(replace_jira_inline, new_answer)
-    return new_answer, cited
+# 하위 호환 별칭 (내부에서 _ prefix로 참조하는 곳을 위해)
+_ensure_list = ensure_list
+_build_teams_url = build_teams_url
+_doc_source_label = doc_source_label
+_doc_display_name = doc_display_name
+_resolve_citations = resolve_citations
+_try_hub_direct_answer = try_hub_direct_answer
 
 
 def build_rag_prompt(
@@ -418,64 +257,6 @@ def _detect_filters(query: str) -> dict:
 
     return {'sources': sources, 'extensions': extensions}
 _NO_ANSWER_PHRASE = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
-
-# Knowledge Hub 직접 응답: 1위 문서의 RRF 점수가 2위의 N배 이상이면 원문 직접 반환
-_HUB_DIRECT_RRF_RATIO = 2.0
-
-_hub_intro_llm = None
-
-def _build_hub_intro(question: str) -> str:
-    """LLM으로 Knowledge Hub 안내 멘트를 생성합니다."""
-    global _hub_intro_llm
-    if _hub_intro_llm is None:
-        from company_llm_rag.llm.openai_provider import OpenAIProvider
-        _hub_intro_llm = OpenAIProvider(
-            default_model=settings.OPENAI_SUMMARIZE_MODEL,
-            default_temperature=0.3,
-        )
-    try:
-        messages = [
-            {"role": "system", "content": (
-                "사용자 질문과 유사한 기존 Q&A를 찾았습니다. "
-                "해당 질문이 어떤 내용인지 1~2문장으로 자연스럽게 안내하세요. "
-                "안내 문구만 작성하고, 답변 내용은 포함하지 마세요. "
-                "반드시 '관련하여 유사한 질문의 답변을 안내드립니다.' 로 마무리하세요."
-            )},
-            {"role": "user", "content": question},
-        ]
-        intro = _hub_intro_llm.chat(messages).strip()
-    except Exception:
-        intro = "유사한 질문에 대한 답변이 있어 안내드립니다."
-    return intro + "\n\n---\n\n"
-
-
-def _try_hub_direct_answer(retrieved_docs: List[Dict]) -> Optional[str]:
-    """Knowledge Hub 문서가 1위이고 충분히 우세하면 SQLite에서 원문을 직접 반환합니다."""
-    if not retrieved_docs or not settings.KNOWLEDGE_HUB_TEAM_NAME:
-        return None
-    top = retrieved_docs[0]
-    meta = top.get('metadata', {})
-    if not meta.get('is_hub_direct'):
-        return None
-    # RRF 점수 비교: 2위 대비 충분히 높을 때만
-    top_rrf = top.get('_rrf', 0)
-    second_rrf = retrieved_docs[1].get('_rrf', 0) if len(retrieved_docs) > 1 else 0
-    if second_rrf > 0 and top_rrf / second_rrf < _HUB_DIRECT_RRF_RATIO:
-        return None
-    doc_id = meta.get('original_doc_id', '')
-    if not doc_id:
-        return None
-    from company_llm_rag.history_store import hub_get_reply
-    reply = hub_get_reply(doc_id)
-    if not reply:
-        return None
-    # 안내 메시지: LLM이 질문을 자연스럽게 정리
-    content_lines = top.get('content', '').strip()
-    title = meta.get('title', '')
-    if title and content_lines.startswith(title):
-        content_lines = content_lines[len(title):].strip()
-    intro = _build_hub_intro(content_lines)
-    return intro + reply
 _MAX_REFERENCES = 10   # 참고 링크 최대 표시 수
 _MAX_REF_DISTANCE = 0.35  # 벡터 거리 기준치 — 이 이상이면 참고문서에서 제외 (L2 메트릭, 0.0=완전일치)
 _JIRA_KEY_RE = re.compile(r'\b([A-Z]+-\d+)\b')
