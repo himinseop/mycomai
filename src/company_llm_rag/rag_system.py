@@ -259,6 +259,7 @@ def _detect_filters(query: str) -> dict:
 _NO_ANSWER_PHRASE = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
 _MAX_REFERENCES = 10   # 참고 링크 최대 표시 수
 _MAX_REF_DISTANCE = 0.35  # 벡터 거리 기준치 — 이 이상이면 참고문서에서 제외 (L2 메트릭, 0.0=완전일치)
+_MIN_FALLBACK_REFS = 3  # 인용 문서 0개일 때 최소 표시할 참고문서 수
 _JIRA_KEY_RE = re.compile(r'\b([A-Z]+-\d+)\b')
 
 # 쓸모없는 문서 패턴 (검색 후 LLM 컨텍스트에서 제외)
@@ -364,18 +365,30 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_i
     seen: set = set()          # URL 기반 중복 제거
     seen_issue_keys: set = set()  # Jira issue_key 기반 중복 제거
     references = []
+
+    # 2-pass: 인용 문서 우선 → 나머지 거리 필터 적용
+    # pass 1: LLM이 답변에서 직접 인용한 문서 + injected 문서 (최상단 배치)
+    # pass 2: 나머지 문서 (거리 기준치 적용)
+    pass_order = []
     for i, doc in enumerate(retrieved_docs):
-        if len(references) >= max_refs:
-            break
-        # LLM에 전달된 문서는 모두 참고문서 후보
-        # 키워드 전용 문서(_distance=1.0)만 거리 기준치로 제외
-        meta = doc["metadata"]
         is_cited = cited_indices is not None and i in cited_indices
         is_hub = (settings.KNOWLEDGE_HUB_TEAM_NAME
-                  and meta.get('teams_team_name', '') == settings.KNOWLEDGE_HUB_TEAM_NAME)
-        has_vector_match = doc.get('_vector_rank') is not None
-        if not is_cited and not doc.get('_injected', False) and not is_hub and not has_vector_match and doc.get('_distance', 0.0) > _MAX_REF_DISTANCE:
-            continue
+                  and doc.get('metadata', {}).get('teams_team_name', '') == settings.KNOWLEDGE_HUB_TEAM_NAME)
+        if is_cited or doc.get('_injected', False) or is_hub:
+            pass_order.insert(len([p for p in pass_order if p[1]]), (i, True))  # 우선 그룹
+        else:
+            pass_order.append((i, False))
+
+    priority_count = sum(1 for _, p in pass_order if p)
+    for i, is_priority in pass_order:
+        if len(references) >= max_refs:
+            break
+        doc = retrieved_docs[i]
+        meta = doc["metadata"]
+        # 비우선 문서는 거리 기준치 적용 (단, 인용 문서가 0개면 상위 N개 fallback)
+        if not is_priority and doc.get('_distance', 0.0) > _MAX_REF_DISTANCE:
+            if priority_count > 0 or len(references) >= _MIN_FALLBACK_REFS:
+                continue
         url = meta.get("url", "") or ""
         if not url or url == "None":
             url = _build_teams_url(meta)
