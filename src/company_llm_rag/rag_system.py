@@ -367,14 +367,14 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_i
     for i, doc in enumerate(retrieved_docs):
         if len(references) >= max_refs:
             break
-        # 쿼리에 명시된 Jira 키와 일치하는 문서(_injected)는 항상 포함
-        # cited 문서는 거리와 무관하게 항상 포함
-        # 나머지는 벡터 거리 기준치 초과 시 제외 (키워드 전용 문서는 _distance=1.0이므로 주의)
+        # LLM에 전달된 문서는 모두 참고문서 후보
+        # 키워드 전용 문서(_distance=1.0)만 거리 기준치로 제외
         meta = doc["metadata"]
         is_cited = cited_indices is not None and i in cited_indices
         is_hub = (settings.KNOWLEDGE_HUB_TEAM_NAME
                   and meta.get('teams_team_name', '') == settings.KNOWLEDGE_HUB_TEAM_NAME)
-        if not is_cited and not doc.get('_injected', False) and not is_hub and doc.get('_distance', 0.0) > _MAX_REF_DISTANCE:
+        has_vector_match = doc.get('_vector_rank') is not None
+        if not is_cited and not doc.get('_injected', False) and not is_hub and not has_vector_match and doc.get('_distance', 0.0) > _MAX_REF_DISTANCE:
             continue
         url = meta.get("url", "") or ""
         if not url or url == "None":
