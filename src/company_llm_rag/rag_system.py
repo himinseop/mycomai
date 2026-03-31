@@ -565,7 +565,7 @@ def rag_query(
     if not return_refs:
         return llm_response
 
-    is_no_answer = _NO_ANSWER_PHRASE in llm_response
+    is_no_answer = llm_response.strip().endswith(_NO_ANSWER_PHRASE)
     if is_no_answer:
         references = []
     else:
@@ -671,7 +671,7 @@ def rag_query_stream(
         f"총={total_ms}ms | 문서={len(retrieved_docs)}개 | 인용={len(cited)}건"
     )
 
-    is_no_answer = _NO_ANSWER_PHRASE in full_answer
+    is_no_answer = full_answer.strip().endswith(_NO_ANSWER_PHRASE)
     if is_no_answer:
         references = []
     else:
