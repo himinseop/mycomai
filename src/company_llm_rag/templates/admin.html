@@ -751,7 +751,7 @@
     const turns = data.turns || [];
 
     const meta = `<div class="modal-meta">
-      <span>세션: <code style="font-size:.78rem">${escHtml(sessionId)}</code><span style="cursor:pointer;margin-left:4px;opacity:.5" title="세션 ID 복사" onclick="navigator.clipboard.writeText('${escHtml(sessionId)}');this.textContent='✔';setTimeout(()=>this.textContent='📋',1000)">📋</span></span>
+      <span>세션: <code style="font-size:.78rem">${escHtml(sessionId)}</code><span style="cursor:pointer;margin-left:4px;opacity:.5" title="세션 ID 복사" onclick="copySessionId(this,'${escHtml(sessionId)}')">📋</span></span>
       <span>${turns.length}개 질문</span>
       ${data.group_feedback === 1 ? '<span class="badge badge-up">👍 만족</span>'
         : data.group_feedback === -1 ? '<span class="badge badge-down">👎 불만족</span>' : ''}
@@ -804,6 +804,17 @@
   // ── 유틸 ──────────────────────────────────────────────────────────────────
   function escHtml(str) {
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function copySessionId(el, text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => { el.textContent='✔'; setTimeout(()=>el.textContent='📋',1000); });
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+      document.body.removeChild(ta);
+      el.textContent='✔'; setTimeout(()=>el.textContent='📋',1000);
+    }
   }
 
   // ── 마크다운 렌더링 ─────────────────────────────────────────────────────
