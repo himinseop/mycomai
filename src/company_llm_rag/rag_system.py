@@ -258,7 +258,7 @@ def _detect_filters(query: str) -> dict:
     return {'sources': sources, 'extensions': extensions}
 _NO_ANSWER_PHRASE = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
 _MAX_REFERENCES = 10   # 참고 링크 최대 표시 수
-_MAX_REF_DISTANCE = 0.35  # 벡터 거리 기준치 — 이 이상이면 참고문서에서 제외 (L2 메트릭, 0.0=완전일치)
+_MAX_REF_DISTANCE = 0.35  # 벡터 거리 기준치 — L2 메트릭 (0.0=완전일치)
 _MIN_FALLBACK_REFS = 3  # 인용 문서 0개일 때 최소 표시할 참고문서 수
 _JIRA_KEY_RE = re.compile(r'\b([A-Z]+-\d+)\b')
 
