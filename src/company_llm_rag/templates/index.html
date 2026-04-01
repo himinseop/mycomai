@@ -544,7 +544,10 @@
         item.className = 'ref-item';
         if (ref.hub_reply) {
           const btnId = `hub-reply-${Date.now()}-${idx}`;
-          item.innerHTML = `${getSourceBadge(ref.source, ref.url)}<span style="color:#10b981;font-weight:600;font-size:12px">Knowledge Hub</span> <button onclick="toggleHubReply('${btnId}')" style="font-size:11px;padding:2px 8px;border:1px solid #10b981;border-radius:10px;background:#f0fdf4;color:#10b981;cursor:pointer;margin-left:4px">원문 보기</button>
+          item.innerHTML = `<div style="display:flex;align-items:center;gap:6px">
+              ${getSourceBadge(ref.source, ref.url)}<span style="color:#555;font-size:12px">이전 유사한 질문 답변</span>
+              <button onclick="toggleHubReply('${btnId}')" style="font-size:11px;padding:2px 8px;border:1px solid #10b981;border-radius:10px;background:#f0fdf4;color:#10b981;cursor:pointer">원문 보기</button>
+            </div>
             <div id="${btnId}" style="display:none;margin-top:8px;padding:12px;background:#f8fffe;border:1px solid #d1fae5;border-radius:8px" class="qa-a-text"></div>`;
           setTimeout(() => {
             const el = document.getElementById(btnId);
