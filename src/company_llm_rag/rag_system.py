@@ -547,7 +547,7 @@ def rag_query(
 
     if not retrieved_docs:
         answer = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
-        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm.model_name}
+        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm.model_name}
         return (answer, [], timing) if return_refs else answer
 
     # Knowledge Hub 원문 직접 응답: 1위 문서가 Knowledge Hub이면 LLM 없이 원문 반환
@@ -555,7 +555,7 @@ def rag_query(
     if hub_direct:
         t_llm = time.monotonic()
         total_ms = int((t_llm - t0) * 1000)
-        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": "knowledge_hub_direct"}
+        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": "knowledge_hub_direct"}
         if not return_refs:
             return hub_direct
         return hub_direct, [], timing
@@ -573,7 +573,7 @@ def rag_query(
         f"[RAG 성능] 검색={retrieval_ms}ms (벡터={ret_timing['vector_ms']}ms / FTS={ret_timing['keyword_ms']}ms / rerank={ret_timing.get('rerank_ms',0)}ms) | 직접조회={inject_ms}ms | LLM={llm_ms}ms | "
         f"총={total_ms}ms | 문서={len(retrieved_docs)}개 | 인용={len(cited)}건"
     )
-    timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "inject_ms": inject_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm.model_name}
+    timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm.model_name}
 
     if not return_refs:
         return llm_response
@@ -640,7 +640,7 @@ def rag_query_stream(
 
     if not retrieved_docs:
         answer = _NO_ANSWER_PHRASE
-        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm.model_name}
+        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm.model_name}
         yield {"type": "done", "answer": answer, "references": [], "timing": timing, "is_no_answer": True}
         return
 
@@ -648,7 +648,7 @@ def rag_query_stream(
     hub_direct = _try_hub_direct_answer(retrieved_docs)
     if hub_direct:
         total_ms = int((time.monotonic() - t0) * 1000)
-        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": "knowledge_hub_direct"}
+        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": "knowledge_hub_direct"}
         yield {"type": "token", "text": hub_direct}
         yield {"type": "done", "answer": hub_direct, "references": [], "timing": timing, "is_no_answer": False}
         return
@@ -678,7 +678,7 @@ def rag_query_stream(
     # [REF1] 인용 치환 → 실제 문서명+링크 마크다운
     full_answer, cited = _resolve_citations(full_answer, retrieved_docs)
 
-    timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "inject_ms": inject_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm.model_name}
+    timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm.model_name}
     logger.info(
         f"[RAG 스트리밍 성능] 검색={retrieval_ms}ms (벡터={ret_timing['vector_ms']}ms / FTS={ret_timing['keyword_ms']}ms / rerank={ret_timing.get('rerank_ms',0)}ms) | 직접조회={inject_ms}ms | LLM={llm_ms}ms | "
         f"총={total_ms}ms | 문서={len(retrieved_docs)}개 | 인용={len(cited)}건"

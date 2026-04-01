@@ -388,7 +388,7 @@ def retrieve_documents(
             ]
 
         if return_timing:
-            timing = {"vector_ms": vector_ms, "keyword_ms": keyword_ms, "rerank_ms": rerank_ms}
+            timing = {"vector_ms": vector_ms, "keyword_ms": keyword_ms, "rerank_ms": rerank_ms, "rerank_model": reranker.model_name if reranker else ""}
             return docs, timing
         return docs
 
