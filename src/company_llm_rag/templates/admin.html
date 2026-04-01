@@ -1435,15 +1435,18 @@
     const vMs    = p.vector_ms  ?? null;
     const kMs    = p.keyword_ms ?? null;
     const iMs    = p.inject_ms  ?? null;
+    const rrMs   = p.rerank_ms ?? null;
     const hasSub = vMs !== null && kMs !== null;
     const hasInj = iMs !== null && iMs > 0;
+    const hasRR  = rrMs !== null && rrMs > 0;
     const rMs    = p.retrieval_ms;
     const lMs    = p.llm_ms;
     const vPct = hasSub ? Math.max(1, Math.round(vMs/total*100)) : 0;
     const kPct = hasSub ? Math.max(1, Math.round(kMs/total*100)) : 0;
+    const rrPct = hasRR ? Math.max(1, Math.round(rrMs/total*100)) : 0;
     const iPct = hasInj ? Math.max(1, Math.round(iMs/total*100)) : 0;
     const rPct = Math.max(1, Math.round(rMs/total*100));
-    const lPct = Math.max(1, 100 - rPct - iPct);
+    const lPct = Math.max(1, 100 - rPct - iPct - rrPct);
     const dot = c => `<span style="display:inline-block;width:9px;height:9px;background:${c};border-radius:2px;margin-right:5px;flex-shrink:0"></span>`;
     return `
       <div style="margin-bottom:12px">
@@ -1452,6 +1455,7 @@
             ? `<div style="width:${vPct}%;background:#6264a7;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="벡터 ${fmtMs(vMs)}">${vPct>=10?'벡터':''}</div>
                <div style="width:${kPct}%;background:#8b5cf6;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="FTS ${fmtMs(kMs)}">${kPct>=10?'FTS':''}</div>`
             : `<div style="width:${rPct}%;background:#6264a7;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="검색 ${fmtMs(rMs)}">${rPct>=10?'검색':''}</div>`}
+          ${hasRR ? `<div style="width:${rrPct}%;background:#10b981;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="Rerank ${fmtMs(rrMs)}">${rrPct>=10?'Rerank':''}</div>` : ''}
           ${hasInj ? `<div style="width:${iPct}%;background:#f59e0b;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="직접조회 ${fmtMs(iMs)}">${iPct>=10?'직접조회':''}</div>` : ''}
           <div style="width:${lPct}%;background:#0078d4;display:flex;align-items:center;justify-content:center;color:#fff;min-width:4px" title="LLM ${fmtMs(lMs)}">${lPct>=10?'LLM':''}</div>
         </div>
@@ -1459,6 +1463,7 @@
           ${hasSub
             ? `<span style="display:flex;align-items:center">${dot('#6264a7')}벡터</span><span style="display:flex;align-items:center">${dot('#8b5cf6')}FTS</span>`
             : `<span style="display:flex;align-items:center">${dot('#6264a7')}검색</span>`}
+          ${hasRR ? `<span style="display:flex;align-items:center">${dot('#10b981')}Rerank</span>` : ''}
           ${hasInj ? `<span style="display:flex;align-items:center">${dot('#f59e0b')}직접조회</span>` : ''}
           <span style="display:flex;align-items:center">${dot('#0078d4')}LLM</span>
         </div>
@@ -1473,6 +1478,7 @@
             ? `<tr><td style="padding:6px 8px 3px">${dot('#6264a7')}ChromaDB 벡터</td><td style="text-align:right;padding:6px 8px 3px;font-weight:700">${fmtMs(vMs)}</td></tr>
                <tr><td style="padding:3px 8px 6px;border-bottom:1px solid #f0f0f0">${dot('#8b5cf6')}FTS 키워드</td><td style="text-align:right;padding:3px 8px 6px;font-weight:700;border-bottom:1px solid #f0f0f0">${fmtMs(kMs)}</td></tr>`
             : `<tr><td style="padding:6px 8px;border-bottom:1px solid #f0f0f0">${dot('#6264a7')}검색</td><td style="text-align:right;padding:6px 8px;font-weight:700;border-bottom:1px solid #f0f0f0">${fmtMs(rMs)}</td></tr>`}
+          ${hasRR ? `<tr><td style="padding:6px 8px;border-bottom:1px solid #f0f0f0">${dot('#10b981')}Rerank</td><td style="text-align:right;padding:6px 8px;font-weight:700;border-bottom:1px solid #f0f0f0">${fmtMs(rrMs)}</td></tr>` : ''}
           ${hasInj ? `<tr><td style="padding:6px 8px;border-bottom:1px solid #f0f0f0">${dot('#f59e0b')}직접조회</td><td style="text-align:right;padding:6px 8px;font-weight:700;border-bottom:1px solid #f0f0f0">${fmtMs(iMs)}</td></tr>` : ''}
           <tr><td style="padding:6px 8px">${dot('#0078d4')}LLM</td><td style="text-align:right;padding:6px 8px;font-weight:700">${fmtMs(lMs)}</td></tr>
           <tr style="border-top:2px solid #eee">

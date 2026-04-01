@@ -12,6 +12,7 @@ services:
     volumes:
       - ../db:/app/db
       - ../src/company_llm_rag:/app/company_llm_rag
+      - huggingface_cache:/root/.cache/huggingface
     networks:
       - me
 
@@ -66,4 +67,6 @@ volumes:
   chroma_db:
     driver: local
   host_data:
+    driver: local
+  huggingface_cache:
     driver: local
