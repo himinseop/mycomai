@@ -63,6 +63,22 @@ init_db()
 
 
 @app.on_event("startup")
+async def _warmup_reranker():
+    """Reranker 모델을 서버 시작 시 미리 로딩합니다."""
+    if settings.RERANKER_ENABLED:
+        import asyncio
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _load_reranker)
+
+
+def _load_reranker():
+    from company_llm_rag.reranker.factory import get_reranker
+    reranker = get_reranker()
+    if reranker and hasattr(reranker, '_load'):
+        reranker._load()
+
+
+@app.on_event("startup")
 async def _warmup_db_stats():
     """앱 시작 시 db-stats 캐시를 백그라운드로 갱신합니다."""
     import asyncio
