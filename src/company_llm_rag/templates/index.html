@@ -356,6 +356,10 @@
   marked.setOptions({ renderer: _renderer, breaks: false, gfm: true });
 
   function renderText(text) { return text ? marked.parse(text) : ''; }
+  function toggleHubReply(id) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  }
 
   function getSourceBadge(source, url) {
     if (source === 'jira')       return '<span class="src-badge jira">J</span>';
@@ -535,10 +539,20 @@
       const refsDiv = document.createElement('div');
       refsDiv.className = 'refs';
       refsDiv.innerHTML = '<div class="refs-label">참고 문서</div>';
-      references.forEach(ref => {
+      references.forEach((ref, idx) => {
         const item = document.createElement('div');
         item.className = 'ref-item';
-        item.innerHTML = `${getSourceBadge(ref.source, ref.url)}<a href="${escapeHtml(ref.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(ref.title||ref.url)}">${escapeHtml(getRefLabel(ref))}</a>${getRefMeta(ref)}`;
+        if (ref.hub_reply) {
+          const btnId = `hub-reply-${Date.now()}-${idx}`;
+          item.innerHTML = `${getSourceBadge(ref.source, ref.url)}<span style="color:#10b981;font-weight:600;font-size:12px">Knowledge Hub</span> <button onclick="toggleHubReply('${btnId}')" style="font-size:11px;padding:2px 8px;border:1px solid #10b981;border-radius:10px;background:#f0fdf4;color:#10b981;cursor:pointer;margin-left:4px">원문 보기</button>
+            <div id="${btnId}" style="display:none;margin-top:8px;padding:12px;background:#f8fffe;border:1px solid #d1fae5;border-radius:8px" class="qa-a-text"></div>`;
+          setTimeout(() => {
+            const el = document.getElementById(btnId);
+            if (el) el.innerHTML = renderText(ref.hub_reply);
+          }, 0);
+        } else {
+          item.innerHTML = `${getSourceBadge(ref.source, ref.url)}<a href="${escapeHtml(ref.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(ref.title||ref.url)}">${escapeHtml(getRefLabel(ref))}</a>${getRefMeta(ref)}`;
+        }
         refsDiv.appendChild(item);
       });
       body.appendChild(refsDiv);

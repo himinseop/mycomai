@@ -436,6 +436,13 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_i
                 chat_topic = ""
             created_at = meta.get("created_at", "") or ""
             snippet = (doc.get("content") or "").strip()[:90]
+        # Knowledge Hub 원문 조회
+        hub_reply = ""
+        if meta.get("is_hub_direct"):
+            from company_llm_rag.hub_store import hub_get_reply
+            doc_id = meta.get("original_doc_id", "")
+            if doc_id:
+                hub_reply = hub_get_reply(doc_id) or ""
         page_nums = sorted(url_slides.get(url, set()))
         references.append({
             "title": title,
@@ -457,6 +464,7 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_i
             "created_at": created_at,
             "snippet": snippet,
             "page_nums": page_nums,
+            "hub_reply": hub_reply,
         })
     return references
 
