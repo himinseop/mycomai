@@ -350,14 +350,14 @@ def retrieve_documents(
         scored.sort(key=lambda x: x['_rrf'], reverse=True)
 
         # ── 3.5. Reranker (선택) ──────────────────────────────────
-        t_rerank_start = time.monotonic()
         from company_llm_rag.reranker.factory import get_reranker
         reranker = get_reranker()
+        rerank_ms = 0
         if reranker:
+            t_rerank_start = time.monotonic()
             rerank_candidates = scored[:settings.RERANKER_TOP_N]
             scored = reranker.rerank(query, rerank_candidates, len(scored))
-        rerank_ms = int((time.monotonic() - t_rerank_start) * 1000)
-        if reranker:
+            rerank_ms = int((time.monotonic() - t_rerank_start) * 1000)
             logger.info(f"[검색 성능] rerank={rerank_ms}ms | 모델={reranker.model_name}")
 
         # ── 4. 후처리 필터 & 반환 ─────────────────────────────────

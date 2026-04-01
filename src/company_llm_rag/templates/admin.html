@@ -1438,7 +1438,7 @@
     const rrMs   = p.rerank_ms ?? null;
     const hasSub = vMs !== null && kMs !== null;
     const hasInj = iMs !== null && iMs > 0;
-    const hasRR  = rrMs !== null && rrMs > 0 && !!(p.rerank_model);
+    const hasRR  = rrMs > 0;
     const rMs    = p.retrieval_ms;
     const lMs    = p.llm_ms;
     const vPct = hasSub ? Math.max(1, Math.round(vMs/total*100)) : 0;
