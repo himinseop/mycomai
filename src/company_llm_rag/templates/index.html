@@ -398,10 +398,13 @@
       return ref.title;
     }
     if (ref.source === 'teams') {
-      const parts = [];
-      if (ref.chat_topic) parts.push(`[${ref.chat_topic}]`);
-      else if (ref.channel_name) parts.push(`[${ref.channel_name}]`);
-      if (ref.author) parts.push(ref.author);
+      let group = '';
+      if (ref.chat_topic) group = `[${ref.chat_topic}]`;
+      else if (ref.team_name && ref.channel_name) group = `[${ref.team_name}/${ref.channel_name}]`;
+      else if (ref.channel_name) group = `[${ref.channel_name}]`;
+      const author = ref.author || '';
+      const snippet = ref.snippet ? ref.snippet.replace(/\s+/g,' ').replace(/^\[.*?\]\s*/, '').replace(new RegExp(`^${author}.*?:\\s*`), '').slice(0,50) : '';
+      const parts = [group, author ? `${author} :` : '', snippet].filter(Boolean);
       return parts.join(' ');
     }
     return ref.title || ref.url;
