@@ -100,7 +100,7 @@ async def _warmup_db_stats():
 _sessions: Dict[str, List[Dict]] = {}
 _MAX_HISTORY_TURNS = 10
 
-_TEAMS_GUIDE = "\n\n아래 'Teams에 문의하기' 버튼을 통해 동료에게 직접 질문해보세요."
+_TEAMS_GUIDE = "\n\n아래 '담당자에게 문의하기' 버튼을 통해 질문을 남겨주세요."
 
 
 class ChatRequest(BaseModel):
