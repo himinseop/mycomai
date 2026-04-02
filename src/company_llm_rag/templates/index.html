@@ -398,12 +398,11 @@
       return ref.title;
     }
     if (ref.source === 'teams') {
-      let prefix = '';
-      if (ref.team_name && ref.channel_name) prefix = `[${ref.team_name}/${ref.channel_name}] `;
-      else if (ref.chat_topic) prefix = `[${ref.chat_topic}] `;
-      const author = ref.author ? `${ref.author} : ` : '';
-      const snippet = ref.snippet ? ref.snippet.replace(/\s+/g,' ').slice(0,60) + '…' : '';
-      return prefix + author + snippet;
+      const parts = [];
+      if (ref.chat_topic) parts.push(`[${ref.chat_topic}]`);
+      else if (ref.channel_name) parts.push(`[${ref.channel_name}]`);
+      if (ref.author) parts.push(ref.author);
+      return parts.join(' ');
     }
     return ref.title || ref.url;
   }
