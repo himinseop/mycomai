@@ -323,6 +323,8 @@ async def feedback(req: FeedbackRequest):
                     )
                 )
 
+    if ok:
+        invalidate_stats_cache()
     return {"success": ok}
 
 
@@ -564,6 +566,8 @@ async def admin_session_feedback(request: Request, session_id: str, body: AdminF
     if body.rating not in (1, -1):
         return JSONResponse({"error": "rating은 1 또는 -1"}, status_code=400)
     ok = save_group_feedback(session_id, body.rating)
+    if ok:
+        invalidate_stats_cache()
     return {"success": ok}
 
 
