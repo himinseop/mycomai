@@ -1446,7 +1446,8 @@
     const rrPct = hasRR ? Math.max(1, Math.round(rrMs/total*100)) : 0;
     const iPct = hasInj ? Math.max(1, Math.round(iMs/total*100)) : 0;
     const rPct = Math.max(1, Math.round(rMs/total*100));
-    const lPct = Math.max(1, 100 - rPct - iPct - rrPct);
+    const usedPct = (hasSub ? vPct + kPct : rPct) + rrPct + iPct;
+    const lPct = Math.max(1, 100 - usedPct);
     const dot = c => `<span style="display:inline-block;width:9px;height:9px;background:${c};border-radius:2px;margin-right:5px;flex-shrink:0"></span>`;
     return `
       <div style="margin-bottom:12px">

@@ -17,7 +17,7 @@ from company_llm_rag.teams_sender import (
     is_inquiry_configured,
 )
 from company_llm_rag.history_store import (
-    init_db, save as history_save,
+    init_db, save as history_save, invalidate_stats_cache,
     save_record_feedback, save_group_feedback,
     get_session_history, get_stats, SESSION_TTL_DAYS,
     get_setting, set_setting,
@@ -197,6 +197,7 @@ async def chat(req: ChatRequest):
         parent_record_id=parent_record_id,
         retrieved_docs=_compact_retrieved_docs(docs_holder),
     )
+    invalidate_stats_cache()
 
     return ChatResponse(
         answer=answer,
@@ -270,6 +271,7 @@ async def chat_stream(req: ChatRequest):
                 parent_record_id=parent_record_id,
                 retrieved_docs=_compact_retrieved_docs(docs_holder),
             )
+            invalidate_stats_cache()
 
             meta_ev = {
                 "type": "meta",
