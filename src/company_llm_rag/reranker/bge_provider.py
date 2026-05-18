@@ -28,9 +28,13 @@ class BGEReranker(RerankerProvider):
         if self._model is not None:
             return
         logger.info(f"[Reranker] 모델 로딩 중: {self._model_name}")
+        import torch
         from sentence_transformers import CrossEncoder
-        self._model = CrossEncoder(self._model_name)
-        logger.info(f"[Reranker] 모델 로딩 완료")
+        self._model = CrossEncoder(
+            self._model_name,
+            model_kwargs={"torch_dtype": torch.float16},
+        )
+        logger.info(f"[Reranker] 모델 로딩 완료 (fp16)")
 
     # 추론 속도를 위해 문서 내용을 앞부분만 사용 (cross-encoder는 앞부분에서 관련도 판단)
     _MAX_DOC_CHARS = 256

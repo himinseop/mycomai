@@ -43,10 +43,19 @@ services:
   web:
     extends:
       service: base
-    command: uvicorn company_llm_rag.web_app:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn company_llm_rag.web_app:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
     restart: unless-stopped
+
+  # 개발용: 코드 핫리로드 필요 시 `docker-compose --profile dev up web-dev`
+  web-dev:
+    extends:
+      service: base
+    command: uvicorn company_llm_rag.web_app:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    profiles: ["dev"]
 
   cron-scheduler:
     extends:

@@ -78,23 +78,8 @@ def _load_reranker():
         reranker._load()
 
 
-@app.on_event("startup")
-async def _warmup_db_stats():
-    """앱 시작 시 db-stats 캐시를 백그라운드로 갱신합니다."""
-    import asyncio
-    loop = asyncio.get_event_loop()
-
-    async def _run():
-        global _db_stats_cache, _db_stats_cache_time
-        try:
-            result = await loop.run_in_executor(None, _compute_db_stats)
-            _db_stats_cache = result
-            _db_stats_cache_time = time.monotonic()
-            logger.info("[Admin] db-stats 캐시 워밍업 완료")
-        except Exception as e:
-            logger.warning(f"[Admin] db-stats 워밍업 실패: {e}")
-
-    asyncio.ensure_future(_run())
+# NOTE: 시작 시 db-stats 자동 워밍업은 메모리(+~0.5 GB) 압박으로 제거되었습니다.
+# 첫 admin 페이지 진입 시 lazy 계산됩니다. (Issue #44)
 
 # 세션별 대화 히스토리 (session_id → messages) — 서버 메모리 캐시
 _sessions: Dict[str, List[Dict]] = {}
