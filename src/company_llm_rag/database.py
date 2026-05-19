@@ -5,10 +5,16 @@ ChromaDB 초기화 및 컬렉션 관리를 담당합니다.
 """
 
 import chromadb
+from chromadb.config import Settings as ChromaSettings
 from chromadb.utils import embedding_functions
 from chromadb.api.models.Collection import Collection
 
 from company_llm_rag.config import settings
+
+# ChromaDB segment 캐시 메모리 한도 (Issue #45)
+# - 한도 초과 시 LRU로 가장 오래된 segment 제거 후 재로드
+# - 쿼리/분석 시 RSS 스파이크 방지
+_CHROMA_MEMORY_LIMIT_BYTES = 4 * 1024 * 1024 * 1024  # 4 GB
 
 
 class ChromaDBManager:
@@ -24,7 +30,13 @@ class ChromaDBManager:
     def client(self) -> chromadb.PersistentClient:
         """ChromaDB 클라이언트 (Lazy initialization)"""
         if self._client is None:
-            self._client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
+            self._client = chromadb.PersistentClient(
+                path=settings.CHROMA_DB_PATH,
+                settings=ChromaSettings(
+                    chroma_segment_cache_policy="LRU",
+                    chroma_memory_limit_bytes=_CHROMA_MEMORY_LIMIT_BYTES,
+                ),
+            )
         return self._client
 
     @property
