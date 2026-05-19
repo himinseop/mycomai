@@ -47,6 +47,8 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
+    mem_limit: 12g
+    mem_reservation: 4g
 
   # 개발용: 코드 핫리로드 필요 시 `docker-compose --profile dev up web-dev`
   web-dev:
