@@ -556,6 +556,10 @@ async def analyze_bad_feedback(
             save_group_analysis(session_id, err_html, status="error")
         else:
             save_analysis(record_id, err_html, status="error")
+    finally:
+        # 분석 종료 후 메모리 회수 (Issue #46)
+        from company_llm_rag.web_app import _post_response_cleanup
+        _post_response_cleanup()
 
 
 # 하위 호환: 기존 코드에서 참조할 수 있는 함수 (deprecated → analyze_bad_feedback 사용 권장)

@@ -1,5 +1,7 @@
 import asyncio
 import base64
+import ctypes
+import gc
 import json
 import time
 from typing import Dict, List, Optional
@@ -31,6 +33,28 @@ from company_llm_rag.no_answer_analyzer import analyze_bad_feedback
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+# 응답 종료 후 메모리 회수 (Issue #46): glibc malloc_trim으로 미사용 힙을 OS에 반환
+try:
+    _libc = ctypes.CDLL("libc.so.6", use_errno=True)
+    _libc.malloc_trim.argtypes = [ctypes.c_int]
+    _libc.malloc_trim.restype = ctypes.c_int
+
+    def _malloc_trim() -> None:
+        try:
+            _libc.malloc_trim(0)
+        except Exception:
+            pass
+except OSError:
+    def _malloc_trim() -> None:
+        pass
+
+
+def _post_response_cleanup() -> None:
+    """응답 완료 후 큰 객체 GC + glibc heap 회수 (Issue #46)."""
+    gc.collect()
+    _malloc_trim()
 
 
 def _compact_retrieved_docs(docs: list) -> list:
@@ -222,52 +246,55 @@ async def chat_stream(req: ChatRequest):
             loop.call_soon_threadsafe(queue.put_nowait, None)
 
     async def generate():
-        loop.run_in_executor(None, _run)
-        done_event = None
-        while True:
-            ev = await queue.get()
-            if ev is None:
-                break
-            yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
-            if ev.get("type") == "done":
-                done_event = ev
+        try:
+            loop.run_in_executor(None, _run)
+            done_event = None
+            while True:
+                ev = await queue.get()
+                if ev is None:
+                    break
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                if ev.get("type") == "done":
+                    done_event = ev
 
-        if done_event:
-            answer = done_event.get("answer", "")
-            references = done_event.get("references", [])
-            timing = done_event.get("timing", {})
-            is_no_answer = done_event.get("is_no_answer", False)
+            if done_event:
+                answer = done_event.get("answer", "")
+                references = done_event.get("references", [])
+                timing = done_event.get("timing", {})
+                is_no_answer = done_event.get("is_no_answer", False)
 
-            if is_no_answer and is_inquiry_configured():
-                answer = answer + _TEAMS_GUIDE
+                if is_no_answer and is_inquiry_configured():
+                    answer = answer + _TEAMS_GUIDE
 
-            history.append({"role": "user", "content": req.message})
-            history.append({"role": "assistant", "content": answer})
-            max_messages = _MAX_HISTORY_TURNS * 2
-            if len(history) > max_messages:
-                _sessions[req.session_id] = history[-max_messages:]
+                history.append({"role": "user", "content": req.message})
+                history.append({"role": "assistant", "content": answer})
+                max_messages = _MAX_HISTORY_TURNS * 2
+                if len(history) > max_messages:
+                    _sessions[req.session_id] = history[-max_messages:]
 
-            record_id = history_save(
-                req.session_id, req.message, answer, references,
-                response_time_ms=timing.get("total_ms"),
-                is_no_answer=is_no_answer,
-                perf=timing,
-                turn_index=turn_index,
-                parent_record_id=parent_record_id,
-                retrieved_docs=_compact_retrieved_docs(docs_holder),
-            )
-            invalidate_stats_cache()
+                record_id = history_save(
+                    req.session_id, req.message, answer, references,
+                    response_time_ms=timing.get("total_ms"),
+                    is_no_answer=is_no_answer,
+                    perf=timing,
+                    turn_index=turn_index,
+                    parent_record_id=parent_record_id,
+                    retrieved_docs=_compact_retrieved_docs(docs_holder),
+                )
+                invalidate_stats_cache()
 
-            meta_ev = {
-                "type": "meta",
-                "record_id": record_id,
-                "session_id": req.session_id,
-                "turn_index": turn_index,
-                "is_group_root": turn_index == 1,
-                "inquiry_available": is_inquiry_configured(),
-                "is_no_answer": is_no_answer,
-            }
-            yield f"data: {json.dumps(meta_ev, ensure_ascii=False)}\n\n"
+                meta_ev = {
+                    "type": "meta",
+                    "record_id": record_id,
+                    "session_id": req.session_id,
+                    "turn_index": turn_index,
+                    "is_group_root": turn_index == 1,
+                    "inquiry_available": is_inquiry_configured(),
+                    "is_no_answer": is_no_answer,
+                }
+                yield f"data: {json.dumps(meta_ev, ensure_ascii=False)}\n\n"
+        finally:
+            _post_response_cleanup()
 
 
     return StreamingResponse(
