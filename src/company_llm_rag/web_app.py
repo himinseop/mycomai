@@ -95,6 +95,13 @@ async def _warmup_reranker():
         await loop.run_in_executor(None, _load_reranker)
 
 
+@app.on_event("startup")
+async def _start_index_keepalive():
+    """벡터 인덱스 keep-alive 데몬 시작 — HNSW 콜드 스타트 방지 (#54)."""
+    from company_llm_rag.database import db_manager
+    db_manager.start_keepalive()
+
+
 def _load_reranker():
     from company_llm_rag.reranker.factory import get_reranker
     reranker = get_reranker()

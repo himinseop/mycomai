@@ -36,6 +36,8 @@ class Settings:
     # ChromaDB 설정
     CHROMA_DB_PATH: str = os.getenv("CHROMA_DB_PATH", "./db/chroma_db")
     COLLECTION_NAME: str = os.getenv("COLLECTION_NAME", "company_llm_rag_collection")
+    # 벡터 인덱스 keep-alive 주기(초). 유휴 후 HNSW 콜드 page-in 방지. 0이면 비활성화 (#54)
+    INDEX_KEEPALIVE_SECONDS: int = int(os.getenv("INDEX_KEEPALIVE_SECONDS", "240"))
 
     # SQLite DB 경로 (기본값: CHROMA_DB_PATH 상위 디렉토리)
     APP_DATA_DB_PATH: str = os.getenv(
