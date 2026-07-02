@@ -21,6 +21,8 @@ services:
       service: base
     volumes:
       - ../data:/app/data
+    mem_limit: 8g
+    mem_reservation: 2g
     command: >
       bash -c "
         echo 'Starting data extraction...' &&

@@ -361,7 +361,14 @@ def main():
                         mime_type = file_meta.get('file', {}).get('mimeType')
                         file_size = file_meta.get('size')
 
-                        if not file_download_url:
+                        # 대용량 파일은 다운로드/파싱을 건너뜀 (#49, 메모리 스파이크 방지)
+                        max_mb = settings.SHAREPOINT_MAX_FILE_MB
+                        if max_mb and file_size and file_size > max_mb * 1024 * 1024:
+                            content_to_store = f"[Content skipped: file too large ({file_size / 1024 / 1024:.1f} MB > {max_mb:.0f} MB)]"
+                            logger.warning(
+                                f"대용량 파일 스킵 — {file_name} ({file_size / 1024 / 1024:.1f} MB) | 경로: {file_path}"
+                            )
+                        elif not file_download_url:
                             content_to_store = "[Content not available for download]"
                         elif mime_type in BINARY_PARSERS:
                             try:

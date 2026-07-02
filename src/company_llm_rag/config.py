@@ -63,6 +63,8 @@ class Settings:
     CLIENT_ID: str = os.getenv("CLIENT_ID", "")
     CLIENT_SECRET: str = os.getenv("CLIENT_SECRET", "")
     SHAREPOINT_SITE_NAME: str = os.getenv("SHAREPOINT_SITE_NAME", "")
+    # 이 크기(MB)를 초과하는 SharePoint 파일은 다운로드/파싱을 건너뜁니다 (#49, 메모리 스파이크 방지). 0이면 무제한.
+    SHAREPOINT_MAX_FILE_MB: float = float(os.getenv("SHAREPOINT_MAX_FILE_MB", "50"))
     TEAMS_GROUP_NAMES: List[str] = [
         t.strip() for t in os.getenv("TEAMS_GROUP_NAME", "").split(",") if t.strip()
     ]
