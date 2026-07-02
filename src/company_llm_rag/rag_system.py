@@ -13,6 +13,7 @@ from company_llm_rag.rag.citations import (
 )
 from company_llm_rag.rag.hub_direct import try_hub_direct_answer
 from company_llm_rag.retrieval_module import retrieve_documents
+from company_llm_rag.query_rewriter import rewrite_query
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
@@ -525,6 +526,10 @@ def rag_query(
     explicit_period = _parse_explicit_period(user_query)
     recency = _is_recency_query(user_query) or (explicit_period is not None)
     effective_n = (n_results or settings.RETRIEVAL_TOP_K) * (3 if listing else 1)
+    # 질문 재작성: 원문 + 해석문/키워드를 함께 검색 (#52, QUERY_REWRITE_ENABLED로 제어)
+    rewrite = rewrite_query(user_query, conversation_history)
+    _extra_q = [rewrite["rewritten"]] if rewrite["rewritten"] != user_query else None
+    _extra_kw = rewrite["keywords"] or None
     retrieved_docs, ret_timing = retrieve_documents(
         user_query,
         n_results=effective_n,
@@ -533,6 +538,8 @@ def rag_query(
         return_timing=True,
         return_scores=True,
         recency_boost=recency,
+        extra_queries=_extra_q,
+        extra_keywords=_extra_kw,
     )
     t_retrieval = time.monotonic()
     retrieval_ms = int((t_retrieval - t0) * 1000)
@@ -617,6 +624,10 @@ def rag_query_stream(
     explicit_period = _parse_explicit_period(user_query)
     recency = _is_recency_query(user_query) or (explicit_period is not None)
     effective_n = (n_results or settings.RETRIEVAL_TOP_K) * (3 if listing else 1)
+    # 질문 재작성: 원문 + 해석문/키워드를 함께 검색 (#52, QUERY_REWRITE_ENABLED로 제어)
+    rewrite = rewrite_query(user_query, conversation_history)
+    _extra_q = [rewrite["rewritten"]] if rewrite["rewritten"] != user_query else None
+    _extra_kw = rewrite["keywords"] or None
     retrieved_docs, ret_timing = retrieve_documents(
         user_query,
         n_results=effective_n,
@@ -625,6 +636,8 @@ def rag_query_stream(
         return_timing=True,
         return_scores=True,
         recency_boost=recency,
+        extra_queries=_extra_q,
+        extra_keywords=_extra_kw,
     )
     t_retrieval = time.monotonic()
     retrieval_ms = int((t_retrieval - t0) * 1000)

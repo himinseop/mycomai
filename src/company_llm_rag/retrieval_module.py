@@ -231,6 +231,8 @@ def retrieve_documents(
     return_timing: bool = False,
     return_scores: bool = False,
     recency_boost: bool = False,
+    extra_queries: List[str] = None,
+    extra_keywords: List[str] = None,
 ):
     """
     ChromaDB에서 하이브리드 검색(벡터 + 키워드 RRF)으로 관련 문서를 검색합니다.
@@ -265,9 +267,16 @@ def retrieve_documents(
 
         t0 = time.monotonic()
 
-        # ── 1. 벡터 검색 ──────────────────────────────────────────
+        # ── 1. 벡터 검색 (원문 + 해석문 멀티쿼리, #52) ──────────────
+        # 원문과 재작성 질문을 함께 임베딩(단일 배치 호출)하여 후보를 합집합으로 수집.
+        # 각 문서는 여러 쿼리 중 '최선(최소) 순위'를 취해 이후 RRF에 사용.
+        vqueries = [query]
+        for eq in (extra_queries or []):
+            if eq and eq != query and eq not in vqueries:
+                vqueries.append(eq)
+
         query_kwargs = dict(
-            query_texts=[query],
+            query_texts=vqueries,
             n_results=fetch_n,
             include=['documents', 'metadatas', 'distances'],
         )
@@ -277,25 +286,36 @@ def retrieve_documents(
         vector_results = collection.query(**query_kwargs)
         t_vector = time.monotonic()
 
-        # id → {content, metadata, vector_rank} 맵
+        # id → {content, metadata, _distance} 맵 + 최선 벡터 순위
         doc_map: Dict[str, Dict] = {}
         vector_rank_map: Dict[str, int] = {}
 
-        if vector_results and vector_results['documents']:
-            for rank, i in enumerate(range(len(vector_results['documents'][0]))):
-                doc_id = vector_results['ids'][0][i]
-                metadata = _fix_metadata(vector_results['metadatas'][0][i])
-                distance = vector_results['distances'][0][i]
-                boosted = distance * _source_boost(metadata)
-                doc_map[doc_id] = {
-                    'content': vector_results['documents'][0][i],
-                    'metadata': metadata,
-                    '_distance': boosted,
-                }
-                vector_rank_map[doc_id] = rank
+        if vector_results and vector_results.get('ids'):
+            for qi in range(len(vector_results['ids'])):
+                ids_q = vector_results['ids'][qi]
+                for rank in range(len(ids_q)):
+                    doc_id = ids_q[rank]
+                    metadata = _fix_metadata(vector_results['metadatas'][qi][rank])
+                    distance = vector_results['distances'][qi][rank]
+                    boosted = distance * _source_boost(metadata)
+                    if doc_id not in doc_map:
+                        doc_map[doc_id] = {
+                            'content': vector_results['documents'][qi][rank],
+                            'metadata': metadata,
+                            '_distance': boosted,
+                        }
+                    elif boosted < doc_map[doc_id]['_distance']:
+                        doc_map[doc_id]['_distance'] = boosted  # 최선(최소) distance 유지
+                    # 최선(최소) 벡터 순위 유지
+                    if doc_id not in vector_rank_map or rank < vector_rank_map[doc_id]:
+                        vector_rank_map[doc_id] = rank
 
-        # ── 2. 키워드 검색 ────────────────────────────────────────
+        # ── 2. 키워드 검색 (원문 키워드 + 재작성 키워드 병합, #52) ──
         keywords = _extract_keywords(query)
+        for kw in (extra_keywords or []):
+            if kw and kw not in keywords:
+                keywords.append(kw)
+        keywords = keywords[:5]  # FTS 풀스캔 반복 방지 위해 상한
         keyword_results = _keyword_search(collection, keywords, fetch_n, where)
         t_keyword = time.monotonic()
 

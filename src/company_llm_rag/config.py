@@ -23,6 +23,10 @@ class Settings:
     OPENAI_SUMMARIZE_MODEL: str = os.getenv("OPENAI_SUMMARIZE_MODEL", "gpt-4o-mini")
     OPENAI_TEMPERATURE: float = float(os.getenv("OPENAI_TEMPERATURE", "0.7"))
 
+    # 질문 재작성(query rewriting) — 원문+해석문 결합 검색 (#52, 프로토타입: 기본 off)
+    QUERY_REWRITE_ENABLED: bool = os.getenv("QUERY_REWRITE_ENABLED", "false").lower() == "true"
+    QUERY_REWRITE_MODEL: str = os.getenv("QUERY_REWRITE_MODEL", "gpt-4o-mini")
+
     # ChromaDB 설정
     CHROMA_DB_PATH: str = os.getenv("CHROMA_DB_PATH", "./db/chroma_db")
     COLLECTION_NAME: str = os.getenv("COLLECTION_NAME", "company_llm_rag_collection")
