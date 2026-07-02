@@ -258,6 +258,33 @@ def _detect_filters(query: str) -> dict:
 
     return {'sources': sources, 'extensions': extensions}
 _NO_ANSWER_PHRASE = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
+# 문구를 제외한 실질 콘텐츠가 이 길이 미만이면 진짜 no-answer로 간주 (#53)
+_NO_ANSWER_MIN_CONTENT = 40
+
+
+def _finalize_answer(text: str) -> tuple:
+    """
+    답변을 확정하고 no-answer 여부를 판정합니다 (#53).
+
+    LLM이 실답변을 생성하고도 끝에 no-answer 문구를 hedge로 덧붙이는 경우가 있어,
+    단순 endswith 판정은 정상 답변을 '답변없음'으로 오분류함. 문구를 제외한 실질
+    콘텐츠 길이로 판정하고, 실답변 뒤에 붙은 문구는 제거해 반환한다.
+
+    Returns:
+        (정리된 답변, is_no_answer)
+    """
+    s = (text or "").strip()
+    if _NO_ANSWER_PHRASE not in s:
+        return s, False
+    remainder = s.replace(_NO_ANSWER_PHRASE, "").strip()
+    if len(remainder) < _NO_ANSWER_MIN_CONTENT:
+        return _NO_ANSWER_PHRASE, True  # 사실상 문구뿐 → 진짜 no-answer
+    # 실답변 뒤에 붙은 hedge 문구 제거
+    if s.endswith(_NO_ANSWER_PHRASE):
+        s = s[:s.rfind(_NO_ANSWER_PHRASE)].rstrip()
+    return s, False
+
+
 _MAX_REFERENCES = 10   # 참고 링크 최대 표시 수
 _MAX_REF_DISTANCE = 0.35  # 벡터 거리 기준치 — L2 메트릭 (0.0=완전일치)
 _MIN_FALLBACK_REFS = 3  # 인용 문서 0개일 때 최소 표시할 참고문서 수
@@ -583,6 +610,8 @@ def rag_query(
 
     # [REF1] 인용 치환 → 실제 문서명+링크 마크다운
     llm_response, cited = _resolve_citations(llm_response, retrieved_docs)
+    # 실답변 뒤 hedge로 붙은 no-answer 문구 정리 + 정확한 no-answer 판정 (#53)
+    llm_response, is_no_answer = _finalize_answer(llm_response)
 
     logger.info(
         f"[RAG 성능] 검색={retrieval_ms}ms (벡터={ret_timing['vector_ms']}ms / FTS={ret_timing['keyword_ms']}ms / rerank={ret_timing.get('rerank_ms',0)}ms) | 직접조회={inject_ms}ms | LLM={llm_ms}ms | "
@@ -593,7 +622,6 @@ def rag_query(
     if not return_refs:
         return llm_response
 
-    is_no_answer = llm_response.strip().endswith(_NO_ANSWER_PHRASE)
     if is_no_answer:
         references = []
     else:
@@ -698,6 +726,8 @@ def rag_query_stream(
 
     # [REF1] 인용 치환 → 실제 문서명+링크 마크다운
     full_answer, cited = _resolve_citations(full_answer, retrieved_docs)
+    # 실답변 뒤 hedge로 붙은 no-answer 문구 정리 + 정확한 no-answer 판정 (#53)
+    full_answer, is_no_answer = _finalize_answer(full_answer)
 
     timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm.model_name}
     logger.info(
@@ -705,7 +735,6 @@ def rag_query_stream(
         f"총={total_ms}ms | 문서={len(retrieved_docs)}개 | 인용={len(cited)}건"
     )
 
-    is_no_answer = full_answer.strip().endswith(_NO_ANSWER_PHRASE)
     if is_no_answer:
         references = []
     else:
