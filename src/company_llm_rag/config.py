@@ -23,6 +23,12 @@ class Settings:
     OPENAI_SUMMARIZE_MODEL: str = os.getenv("OPENAI_SUMMARIZE_MODEL", "gpt-4o-mini")
     OPENAI_TEMPERATURE: float = float(os.getenv("OPENAI_TEMPERATURE", "0.7"))
 
+    # LLM 제공자 (openai | ollama) — ollama는 OpenAI 호환 /v1 API 재사용 (#38)
+    # 주의: 임베딩은 항상 OpenAI 유지 (ChromaDB 인덱스가 text-embedding-3-small 1536d로 구축됨).
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai").lower()
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434/v1")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:3b-instruct")
+
     # 질문 재작성(query rewriting) — 원문+해석문 결합 검색 (#52, 프로토타입: 기본 off)
     QUERY_REWRITE_ENABLED: bool = os.getenv("QUERY_REWRITE_ENABLED", "false").lower() == "true"
     QUERY_REWRITE_MODEL: str = os.getenv("QUERY_REWRITE_MODEL", "gpt-4o-mini")

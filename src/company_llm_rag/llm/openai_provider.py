@@ -24,8 +24,13 @@ class OpenAIProvider(LLMProvider):
         api_key: Optional[str] = None,
         default_model: Optional[str] = None,
         default_temperature: Optional[float] = None,
+        base_url: Optional[str] = None,
     ) -> None:
-        self._client = openai.OpenAI(api_key=api_key or settings.OPENAI_API_KEY)
+        # base_url 지정 시 OpenAI 호환 서버(예: Ollama /v1)로 라우팅 (#38)
+        self._client = openai.OpenAI(
+            api_key=api_key or settings.OPENAI_API_KEY,
+            base_url=base_url,
+        )
         self._default_model = default_model or settings.OPENAI_CHAT_MODEL
         self._default_temperature = (
             default_temperature
