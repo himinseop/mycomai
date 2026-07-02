@@ -107,6 +107,11 @@ class Settings:
     RERANKER_ENABLED: bool = os.getenv("RERANKER_ENABLED", "false").lower() == "true"
     RERANKER_MODEL: str = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
     RERANKER_TOP_N: int = int(os.getenv("RERANKER_TOP_N", "10"))
+    # 리랭커 dtype. 기본 float16(메모리 절감, #44). CPU 격리 벤치에선 float32가 -13% 빠르나
+    # 서빙 환경(uvicorn 스레드 경쟁)에선 이득이 불명확해 메모리 우선. 필요 시 float32로 튜닝.
+    RERANKER_DTYPE: str = os.getenv("RERANKER_DTYPE", "float16").lower()
+    # 토크나이저 최대 길이(토큰). 문서는 앞 256자만 사용하므로 256이면 충분. 낮출수록 빠름.
+    RERANKER_MAX_LENGTH: int = int(os.getenv("RERANKER_MAX_LENGTH", "256"))
 
     # 소스별 검색 부스트 가중치 (낮을수록 거리 불이익 — 0~1 사이)
     # .env에서 개별 조정 가능: BOOST_JIRA=0.95

@@ -27,14 +27,21 @@ class BGEReranker(RerankerProvider):
     def _load(self):
         if self._model is not None:
             return
-        logger.info(f"[Reranker] 모델 로딩 중: {self._model_name}")
-        import torch
+        from company_llm_rag.config import settings
         from sentence_transformers import CrossEncoder
+        dtype = settings.RERANKER_DTYPE
+        max_length = settings.RERANKER_MAX_LENGTH
+        logger.info(f"[Reranker] 모델 로딩 중: {self._model_name} (dtype={dtype}, max_length={max_length})")
+        model_kwargs = {}
+        if dtype == "float16":
+            import torch
+            model_kwargs["torch_dtype"] = torch.float16  # 메모리 절감(단 CPU에선 fp32보다 느림)
         self._model = CrossEncoder(
             self._model_name,
-            model_kwargs={"torch_dtype": torch.float16},
+            max_length=max_length,
+            model_kwargs=model_kwargs,
         )
-        logger.info(f"[Reranker] 모델 로딩 완료 (fp16)")
+        logger.info(f"[Reranker] 모델 로딩 완료 (dtype={dtype})")
 
     # 추론 속도를 위해 문서 내용을 앞부분만 사용 (cross-encoder는 앞부분에서 관련도 판단)
     _MAX_DOC_CHARS = 256
