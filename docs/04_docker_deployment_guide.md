@@ -45,9 +45,10 @@
 
 - 각 추출기를 순차 실행합니다.
 - 결과를 `data/*.jsonl` 로 저장합니다.
-- 모든 JSONL을 `data_loader.py` 로 흘려 ChromaDB/FTS에 적재합니다.
+- 모든 JSONL을 `data_loader.py` 로 흘려 ChromaDB/FTS에 적재합니다. 적재는 배치 dedup/upsert로 처리합니다.
 - Knowledge Hub 문서는 질문만 임베딩하고, 답변 원문은 `app_data.db`의 `hub_replies` 테이블에 저장합니다.
 - Knowledge Hub 이미지는 Graph API에서 다운로드하여 `static/images/`에 캐시합니다.
+- `mem_limit: 8g`로 격리됩니다. 대량 재적재 시 web과 메모리 경쟁을 피하려면 web을 잠시 중지하세요.
 
 실행:
 
@@ -69,14 +70,21 @@ docker compose -f docker/docker-compose.yml run --rm rag-system
 
 실제 웹 서버 서비스입니다.
 
-- `uvicorn company_llm_rag.web_app:app`
+- `uvicorn company_llm_rag.web_app:app` (운영은 `--reload` 없음)
 - 포트 `8000:8000`
 - `restart: unless-stopped`
+- `mem_limit: 12g`, `mem_reservation: 4g` (OOM 시 컨테이너만 재시작되어 좀비 워커 방지)
 
 실행:
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d web
+```
+
+코드 핫리로드가 필요한 개발 시에는 `--reload`가 켜진 `web-dev` 서비스를 사용합니다.
+
+```bash
+docker compose -f docker/docker-compose.yml --profile dev up web-dev
 ```
 
 ### `cron-scheduler`

@@ -46,9 +46,11 @@ data_loader.py
         v
 [검색]
 retrieval_module.py
+ - (선택) 질문 재작성으로 원문+해석문 멀티쿼리 (QUERY_REWRITE_ENABLED)
  - 벡터 검색
  - FTS5 검색
  - RRF 재정렬
+ - Reranker(BAAI/bge-reranker-v2-m3, fp16) 재정렬
  - 소스/확장자 필터
  - Knowledge Hub 5.0x 부스트
         |
@@ -99,15 +101,19 @@ web_app.py
 
 검색은 `retrieval_module.py` 에서 처리합니다.
 
-1. ChromaDB 벡터 검색을 수행합니다.
-2. 쿼리에서 핵심 키워드를 추출해 SQLite FTS5 검색을 수행합니다.
-3. 두 결과를 RRF(Reciprocal Rank Fusion)로 합칩니다.
-4. Jira/Teams/Confluence/SharePoint별 가중치를 적용합니다.
-5. Knowledge Hub 문서에 5.0x RRF 부스트를 적용합니다.
-6. 쿼리에 Jira 이슈 키가 있으면 직접 조회 결과를 앞쪽에 주입합니다.
-7. 필요 시 소스 필터와 파일 확장자 필터를 적용합니다.
+1. (선택) `QUERY_REWRITE_ENABLED=true`이면 질문을 검색 친화적으로 재작성해 원문+해석문을 함께 벡터 검색합니다. (#52 프로토타입, 기본 off)
+2. ChromaDB 벡터 검색을 수행합니다.
+3. 쿼리에서 핵심 키워드를 추출해 SQLite FTS5 검색을 수행합니다.
+4. 두 결과를 RRF(Reciprocal Rank Fusion)로 합칩니다.
+5. Jira/Teams/Confluence/SharePoint별 가중치를 적용합니다.
+6. Knowledge Hub 문서에 5.0x RRF 부스트를 적용합니다.
+7. Reranker(`BAAI/bge-reranker-v2-m3`, fp16)로 상위 후보를 재정렬합니다. (`RERANKER_ENABLED`)
+8. 쿼리에 Jira 이슈 키가 있으면 직접 조회 결과를 앞쪽에 주입합니다.
+9. 필요 시 소스 필터와 파일 확장자 필터를 적용합니다.
 
 이 구조 덕분에 자연어 질문과 정확한 키워드 검색을 둘 다 어느 정도 커버할 수 있습니다.
+
+> 생성 LLM은 `LLM_PROVIDER`(openai|ollama)로 전환할 수 있습니다. Ollama는 OpenAI 호환 `/v1`를 사용합니다(#38). **임베딩은 인덱스 호환을 위해 항상 OpenAI(1536d)를 유지**합니다.
 
 ## Knowledge Hub 직접 응답
 

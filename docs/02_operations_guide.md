@@ -102,10 +102,19 @@ PYTHONPATH=src uvicorn company_llm_rag.web_app:app --host 0.0.0.0 --port 8000 --
 
 | 변수 | 설명 | 기본값 |
 |------|------|--------|
-| `OPENAI_API_KEY` | OpenAI API 키 | 없음 |
+| `OPENAI_API_KEY` | OpenAI API 키 (임베딩은 항상 OpenAI 사용) | 없음 |
 | `OPENAI_CHAT_MODEL` | 답변 생성 모델 | `gpt-4o` |
 | `OPENAI_SUMMARIZE_MODEL` | Teams 문의 요약 모델 | `gpt-4o-mini` |
 | `OPENAI_EMBEDDING_MODEL` | 임베딩 모델 | `text-embedding-3-small` |
+| `LLM_PROVIDER` | 생성 LLM 제공자 (`openai`\|`ollama`) | `openai` |
+| `OLLAMA_BASE_URL` | Ollama OpenAI 호환 엔드포인트 | `http://host.docker.internal:11434/v1` |
+| `OLLAMA_MODEL` | Ollama 생성 모델 | `qwen2.5:3b-instruct` |
+| `RERANKER_ENABLED` | 검색 결과 리랭커 사용 | `false` |
+| `RERANKER_MODEL` | 리랭커 모델 | `BAAI/bge-reranker-v2-m3` |
+| `RERANKER_TOP_N` | 리랭킹 후보 수 | `10` |
+| `QUERY_REWRITE_ENABLED` | 질문 재작성 검색(#52) | `false` |
+| `QUERY_REWRITE_MODEL` | 재작성 LLM | `gpt-4o-mini` |
+| `SHAREPOINT_MAX_FILE_MB` | 초과 시 SharePoint 파일 파싱 스킵 | `50` |
 | `CHROMA_DB_PATH` | ChromaDB 저장 경로 | `./db/chroma_db` |
 | `COLLECTION_NAME` | ChromaDB 컬렉션명 | `company_llm_rag_collection` |
 | `CHUNK_SIZE` | 청크 크기(토큰) | `512` |
@@ -196,6 +205,14 @@ docker compose -f docker/docker-compose.yml run --rm web python -m company_llm_r
 ```bash
 docker compose -f docker/docker-compose.yml restart web
 ```
+
+컨테이너가 `Up`인데도 모든 요청이 행업되면 워커가 OOM-kill 후 좀비 상태일 수 있습니다. 재기동으로 복구되며, `web` 서비스에는 `mem_limit: 12g`가 설정되어 한도 초과 시 컨테이너가 재시작(`restart: unless-stopped`)됩니다. Docker Desktop 할당 메모리도 12GB 이상 권장합니다.
+
+### 대량 재적재(data-loader) 시 메모리 주의
+
+- `data-loader`는 `mem_limit: 8g`로 격리되어 있습니다. 적재 단계는 ChromaDB HNSW 인덱스를 상주시켜 메모리 사용이 큽니다.
+- web 서비스와 동시 실행하면 VM 메모리를 경쟁해 OOM 위험이 있습니다. 대량 재적재 시에는 web을 잠시 중지(`docker compose ... stop web`)해 메모리를 확보하는 것이 안전합니다.
+- 파싱 후 텍스트가 수십 MB로 폭증하는 문서(대형 엑셀 등)는 `LOADER_MAX_CONTENT_CHARS`(기본 1MB) 상한으로 잘려 적재됩니다.
 
 ### 증분 수집 범위를 줄이고 싶을 때
 
