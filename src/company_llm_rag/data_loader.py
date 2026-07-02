@@ -260,6 +260,78 @@ def _fmt_elapsed(seconds: float) -> str:
 
 _FTS_FLUSH_SIZE = 200  # 이 개수마다 FTS 버퍼를 일괄 저장
 
+# 적재 배치 크기 (#48): 이 개수만큼 청크를 모아 dedup 조회/upsert를 일괄 처리
+_LOADER_BATCH_SIZE = int(getattr(settings, "LOADER_BATCH_SIZE", 0) or 200)
+
+# 문서 콘텐츠 길이 상한 (#49): 이 문자 수를 초과하면 잘라냅니다.
+# 대형 엑셀 로우데이터(파싱 후 텍스트 수십~수백 MB)가 tiktoken 인코딩에서 CPU/메모리를
+# 폭증시켜 적재를 행업시키는 것을 방지. 초과분은 RAG 가치가 낮아 잘라도 무방.
+_LOADER_MAX_CONTENT_CHARS = int(getattr(settings, "LOADER_MAX_CONTENT_CHARS", 0) or 1_000_000)
+
+
+def _flush_chunk_batch(collection, batch: list, stats: dict, fts_buffer: list):
+    """
+    청크 배치를 dedup 조회 → 변경분만 일괄 upsert 합니다 (#48).
+
+    batch: [{"chunk_id", "chunk", "metadata", "content_hash"}, ...]
+    - 개별 get()/upsert() 375K회 → 배치 단위 수천회로 축소하여 메모리·시간 절감
+    - 배치 upsert 실패(토큰 초과 등) 시 청크별 _upsert_with_fallback으로 폴백
+    """
+    if not batch:
+        return
+
+    ids = [b["chunk_id"] for b in batch]
+
+    # 1) 기존 청크 메타데이터 일괄 조회
+    try:
+        existing = collection.get(ids=ids, include=["metadatas"])
+        existing_meta = {
+            eid: existing["metadatas"][i] for i, eid in enumerate(existing["ids"])
+        }
+    except Exception as e:
+        logger.warning(f"배치 dedup 조회 실패, 이번 배치는 신규 취급: {e}")
+        existing_meta = {}
+
+    # 2) 변경분 선별 (해시 동일 & 메타 무변경이면 skip)
+    to_upsert = []  # (chunk_id, chunk, metadata, is_existing)
+    for b in batch:
+        old = existing_meta.get(b["chunk_id"])
+        if old is not None and old.get("content_hash") == b["content_hash"]:
+            meta_changed = any(
+                b["metadata"].get(k) != old.get(k)
+                for k in b["metadata"] if k != "content_hash"
+            )
+            if not meta_changed:
+                stats["skipped"] += 1
+                continue
+        to_upsert.append((b["chunk_id"], b["chunk"], b["metadata"], old is not None))
+
+    if not to_upsert:
+        batch.clear()
+        return
+
+    # 3) 변경분 일괄 upsert (실패 시 청크별 폴백)
+    docs = [t[1] for t in to_upsert]
+    metas = [t[2] for t in to_upsert]
+    uids = [t[0] for t in to_upsert]
+    try:
+        collection.upsert(documents=docs, metadatas=metas, ids=uids)
+        for cid, chunk, _meta, is_existing in to_upsert:
+            stats["updated" if is_existing else "new"] += 1
+            if fts_buffer is not None:
+                fts_buffer.append((cid, chunk))
+    except Exception as e:
+        logger.warning(f"배치 upsert 실패({len(uids)}건), 청크별 재시도: {e}")
+        for cid, chunk, meta, is_existing in to_upsert:
+            try:
+                _upsert_with_fallback(collection, chunk, meta, cid, stats, is_existing, fts_buffer)
+            except Exception as ie:
+                logger.error(f"청크 {cid} 개별 재시도도 실패: {ie}")
+                stats.setdefault("failed", 0)
+                stats["failed"] += 1
+
+    batch.clear()
+
 
 def load_data_to_chromadb(data_stream):
     """
@@ -273,6 +345,7 @@ def load_data_to_chromadb(data_stream):
     collection = db_manager.get_collection()
     stats = {"new": 0, "updated": 0, "skipped": 0}
     fts_buffer: list = []  # FTS 일괄 저장 버퍼
+    chunk_batch: list = []  # 적재 배치 버퍼 (#48)
     collected_sources: set = set()  # 수집된 소스 추적
 
     logger.info("문서 로드 시작 (스트리밍 처리).")
@@ -305,6 +378,14 @@ def load_data_to_chromadb(data_stream):
             if not doc_id or not content:
                 logger.warning(f"Skipping document due to missing ID or content: {document.get('id')}")
                 continue
+
+            # 초대형 콘텐츠 방어 (#49): tiktoken 인코딩 행업/메모리 폭증 방지 위해 잘라냄
+            if _LOADER_MAX_CONTENT_CHARS and len(content) > _LOADER_MAX_CONTENT_CHARS:
+                logger.warning(
+                    f"[{doc_id}] 콘텐츠 {len(content)/1024/1024:.1f}MB > "
+                    f"{_LOADER_MAX_CONTENT_CHARS/1024/1024:.1f}MB 상한 — 앞부분만 적재 (title={title[:40]})"
+                )
+                content = content[:_LOADER_MAX_CONTENT_CHARS]
 
             # Knowledge Hub: 질문만 임베딩, 답변 원문은 SQLite에 저장 (이력 보관)
             is_hub_doc = metadata_from_source.get('is_hub_direct', False)
@@ -377,34 +458,27 @@ def load_data_to_chromadb(data_stream):
                 content_hash = hashlib.md5(chunk.encode()).hexdigest()
                 metadata_to_store["content_hash"] = content_hash
 
-                try:
-                    existing = collection.get(ids=[chunk_id], include=["metadatas"])
-                    if existing["ids"] and existing["metadatas"][0].get("content_hash") == content_hash:
-                        # 메타데이터 변경 확인 (images 등 새 필드 추가 시)
-                        old_meta = existing["metadatas"][0]
-                        meta_changed = any(
-                            metadata_to_store.get(k) != old_meta.get(k)
-                            for k in metadata_to_store if k != "content_hash"
-                        )
-                        if not meta_changed:
-                            logger.debug(f"Skipping unchanged chunk {chunk_id}.")
-                            stats["skipped"] += 1
-                            continue
-
-                    _upsert_with_fallback(collection, chunk, metadata_to_store, chunk_id, stats, existing["ids"], fts_buffer)
-                    # FTS 버퍼가 일정 크기에 도달하면 일괄 저장
+                # 배치 버퍼에 적재 (#48) — 일정 크기 도달 시 일괄 dedup/upsert
+                chunk_batch.append({
+                    "chunk_id": chunk_id,
+                    "chunk": chunk,
+                    "metadata": metadata_to_store,
+                    "content_hash": content_hash,
+                })
+                if len(chunk_batch) >= _LOADER_BATCH_SIZE:
+                    _flush_chunk_batch(collection, chunk_batch, stats, fts_buffer)
                     if len(fts_buffer) >= _FTS_FLUSH_SIZE:
                         fts_bulk_upsert(fts_buffer)
                         fts_buffer.clear()
-                except Exception as e:
-                    logger.error(f"Error upserting chunk {chunk_id} to ChromaDB: {e}", exc_info=True)
 
         except json.JSONDecodeError as e:
             logger.warning(f"Skipping invalid JSONL line: {line.strip()[:100]}... - Error: {e}")
         except Exception as e:
             logger.error(f"An unexpected error occurred while processing line: {line.strip()[:100]}... - Error: {e}", exc_info=True)
 
-    # 남은 FTS 버퍼 최종 저장
+    # 남은 배치/ FTS 버퍼 최종 저장
+    if chunk_batch:
+        _flush_chunk_batch(collection, chunk_batch, stats, fts_buffer)
     if fts_buffer:
         fts_bulk_upsert(fts_buffer)
         fts_buffer.clear()
