@@ -656,6 +656,9 @@ def rag_query_stream(
     rewrite = rewrite_query(user_query, conversation_history)
     _extra_q = [rewrite["rewritten"]] if rewrite["rewritten"] != user_query else None
     _extra_kw = rewrite["keywords"] or None
+    # UX: 질문 해석 결과를 검색 전에 먼저 노출 (#52 → 사용자 표시)
+    if _extra_q:
+        yield {"type": "interpretation", "rewritten": rewrite["rewritten"], "keywords": rewrite["keywords"]}
     retrieved_docs, ret_timing = retrieve_documents(
         user_query,
         n_results=effective_n,
@@ -692,6 +695,9 @@ def rag_query_stream(
         timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm.model_name}
         yield {"type": "done", "answer": answer, "references": [], "timing": timing, "is_no_answer": True}
         return
+
+    # UX: 검색된 근거 문서 수를 답변 전에 먼저 노출 (#2)
+    yield {"type": "sources", "count": len(retrieved_docs)}
 
     # Knowledge Hub 원문 직접 응답
     hub_direct = _try_hub_direct_answer(retrieved_docs)

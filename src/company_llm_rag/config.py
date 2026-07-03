@@ -29,8 +29,8 @@ class Settings:
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434/v1")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:3b-instruct")
 
-    # 질문 재작성(query rewriting) — 원문+해석문 결합 검색 (#52, 프로토타입: 기본 off)
-    QUERY_REWRITE_ENABLED: bool = os.getenv("QUERY_REWRITE_ENABLED", "false").lower() == "true"
+    # 질문 재작성(query rewriting) — 원문+해석문 결합 검색 + 해석 UX 노출 (#52)
+    QUERY_REWRITE_ENABLED: bool = os.getenv("QUERY_REWRITE_ENABLED", "true").lower() == "true"
     QUERY_REWRITE_MODEL: str = os.getenv("QUERY_REWRITE_MODEL", "gpt-4o-mini")
 
     # ChromaDB 설정

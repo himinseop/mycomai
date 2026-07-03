@@ -138,6 +138,10 @@
 
     /* 로딩 메시지 & 글쓰기 이미지 */
     .loading-msg { font-size: 12px; color: #bbb; font-style: italic; margin-top: 4px; min-height: 18px; transition: opacity 0.35s; }
+    .interp-msg { font-size: 13px; color: #667; background: #f4f6fb; border-left: 3px solid #b7c4e6; border-radius: 4px; padding: 7px 11px; margin-bottom: 9px; line-height: 1.5; }
+    .interp-msg b { color: #33415c; font-weight: 600; }
+    .interp-msg .interp-status { color: #99a; font-style: italic; }
+    .interp-msg .interp-found { color: #2e7d32; }
     .writing-img { width: 90px; display: block; margin-top: 6px; pointer-events: none; transition: opacity 0.5s; }
 
     /* ── 참고 문서 ── */
@@ -523,6 +527,7 @@
       <div class="qa-a">
         <div class="qa-a-avatar"><img src="/static/osajang-header.jpg" alt="오사장"></div>
         <div class="qa-a-body">
+          <div class="interp-msg" style="display:none"></div>
           <div class="qa-a-text qa-a-content"></div>
           <div class="loading-msg"></div>
           <img src="/static/osajang-writing.png" class="writing-img" alt="">
@@ -641,6 +646,8 @@
     const textEl  = turnEl.querySelector('.qa-a-content');
     const loadEl  = turnEl.querySelector('.loading-msg');
     const writeEl = turnEl.querySelector('.writing-img');
+    const interpEl = turnEl.querySelector('.interp-msg');
+    let interpBase = '';
 
     const cursor = document.createElement('span');
     cursor.className = 'stream-cursor';
@@ -674,8 +681,22 @@
           if (!line.startsWith('data: ')) continue;
           let ev; try { ev = JSON.parse(line.slice(6)); } catch { continue; }
 
-          if (ev.type === 'token') {
+          if (ev.type === 'interpretation') {
+            // 질문 해석 결과를 검색 전에 노출
+            interpBase = `🔎 '<b>${escapeHtml(ev.rewritten)}</b>'(으)로 질문을 이해했어요.`;
+            interpEl.innerHTML = interpBase + ' <span class="interp-status">찾아보고 있어요…</span>';
+            interpEl.style.display = 'block';
+            scrollDown();
+          } else if (ev.type === 'sources') {
+            // 검색된 근거 문서 수 노출
+            const found = `<span class="interp-found">📄 ${ev.count}개 문서를 참고해 답변할게요.</span>`;
+            interpEl.innerHTML = (interpBase ? interpBase + ' ' : '') + found;
+            interpEl.style.display = 'block';
+            scrollDown();
+          } else if (ev.type === 'token') {
             if (loadEl.parentNode) { _stopLoading(loadEl, loadTimer); setTimeout(() => loadEl.remove(), 350); }
+            // 답변 시작 시 해석 라인은 간결하게 유지 (상태 문구 제거)
+            if (interpBase) interpEl.innerHTML = interpBase;
             fullText += ev.text;
             textEl.innerHTML = renderText(fullText);
             textEl.appendChild(cursor);
