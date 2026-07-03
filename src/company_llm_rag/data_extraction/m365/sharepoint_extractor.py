@@ -26,7 +26,8 @@ from company_llm_rag.data_extraction.common import fmt_elapsed as _fmt_elapsed
 logger = get_logger(__name__)
 
 _PROGRESS_EVERY = 10
-_SKIP_FOLDER_NAMES = {"old", "version history", "archived"}
+# 수집 제외 폴더명 (소문자 비교). 포인트맞추기 = 포인트 거래 raw-data 적재용 폴더 (#55)
+_SKIP_FOLDER_NAMES = {"old", "version history", "archived", "포인트맞추기"}
 
 def get_all_sites(access_token: str) -> List[Dict]:
     """
