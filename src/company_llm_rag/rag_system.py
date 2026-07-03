@@ -656,9 +656,11 @@ def rag_query_stream(
     rewrite = rewrite_query(user_query, conversation_history)
     _extra_q = [rewrite["rewritten"]] if rewrite["rewritten"] != user_query else None
     _extra_kw = rewrite["keywords"] or None
-    # UX: 질문 해석 결과를 검색 전에 먼저 노출 (#52 → 사용자 표시)
-    if _extra_q:
-        yield {"type": "interpretation", "rewritten": rewrite["rewritten"], "keywords": rewrite["keywords"]}
+    # UX: 질문 해석(LLM 자연어 문장)을 검색 전에 먼저 노출 (#52 → 사용자 표시)
+    _understanding = rewrite.get("understanding") or ""
+    if _understanding:
+        yield {"type": "interpretation", "understanding": _understanding,
+               "rewritten": rewrite["rewritten"], "keywords": rewrite["keywords"]}
     retrieved_docs, ret_timing = retrieve_documents(
         user_query,
         n_results=effective_n,

@@ -30,9 +30,12 @@ _SYSTEM_PROMPT = """당신은 사내 지식베이스(Jira/Confluence/SharePoint/
 - 이전 대화 맥락이 있으면 반영해, 그 자체로 이해되는 독립적 검색문으로 만듭니다.
 - 원 질문의 의도를 왜곡하거나 없는 조건을 추가하지 마세요.
 - 키워드는 검색에 유효한 명사 위주 2~4개.
+- understanding: 사용자에게 보여줄 자연스러운 한 문장. "질문을 이렇게 이해했고 지금 찾아보겠다"는
+  뜻을 대화체로 담습니다. 예: "위메프오 정산 주기에 대한 질문이시군요. 관련 자료를 찾아볼게요."
+  (질문을 되짚되 답을 미리 말하지 말고, 검색을 시작한다는 뉘앙스로 마무리)
 
 반드시 아래 JSON 한 줄만 출력하세요 (설명·코드펜스 금지):
-{"rewritten": "<검색문>", "keywords": ["키워드1", "키워드2"]}"""
+{"understanding": "<사용자에게 보여줄 자연스러운 확인 문장>", "rewritten": "<검색문>", "keywords": ["키워드1", "키워드2"]}"""
 
 
 def _parse_json(raw: str) -> dict:
@@ -64,12 +67,12 @@ def rewrite_query(
     질문을 검색 친화적으로 재작성합니다.
 
     Returns:
-        {"rewritten": str, "keywords": List[str]}
-        - 비활성/실패 시 {"rewritten": <원문>, "keywords": []}
+        {"rewritten": str, "keywords": List[str], "understanding": str}
+        - 비활성/실패 시 {"rewritten": <원문>, "keywords": [], "understanding": ""}
     """
     q = (question or "").strip()
     if not settings.QUERY_REWRITE_ENABLED or not q:
-        return {"rewritten": q, "keywords": []}
+        return {"rewritten": q, "keywords": [], "understanding": ""}
 
     is_single_turn = not conversation_history
     if is_single_turn and q in _cache:
@@ -86,16 +89,17 @@ def rewrite_query(
             messages,
             model=settings.QUERY_REWRITE_MODEL,
             temperature=0.0,
-            max_tokens=200,
+            max_tokens=250,
         )
         data = _parse_json(raw)
         rewritten = (data.get("rewritten") or "").strip() or q
         keywords = [k.strip() for k in (data.get("keywords") or [])
                     if isinstance(k, str) and k.strip()][:4]
-        result = {"rewritten": rewritten, "keywords": keywords}
+        understanding = (data.get("understanding") or "").strip()
+        result = {"rewritten": rewritten, "keywords": keywords, "understanding": understanding}
     except Exception as e:
         logger.warning(f"[QueryRewrite] 재작성 실패, 원문 사용: {e}")
-        return {"rewritten": q, "keywords": []}
+        return {"rewritten": q, "keywords": [], "understanding": ""}
 
     if is_single_turn and len(_cache) < _CACHE_MAX:
         _cache[q] = result
