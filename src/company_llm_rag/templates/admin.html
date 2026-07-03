@@ -761,6 +761,10 @@
     const turnsHtml = turns.map(t => {
       const refs = t.references || [];
       const noAnsBadge = t.is_no_answer ? '<span class="badge badge-no-answer">답변없음</span>' : '';
+      const understanding = (t.perf && t.perf.understanding) || '';
+      const answerLead = understanding
+        ? `<div style="margin-bottom:8px">🔎 ${escHtml(understanding)}</div>` : '';
+      const foundLine = `<div style="margin-bottom:10px">📄 문서 ${refs.length}건을 참고했어요.</div>`;
       return `<div class="turn-card">
         <div class="turn-card-hd">
           <span style="color:#7c7cbe;font-weight:700">#${t.id}</span>
@@ -772,7 +776,7 @@
         <div class="sec-hd open" onclick="toggleSec(this)"><span>💬 질문 / 답변</span><span class="arr">▶</span></div>
         <div class="sec-bd open">
           <div class="modal-section"><label>질문</label><div class="content-box">${escHtml(t.question)}</div></div>
-          <div class="modal-section"><label>답변</label><div class="content-box markdown-body">${renderMd(t.answer)}</div></div>
+          <div class="modal-section"><label>답변</label><div class="content-box markdown-body">${answerLead}${foundLine}${renderMd(t.answer)}</div></div>
           <div class="sec-hd" style="margin-top:6px" onclick="toggleSec(this)"><span>📄 참고문서 <span style="color:#aaa;font-weight:400;font-size:.8rem">${refs.length}건</span></span><span class="arr">▶</span></div>
           <div class="sec-bd">${buildRefsHtml(refs)}</div>
           <div class="sec-hd" onclick="toggleSec(this)"><span>🔍 검색 결과 <span style="color:#aaa;font-weight:400;font-size:.8rem">${(t.retrieved_docs||[]).length}건</span></span><span class="arr">▶</span></div>

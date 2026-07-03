@@ -138,9 +138,9 @@
 
     /* 로딩 메시지 & 글쓰기 이미지 */
     .loading-msg { font-size: 12px; color: #bbb; font-style: italic; margin-top: 4px; min-height: 18px; transition: opacity 0.35s; }
-    .ans-lead { color: #55606b; line-height: 1.65; margin-bottom: 6px; }
-    .ans-found { font-size: 13px; color: #8a94a0; margin-bottom: 12px; }
-    .ans-found .dot { display:inline-block; width:5px; height:5px; border-radius:50%; background:#c7ccd4; margin:0 7px 2px 1px; vertical-align:middle; }
+    /* 해석·근거를 답변과 동일한 텍스트 스타일로 → 연속된 답변처럼 */
+    .ans-lead { line-height: 1.75; margin-bottom: 10px; }
+    .ans-found { line-height: 1.75; margin-bottom: 12px; }
     .writing-img { width: 90px; display: block; margin-top: 6px; pointer-events: none; transition: opacity 0.5s; }
 
     /* ── 참고 문서 ── */
@@ -692,8 +692,8 @@
               scrollDown();
             }
           } else if (ev.type === 'sources') {
-            // 찾은 문서 수를 답변 흐름의 일부로 노출 (사라지지 않고 유지)
-            foundHtml = `<div class="ans-found"><span class="dot"></span>문서 ${ev.count}건을 참고했어요.</div>`;
+            // 검색 진행 표시 (최종 참고문서 수는 meta에서 확정)
+            foundHtml = `<div class="ans-found">📄 관련 문서를 참고해 답변하고 있어요…</div>`;
             turnEl._preamble = preamble();
             textEl.innerHTML = preamble() + renderText(fullText);
             textEl.appendChild(cursor);
@@ -711,6 +711,11 @@
             cursor.remove();
             writeEl.style.opacity = '0';
             setTimeout(() => writeEl.remove(), 520);
+            // 최종 참고문서 수로 근거 문구 확정 (검색결과가 아닌 실제 참고문서 기준)
+            if (ev.ref_count != null && leadHtml) {
+              foundHtml = `<div class="ans-found">📄 문서 ${ev.ref_count}건을 참고했어요.</div>`;
+              turnEl._preamble = preamble();
+            }
             finalizeTurnEl(turnEl, fullText, finalRefs);
             ctxTurns[ctxId].push({ question: text, answer: fullText });
             if (ev.turn_index) ctxTurnIndex[ctxId] = ev.turn_index;

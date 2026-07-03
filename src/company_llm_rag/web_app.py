@@ -256,6 +256,7 @@ async def chat_stream(req: ChatRequest):
         try:
             loop.run_in_executor(None, _run)
             done_event = None
+            understanding = ""
             while True:
                 ev = await queue.get()
                 if ev is None:
@@ -263,11 +264,16 @@ async def chat_stream(req: ChatRequest):
                 yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
                 if ev.get("type") == "done":
                     done_event = ev
+                elif ev.get("type") == "interpretation":
+                    understanding = ev.get("understanding", "")
 
             if done_event:
                 answer = done_event.get("answer", "")
                 references = done_event.get("references", [])
                 timing = done_event.get("timing", {})
+                # 질문해석을 perf에 함께 저장 → 관리자 상세에서 재현 (답변의 일부로 취급)
+                if understanding:
+                    timing = {**timing, "understanding": understanding}
                 is_no_answer = done_event.get("is_no_answer", False)
 
                 if is_no_answer and is_inquiry_configured():
@@ -298,6 +304,7 @@ async def chat_stream(req: ChatRequest):
                     "is_group_root": turn_index == 1,
                     "inquiry_available": is_inquiry_configured(),
                     "is_no_answer": is_no_answer,
+                    "ref_count": len(references),  # 실제 참고문서 수 (검색결과와 별개)
                 }
                 yield f"data: {json.dumps(meta_ev, ensure_ascii=False)}\n\n"
         finally:
