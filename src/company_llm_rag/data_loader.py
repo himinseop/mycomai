@@ -268,6 +268,9 @@ _LOADER_BATCH_SIZE = int(getattr(settings, "LOADER_BATCH_SIZE", 0) or 200)
 # 폭증시켜 적재를 행업시키는 것을 방지. 초과분은 RAG 가치가 낮아 잘라도 무방.
 _LOADER_MAX_CONTENT_CHARS = int(getattr(settings, "LOADER_MAX_CONTENT_CHARS", 0) or 1_000_000)
 
+# 거대 스프레드시트 raw-data 덤프 스킵 임계(KB) (#55)
+_LOADER_SKIP_SPREADSHEET_OVER_KB = int(getattr(settings, "LOADER_SKIP_SPREADSHEET_OVER_KB", 0) or 1024)
+
 
 def _flush_chunk_batch(collection, batch: list, stats: dict, fts_buffer: list):
     """
@@ -377,6 +380,15 @@ def load_data_to_chromadb(data_stream):
             
             if not doc_id or not content:
                 logger.warning(f"Skipping document due to missing ID or content: {document.get('id')}")
+                continue
+
+            # 거대 스프레드시트 raw-data 덤프 스킵 (#55): 검색 오염·인덱스 bloat 방지
+            _mime = str(metadata_from_source.get("mime_type", "") or "")
+            if _LOADER_SKIP_SPREADSHEET_OVER_KB and ("spreadsheet" in _mime or "ms-excel" in _mime) \
+                    and len(content) > _LOADER_SKIP_SPREADSHEET_OVER_KB * 1024:
+                logger.warning(
+                    f"[{doc_id}] 대형 스프레드시트 raw-data 스킵 ({len(content)/1024/1024:.1f}MB, title={title[:40]})"
+                )
                 continue
 
             # 초대형 콘텐츠 방어 (#49): tiktoken 인코딩 행업/메모리 폭증 방지 위해 잘라냄

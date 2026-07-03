@@ -77,6 +77,8 @@ class Settings:
     SHAREPOINT_SITE_NAME: str = os.getenv("SHAREPOINT_SITE_NAME", "")
     # 이 크기(MB)를 초과하는 SharePoint 파일은 다운로드/파싱을 건너뜁니다 (#49, 메모리 스파이크 방지). 0이면 무제한.
     SHAREPOINT_MAX_FILE_MB: float = float(os.getenv("SHAREPOINT_MAX_FILE_MB", "50"))
+    # 이 크기(KB)를 초과하는 스프레드시트(xls/xlsx)는 raw-data 덤프로 보고 인덱싱 스킵 (#55, 검색 오염 방지). 0이면 무제한.
+    LOADER_SKIP_SPREADSHEET_OVER_KB: int = int(os.getenv("LOADER_SKIP_SPREADSHEET_OVER_KB", "1024"))
     TEAMS_GROUP_NAMES: List[str] = [
         t.strip() for t in os.getenv("TEAMS_GROUP_NAME", "").split(",") if t.strip()
     ]
