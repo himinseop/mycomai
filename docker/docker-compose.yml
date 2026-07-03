@@ -1,3 +1,5 @@
+name: knowledge-hub
+
 services:
   base:
     build:

@@ -5,8 +5,8 @@
 content_hash 집합이 동일한 문서는 청크가 가장 많은 1개만 남기고 나머지를 삭제합니다.
 
 사용:
-  docker exec docker-web-1 python3 /path/dedup_identical_docs.py --dry-run
-  docker exec docker-web-1 python3 /path/dedup_identical_docs.py
+  docker exec knowledge-hub-web-1 python3 /path/dedup_identical_docs.py --dry-run
+  docker exec knowledge-hub-web-1 python3 /path/dedup_identical_docs.py
 """
 import argparse
 import sqlite3

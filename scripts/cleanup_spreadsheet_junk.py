@@ -8,7 +8,7 @@
 사용:
   PYTHONPATH=src python3 scripts/cleanup_spreadsheet_junk.py --dry-run
   PYTHONPATH=src python3 scripts/cleanup_spreadsheet_junk.py --threshold 1000
-  (컨테이너) docker exec docker-web-1 python3 /app/.../cleanup_spreadsheet_junk.py --dry-run
+  (컨테이너) docker exec knowledge-hub-web-1 python3 /app/.../cleanup_spreadsheet_junk.py --dry-run
 """
 import argparse
 import sqlite3
