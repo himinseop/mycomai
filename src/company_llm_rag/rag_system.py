@@ -7,7 +7,7 @@ from typing import List, Dict, Optional, Tuple
 
 from company_llm_rag.config import settings
 from company_llm_rag.exceptions import LLMError
-from company_llm_rag.llm.factory import default_llm
+from company_llm_rag.llm.factory import default_llm, summarizer_llm
 from company_llm_rag.rag.citations import (
     ensure_list, build_teams_url, doc_source_label, doc_display_name, resolve_citations,
 )
@@ -366,6 +366,38 @@ _PDF_EXTS = {'.pdf'}
 def _extract_page_nums(content: str, pattern: re.Pattern) -> List[int]:
     """청크 텍스트에서 슬라이드/페이지 번호 목록을 추출합니다."""
     return sorted({int(m) for m in pattern.findall(content)})
+
+
+_FOLLOWUP_PROMPT = """당신은 사내 지식 도우미입니다. 아래 질문과 답변을 보고, 사용자가 이어서 궁금해할
+만한 **후속 질문 2~3개**를 제안하세요.
+
+규칙:
+- 답변 내용·주제에서 자연스럽게 파생되는, 지식베이스에서 답할 수 있을 법한 실무 질문.
+- 각 질문은 15자~40자 내외로 간결하게, 물음표로 끝냄.
+- 이미 답한 내용을 그대로 반복하지 말 것.
+- JSON 배열 한 줄만 출력: ["질문1", "질문2", "질문3"]
+
+[질문]
+{question}
+
+[답변]
+{answer}"""
+
+
+def _suggest_followups(question: str, answer: str, references: list) -> List[str]:
+    """답변 기반 후속 질문 2~3개를 제안합니다. 실패 시 빈 리스트."""
+    try:
+        prompt = _FOLLOWUP_PROMPT.format(question=question, answer=(answer or "")[:1500])
+        raw = summarizer_llm.chat([{"role": "user", "content": prompt}], max_tokens=200).strip()
+        start, end = raw.find("["), raw.rfind("]")
+        if start < 0 or end <= start:
+            return []
+        items = json.loads(raw[start:end + 1])
+        out = [s.strip() for s in items if isinstance(s, str) and s.strip()][:3]
+        return out
+    except Exception as e:
+        logger.debug(f"[Followup] 제안 실패(무시): {e}")
+        return []
 
 
 def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_indices: set = None) -> List[Dict]:
@@ -748,6 +780,13 @@ def rag_query_stream(
     else:
         # [REFn] 인용 제거 이후: 검색된 전체 문서를 참고문서로 표시 (거리 필터는 _build_references 내부)
         references = _build_references(retrieved_docs, listing, cited_indices=cited)
+
+    # 답변·참고문서 기반 추가 질문 제안 (답변 있을 때만)
+    if not is_no_answer:
+        followups = _suggest_followups(user_query, full_answer, references)
+        if followups:
+            yield {"type": "followups", "questions": followups}
+
     yield {"type": "done", "answer": full_answer, "references": references, "timing": timing, "is_no_answer": is_no_answer}
 
 
