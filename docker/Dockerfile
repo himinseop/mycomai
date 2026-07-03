@@ -21,6 +21,10 @@ ENV PYTHONPATH="/app"
 ENV CHROMA_DB_PATH="./db/chroma_db"
 ENV COLLECTION_NAME="company_llm_rag_collection"
 
+# 빌드 버전 (v커밋날짜.해시7) — 빌드 시점에 고정. scripts/build_web.sh가 계산해 전달.
+ARG BUILD_VERSION=dev
+ENV BUILD_VERSION=${BUILD_VERSION}
+
 # Set default command for the container
 # This command will be overridden by passing a command to docker run
 # Example: docker run --rm -it mycomai-rag python3 company_llm_rag/rag_system.py

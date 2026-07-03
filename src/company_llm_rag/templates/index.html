@@ -227,6 +227,7 @@
     #input-wrapper {
       background: white; border-top: 1px solid #ebebeb; flex-shrink: 0;
       padding-bottom: max(8px, env(safe-area-inset-bottom));
+      position: relative; z-index: 2;   /* 하단 도킹 시 고정 상태바(#status-bar)를 덮음 */
     }
     #input-area {
       max-width: 760px; margin: 0 auto;
@@ -262,6 +263,14 @@
     .input-hint {
       text-align: center; font-size: 11px; color: #c8c8c8;
       padding: 5px 0 2px;
+    }
+    /* 화면 맨 하단 우측 고정 상태바: 빌드 버전 · 최종 수집일시.
+       질문 시작 후 입력창(#input-wrapper)이 하단에 도킹되면 그 위를 덮음(z-index). */
+    #status-bar {
+      position: fixed; right: 10px; bottom: 3px; z-index: 1;
+      font-size: 11px; color: #c0c0c0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: nowrap; pointer-events: none;
     }
 
     /* ── 반응형 ── */
@@ -325,6 +334,7 @@
     </div>
   </div>
 </div>
+<div id="status-bar">updated:{{ build_version }} | collected:{{ last_collected }}</div>
 
 <script src="https://cdn.jsdelivr.net/npm/marked@13/marked.min.js"></script>
 <script>

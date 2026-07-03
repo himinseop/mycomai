@@ -3,7 +3,9 @@ import base64
 import ctypes
 import gc
 import json
+import os
 import time
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, Query, Request
@@ -165,12 +167,36 @@ def _check_admin_auth(request: Request) -> bool:
         return False
 
 
+# 빌드 버전(v빌드날짜.해시7): 빌드 시 ARG로 고정된 값 (scripts/build_web.sh)
+_BUILD_VERSION = os.environ.get("BUILD_VERSION", "dev")
+_KST = timezone(timedelta(hours=9))
+
+
+def _last_collected_str() -> str:
+    """소스별 최근 수집일자 중 가장 최신 값을 'YYYY-MM-DD HH:MM:SS'(KST)로 반환."""
+    try:
+        dates = [v for v in get_collection_dates().values() if v]
+        if not dates:
+            return "-"
+        latest = max(dates)  # ISO8601 문자열은 사전순 = 시간순
+        dt = datetime.fromisoformat(latest)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(_KST).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return "-"
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     company_name = settings.COMPANY_NAME or "오사장"
     with open("/app/company_llm_rag/templates/index.html", encoding="utf-8") as f:
         html = f.read()
-    return html.replace("{{ company_name }}", company_name)
+    return (
+        html.replace("{{ company_name }}", company_name)
+        .replace("{{ build_version }}", _BUILD_VERSION)
+        .replace("{{ last_collected }}", _last_collected_str())
+    )
 
 
 @app.post("/chat", response_model=ChatResponse)

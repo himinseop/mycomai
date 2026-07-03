@@ -5,12 +5,18 @@ services:
     build:
       context: ..
       dockerfile: ./docker/Dockerfile
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
     image: mycomai-rag
     env_file:
       - ../.env
     environment:
-      CHROMA_DB_PATH: ./db/chroma_db
-      SQLITE_JOURNAL_MODE: DELETE
+      - CHROMA_DB_PATH=./db/chroma_db
+      - SQLITE_JOURNAL_MODE=DELETE
+      # 빌드 시 이미지에 구운 BUILD_VERSION을 기본 사용하되,
+      # 호스트 셸에 BUILD_VERSION이 설정돼 있으면 그 값으로 주입(패스스루).
+      # 값이 없으면 항목이 추가되지 않아 이미지의 ENV를 덮지 않음.
+      - BUILD_VERSION
     volumes:
       - ../db:/app/db
       - ../src/company_llm_rag:/app/company_llm_rag
