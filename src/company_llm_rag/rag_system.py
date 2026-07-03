@@ -587,6 +587,12 @@ def rag_query(
     effective_n = (n_results or settings.RETRIEVAL_TOP_K) * (3 if listing else 1)
     # 질문 재작성: 원문 + 해석문/키워드를 함께 검색 (#52, QUERY_REWRITE_ENABLED로 제어)
     rewrite = rewrite_query(user_query, conversation_history)
+    # 비질문(인사·감사·잡담)이면 검색 없이 바로 응대 (sess-kq3w7zp)
+    if rewrite.get("is_question") is False:
+        reply = rewrite.get("reply") or "안녕하세요! 사내 업무에 관해 궁금한 점을 물어보세요."
+        total_ms = int((time.monotonic() - t0) * 1000)
+        timing = {"retrieval_ms": 0, "vector_ms": 0, "keyword_ms": 0, "rerank_ms": 0, "rerank_model": "", "inject_ms": 0, "llm_ms": 0, "total_ms": total_ms, "doc_count": 0, "model": "chitchat"}
+        return (reply, [], timing) if return_refs else reply
     _extra_q = [rewrite["rewritten"]] if rewrite["rewritten"] != user_query else None
     _extra_kw = rewrite["keywords"] or None
     retrieved_docs, ret_timing = retrieve_documents(
@@ -686,6 +692,14 @@ def rag_query_stream(
     effective_n = (n_results or settings.RETRIEVAL_TOP_K) * (3 if listing else 1)
     # 질문 재작성: 원문 + 해석문/키워드를 함께 검색 (#52, QUERY_REWRITE_ENABLED로 제어)
     rewrite = rewrite_query(user_query, conversation_history)
+    # 비질문(인사·감사·잡담)이면 검색 없이 바로 응대 (sess-kq3w7zp)
+    if rewrite.get("is_question") is False:
+        reply = rewrite.get("reply") or "안녕하세요! 사내 업무에 관해 궁금한 점을 물어보세요."
+        total_ms = int((time.monotonic() - t0) * 1000)
+        timing = {"retrieval_ms": 0, "vector_ms": 0, "keyword_ms": 0, "rerank_ms": 0, "rerank_model": "", "inject_ms": 0, "llm_ms": 0, "total_ms": total_ms, "doc_count": 0, "model": "chitchat"}
+        yield {"type": "token", "text": reply}
+        yield {"type": "done", "answer": reply, "references": [], "timing": timing, "is_no_answer": False}
+        return
     _extra_q = [rewrite["rewritten"]] if rewrite["rewritten"] != user_query else None
     _extra_kw = rewrite["keywords"] or None
     # UX: 질문 해석(LLM 자연어 문장)을 검색 전에 먼저 노출 (#52 → 사용자 표시)
