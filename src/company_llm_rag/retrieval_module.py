@@ -388,6 +388,21 @@ def retrieve_documents(
                        for ext in url_extensions)
             ]
 
+        # 문서 단위 중복 제거: 같은 문서의 여러 청크 중 최상위 1개만 유지
+        # (검색결과에 같은 파일이 여러 번 노출되는 문제 방지, 카운트 정확화)
+        _seen_docs: Set = set()
+        _deduped = []
+        for c in scored:
+            meta = c.get("metadata", {})
+            # 같은 파일(URL) 우선 식별 → 중복 수집된 동일 파일도 1개로. URL 없으면 문서ID/제목
+            key = meta.get("url") or meta.get("original_doc_id") or meta.get("title")
+            if key:
+                if key in _seen_docs:
+                    continue
+                _seen_docs.add(key)
+            _deduped.append(c)
+        scored = _deduped
+
         if return_scores:
             docs = [
                 {

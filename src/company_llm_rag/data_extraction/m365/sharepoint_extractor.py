@@ -242,45 +242,52 @@ def download_file_bytes(download_url: str, access_token: str) -> bytes:
     return response.content
 
 
-def _get_pptx_base_and_version(filename: str) -> Tuple[str, int]:
+# _v3, _V2, _ver1.2.2, _ver 0.06 등 버전 토큰 (뒤에 날짜/접미사 있어도 버전만 추출)
+_VERSION_RE = re.compile(r'_v(?:er)?[\s._]?(\d+(?:\.\d+)*)', re.IGNORECASE)
+
+
+def _get_base_and_version(filename: str) -> Tuple[str, tuple]:
     """
-    PPTX 파일명에서 기본명과 버전 번호를 추출합니다.
+    파일명에서 기본명과 버전 튜플을 추출합니다. 형식 무관.
 
     Examples:
-        '기획서_v3.pptx' → ('기획서', 3)
-        'report_V2.pptx' → ('report', 2)
-        '보고서.pptx'    → ('보고서', 0)
+        '기획서_v3.pptx'                 → ('기획서', (3,))
+        '가이드_ver1.2.2_보증금추가.pdf'  → ('가이드', (1, 2, 2))
+        '보고서.pptx'                    → ('보고서', ())   # 버전 없음
     """
     name = os.path.splitext(filename)[0]
-    m = re.search(r'_v(\d+)$', name, re.IGNORECASE)
+    m = _VERSION_RE.search(name)
     if m:
-        return name[:m.start()], int(m.group(1))
-    return name, 0
+        base = name[:m.start()].strip()
+        ver = tuple(int(x) for x in m.group(1).split('.'))
+        return base, ver
+    return name, ()
 
 
-def deduplicate_pptx_versions(files: List[Dict]) -> List[Dict]:
+def deduplicate_file_versions(files: List[Dict]) -> List[Dict]:
     """
-    PPTX 파일 중 같은 폴더 + 같은 기본 파일명인 경우 최신 버전(_v숫자 가장 높은 것)만 유지합니다.
-    버전 패턴이 없는 PPTX나 다른 형식 파일은 그대로 통과합니다.
+    같은 폴더 + 같은 기본명의 버전 파일(_v/_ver 숫자) 중 최신 버전만 유지합니다.
+    형식(pdf/docx/pptx/xlsx) 무관. 버전 패턴이 없는 파일은 그대로 통과합니다.
     """
-    pptx_mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    pptx_files = [f for f in files if f.get('file', {}).get('mimeType') == pptx_mime]
-    other_files = [f for f in files if f.get('file', {}).get('mimeType') != pptx_mime]
-
-    groups: Dict[Tuple[str, str], Tuple[Dict, int]] = {}
-    for f in pptx_files:
+    groups: Dict[Tuple[str, str], Tuple[Dict, tuple]] = {}
+    passthrough: List[Dict] = []
+    for f in files:
+        base, version = _get_base_and_version(f.get('name', ''))
+        if not version:
+            passthrough.append(f)
+            continue
         folder = f.get('parentReference', {}).get('path', '')
-        base, version = _get_pptx_base_and_version(f['name'])
-        key = (folder, base)
+        key = (folder, base.lower())
         if key not in groups or version > groups[key][1]:
             groups[key] = (f, version)
 
-    latest_pptx = [item for item, _ in groups.values()]
-    skipped = len(pptx_files) - len(latest_pptx)
+    latest = [item for item, _ in groups.values()]
+    versioned = len(files) - len(passthrough)
+    skipped = versioned - len(latest)
     if skipped > 0:
-        logger.info(f"PPTX 버전 중복 제거: {skipped}개 스킵, {len(latest_pptx)}개 유지")
+        logger.info(f"파일 버전 중복 제거: {skipped}개 스킵, {len(latest)}개 최신 유지")
 
-    return other_files + latest_pptx
+    return passthrough + latest
 
 def main():
     try:
@@ -331,7 +338,7 @@ def main():
 
                 files_metadata = get_files_in_folder(drive_id, "", access_token)
                 if files_metadata:
-                    files_metadata = deduplicate_pptx_versions(files_metadata)
+                    files_metadata = deduplicate_file_versions(files_metadata)
                     total = len(files_metadata)
                     logger.info(f"[SharePoint][{site_name}] {total}개 파일 발견. 수집 시작...")
                     start_time = time.time()
