@@ -8,6 +8,15 @@ GitHub Issue: https://github.com/himinseop/mycomai/issues/56
 > - Phase 3 ✅ voc 도메인 추가로 레지스트리 확장 검증 — 파일 1개+등록+프롬프트만으로 완료
 > - 구현 중 발견·반영: LLM 한글 금액 단위 변환 오류 → `*_display` 문자열을 서버가 확정
 >   (모든 금액·증감률 표기는 서버 포맷값 사용). VOC 샘플 원문은 응답/이력에 비노출.
+>
+> **설계 변경 (2026-07-05)**: 도메인별 경로 → **단일 엔드포인트 `POST /api/v1/insights`**.
+> 서버가 요청 데이터를 근거로 도메인 프롬프트를 자동 선택한다.
+> - 선택 순서: payload `domain` 명시(explicit) > records 구조 감지(structure,
+>   도메인별 signature_fields 커버리지 ≥0.8 단독) > LLM 분류(llm, 질문+필드+샘플 2행)
+> - `question`(자연어) 필드 신설 — 분류와 해석 프롬프트에 모두 반영
+> - `period` 생략 시 records의 date 범위로 자동 추론
+> - scope는 자동 선택된 도메인 기준 검사, `*` = 전체 도메인 허용
+> - 응답·이력에 `domain_selection`(explicit|structure|llm) 기록
 
 ## 배경
 

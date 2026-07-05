@@ -123,6 +123,8 @@ def _detect_anomalies(daily: Dict[str, float]) -> List[Dict]:
 class SalesDomain(InsightDomain):
     name = "sales"
     request_model = SalesInsightRequest
+    signature_fields = {"date", "amount"}
+    description = "기간별 매출/거래 금액 데이터 분석 — 총액·추이·채널/매장별 편차·전기 대비·이상치"
 
     def preprocess(self, req: SalesInsightRequest) -> Dict:
         cur = [r for r in req.records
@@ -204,11 +206,13 @@ class SalesDomain(InsightDomain):
 
         return stats
 
-    def build_messages(self, req: SalesInsightRequest, stats: Dict) -> List[Dict[str, str]]:
+    def build_messages(self, req: SalesInsightRequest, stats: Dict,
+                       question: str = "") -> List[Dict[str, str]]:
         system = self.load_prompt()
         focus = ", ".join(req.options.focus) if req.options.focus else "없음"
         user = (
             f"[분석 요청]\n"
+            f"- 질문: {question or '(없음 — 전반적인 분석)'}\n"
             f"- 관심 포인트: {focus}\n"
             f"- 응답 언어: {req.options.language}\n\n"
             f"[서버 계산 통계표]\n{json.dumps(stats, ensure_ascii=False)}"

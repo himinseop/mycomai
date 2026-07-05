@@ -59,6 +59,7 @@ async def require_client(
 
 
 def ensure_scope(client: Dict, domain: str) -> None:
-    """클라이언트가 해당 도메인 scope를 가졌는지 검사합니다."""
-    if domain not in client.get("scopes", []):
+    """클라이언트가 해당 도메인 scope를 가졌는지 검사합니다 ('*'=전체 허용)."""
+    scopes = client.get("scopes", [])
+    if "*" not in scopes and domain not in scopes:
         raise HTTPException(status_code=403, detail=f"domain '{domain}' not in scope")

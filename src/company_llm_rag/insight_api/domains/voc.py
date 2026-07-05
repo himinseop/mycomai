@@ -55,6 +55,8 @@ def _count_share(counter: Dict[str, int], total: int) -> List[Dict]:
 class VocDomain(InsightDomain):
     name = "voc"
     request_model = VocInsightRequest
+    signature_fields = {"date", "text"}
+    description = "고객 피드백/VOC 텍스트 데이터 분석 — 평점 분포·부정 비율·카테고리 집계·불만 주제 도출"
 
     def preprocess(self, req: VocInsightRequest) -> Dict:
         cur = [r for r in req.records
@@ -140,11 +142,13 @@ class VocDomain(InsightDomain):
             ),
         }
 
-    def build_messages(self, req: VocInsightRequest, stats: Dict) -> List[Dict[str, str]]:
+    def build_messages(self, req: VocInsightRequest, stats: Dict,
+                       question: str = "") -> List[Dict[str, str]]:
         system = self.load_prompt()
         focus = ", ".join(req.options.focus) if req.options.focus else "없음"
         user = (
             f"[분석 요청]\n"
+            f"- 질문: {question or '(없음 — 전반적인 분석)'}\n"
             f"- 관심 포인트: {focus}\n"
             f"- 응답 언어: {req.options.language}\n\n"
             f"[서버 계산 통계표 + 샘플]\n{json.dumps(stats, ensure_ascii=False)}"

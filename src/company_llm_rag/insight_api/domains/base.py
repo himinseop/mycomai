@@ -21,14 +21,19 @@ class InsightDomain(ABC):
 
     name: str
     request_model: Type[BaseModel]
+    # 도메인 자동 선택용: 이 필드들을 가진 records면 이 도메인일 가능성이 높음
+    signature_fields: set = set()
+    # 도메인 자동 선택(LLM 분류)·/domains 응답에 쓰이는 한 줄 설명
+    description: str = ""
 
     @abstractmethod
     def preprocess(self, req: BaseModel) -> Dict:
         """결정적 통계를 선계산합니다. 입력 의미 오류는 ValueError(→422)."""
 
     @abstractmethod
-    def build_messages(self, req: BaseModel, stats: Dict) -> List[Dict[str, str]]:
-        """선계산된 통계로 LLM messages를 구성합니다."""
+    def build_messages(self, req: BaseModel, stats: Dict,
+                       question: str = "") -> List[Dict[str, str]]:
+        """선계산된 통계(+사용자 질문)로 LLM messages를 구성합니다."""
 
     @abstractmethod
     def parse_response(self, raw: str) -> Dict:
