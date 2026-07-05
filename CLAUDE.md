@@ -16,6 +16,12 @@ src/company_llm_rag/
 ├── data_loader.py     # JSONL → ChromaDB 적재
 ├── retrieval_module.py # ChromaDB 검색
 ├── rag_system.py      # RAG 파이프라인 (검색 + LLM)
+├── insight_api/       # 도메인별 LLM 인사이트 API (#56, 내부 솔루션용)
+│   ├── router.py      # POST /api/v1/insights/{domain} (인증→검증→통계→LLM→이력)
+│   ├── auth.py        # X-API-Key(SHA-256) + scope + IP allowlist
+│   ├── ratelimit.py   # 키별 분당 sliding window
+│   ├── store.py       # api_clients / api_call_history (app_data.db)
+│   └── domains/       # 레지스트리 (sales, voc) — 수치는 서버 선계산, LLM은 해석만
 └── data_extraction/
     ├── jira/          # Jira API v3 (nextPageToken 페이지네이션)
     ├── confluence/    # Confluence REST API (size<limit 페이지네이션)
