@@ -87,6 +87,13 @@ app.mount("/static", StaticFiles(directory="/app/company_llm_rag/static"), name=
 # DB 초기화 (앱 시작 시 마이그레이션 + 만료 레코드 정리)
 init_db()
 
+# 도메인별 LLM 인사이트 API (#56) — 내부 솔루션용
+if settings.INSIGHT_API_ENABLED:
+    from company_llm_rag.insight_api.router import router as insight_router
+    from company_llm_rag.insight_api.store import init_insight_db
+    init_insight_db()
+    app.include_router(insight_router)
+
 
 @app.on_event("startup")
 async def _warmup_reranker():

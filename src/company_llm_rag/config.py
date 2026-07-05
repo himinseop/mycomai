@@ -155,6 +155,17 @@ class Settings:
     # 어드민 대시보드 접근 비밀번호 (비워두면 /admin 비활성화)
     ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")
 
+    # 도메인별 LLM 인사이트 API (#56) — 내부 솔루션용
+    INSIGHT_API_ENABLED: bool = os.getenv("INSIGHT_API_ENABLED", "true").lower() == "true"
+    # 비워두면 OPENAI_SUMMARIZE_MODEL 사용 (통계 해석은 경량 모델로 충분)
+    INSIGHT_LLM_MODEL: str = os.getenv("INSIGHT_LLM_MODEL", "")
+    # IP allowlist (콤마 구분, CIDR 지원, 예: "10.0.0.0/8,192.168.0.0/16"). 비우면 미적용.
+    API_ALLOWED_IPS: List[str] = [
+        s.strip() for s in os.getenv("API_ALLOWED_IPS", "").split(",") if s.strip()
+    ]
+    # 키별 분당 기본 호출 한도 (클라이언트별 rate_limit_per_min으로 오버라이드)
+    INSIGHT_RATE_LIMIT_PER_MIN: int = int(os.getenv("INSIGHT_RATE_LIMIT_PER_MIN", "30"))
+
     # 로깅 설정
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
