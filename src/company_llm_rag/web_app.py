@@ -711,3 +711,64 @@ async def admin_session_detail(request: Request, session_id: str):
     if not detail:
         return JSONResponse({"error": "Not found"}, status_code=404)
     return detail
+
+
+# ── 어드민: 인사이트 API 관리 (#56 Phase 2) ─────────────────────────────────
+
+class ApiClientCreateRequest(BaseModel):
+    name: str
+    scopes: List[str]
+    rate_limit_per_min: Optional[int] = None
+
+
+@app.get("/admin/api/clients")
+async def admin_api_clients(request: Request):
+    """인사이트 API 클라이언트 목록."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.insight_api.store import list_clients
+    from company_llm_rag.insight_api.domains import DOMAIN_REGISTRY
+    return {"clients": list_clients(), "available_domains": sorted(DOMAIN_REGISTRY.keys())}
+
+
+@app.post("/admin/api/clients")
+async def admin_api_client_create(request: Request, body: ApiClientCreateRequest):
+    """클라이언트 발급 — 원문 키는 이 응답에서 1회만 노출됩니다."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if not body.name.strip() or not body.scopes:
+        return JSONResponse({"error": "name과 scopes는 필수입니다"}, status_code=422)
+    from company_llm_rag.insight_api.store import create_client
+    return create_client(body.name.strip(), body.scopes, body.rate_limit_per_min)
+
+
+@app.post("/admin/api/clients/{client_id}/active")
+async def admin_api_client_active(request: Request, client_id: int, is_active: bool = Query(...)):
+    """클라이언트 활성/비활성 전환 (비활성 = 즉시 차단)."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.insight_api.store import set_client_active
+    if not set_client_active(client_id, is_active):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {"ok": True}
+
+
+@app.get("/admin/api/calls")
+async def admin_api_calls(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    client_id: Optional[int] = Query(None),
+    domain: Optional[str] = Query(None),
+):
+    """인사이트 API 호출 이력 (페이지네이션 + 클라이언트/도메인 필터)."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.insight_api.store import get_call_history
+    result = get_call_history(
+        limit=page_size, offset=(page - 1) * page_size,
+        client_id=client_id, domain=domain,
+    )
+    result["page"] = page
+    result["total_pages"] = max(1, -(-result["total"] // page_size))
+    return result

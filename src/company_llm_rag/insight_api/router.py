@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from company_llm_rag.config import settings
 from company_llm_rag.insight_api.auth import ensure_scope, require_client
 from company_llm_rag.insight_api.domains import DOMAIN_REGISTRY
+from company_llm_rag.insight_api.ratelimit import check_rate_limit
 from company_llm_rag.insight_api.store import log_call
 from company_llm_rag.llm.factory import summarizer_llm
 from company_llm_rag.logger import get_logger
@@ -76,6 +77,10 @@ async def create_insight(
     except HTTPException as e:
         _log(e.status_code, error=e.detail)
         raise
+
+    if not check_rate_limit(client):
+        _log(429, error="rate limit exceeded")
+        raise HTTPException(status_code=429, detail="rate limit exceeded")
 
     body = await request.body()
     if len(body) > MAX_PAYLOAD_BYTES:

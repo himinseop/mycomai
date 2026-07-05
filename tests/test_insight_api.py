@@ -211,6 +211,30 @@ def test_tc11_anomaly_detection(env):
                for a in anomalies)
 
 
+# ── Phase 2: rate limit ────────────────────────────────────────────────────
+
+def test_rate_limit_429_and_logged(env):
+    from company_llm_rag.insight_api import ratelimit
+    limited = env["store"].create_client("테스트-리밋", ["sales"], rate_limit_per_min=2)
+    ratelimit.reset()
+    assert _post(env, _sales_body(), key=limited["api_key"]).status_code == 200
+    assert _post(env, _sales_body(), key=limited["api_key"]).status_code == 200
+    r = _post(env, _sales_body(), key=limited["api_key"])
+    assert r.status_code == 429
+    hist = env["store"].get_call_history(limit=1)
+    assert hist["items"][0]["status"] == 429          # 429도 이력에 기록
+    ratelimit.reset()
+
+
+def test_rate_limit_default_applies(env, monkeypatch):
+    from company_llm_rag.insight_api import ratelimit
+    monkeypatch.setattr(settings, "INSIGHT_RATE_LIMIT_PER_MIN", 1)
+    ratelimit.reset()
+    assert _post(env, _sales_body(), key=env["sales_key"]).status_code == 200
+    assert _post(env, _sales_body(), key=env["sales_key"]).status_code == 429
+    ratelimit.reset()
+
+
 # ── 금액/증감률 표시 문자열 (LLM 단위 변환 오류 방지 — 서버 확정) ──────────
 
 def test_krw_display_formatting(env):

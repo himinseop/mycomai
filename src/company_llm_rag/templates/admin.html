@@ -436,6 +436,7 @@
     <button class="tab-btn active" onclick="switchTab('dashboard', this)">대시보드</button>
     <button class="tab-btn" onclick="switchTab('history', this)">이력 조회</button>
     <button class="tab-btn" onclick="switchTab('settings', this)">설정</button>
+    <button class="tab-btn" onclick="switchTab('api', this)">API</button>
   </nav>
 </header>
 
@@ -615,6 +616,44 @@
     </div>
   </div>
 
+  <!-- ── API 탭 (#56 인사이트 API 관리) ── -->
+  <div class="tab-panel" id="tab-api">
+    <div class="settings-card" style="margin-bottom:16px">
+      <h2>🔑 API 클라이언트</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+        <input id="api-c-name" placeholder="클라이언트명" style="padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:.85rem">
+        <input id="api-c-scopes" placeholder="scopes (예: sales)" style="padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:.85rem">
+        <input id="api-c-rate" type="number" placeholder="분당 한도(기본)" style="width:120px;padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:.85rem">
+        <button class="btn btn-primary" onclick="issueApiClient()">키 발급</button>
+        <span id="api-domains-hint" style="font-size:.78rem;color:#999"></span>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>이름</th><th>scopes</th><th>분당 한도</th><th>상태</th><th>생성일</th><th></th></tr></thead>
+        <tbody id="api-clients-tbody"><tr><td colspan="7" class="empty">로딩 중...</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="settings-card">
+      <h2>📜 호출 이력</h2>
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+        <select id="api-h-client" onchange="loadApiCalls(1)" style="padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:.85rem">
+          <option value="">전체 클라이언트</option>
+        </select>
+        <input id="api-h-domain" placeholder="도메인 필터" onkeydown="if(event.key==='Enter')loadApiCalls(1)" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:.85rem">
+        <button class="btn btn-secondary" onclick="loadApiCalls(1)">조회</button>
+      </div>
+      <table>
+        <thead><tr><th>시각</th><th>클라이언트</th><th>도메인</th><th>상태</th><th>지연</th><th>요청 요약</th></tr></thead>
+        <tbody id="api-calls-tbody"><tr><td colspan="6" class="empty">로딩 중...</td></tr></tbody>
+      </table>
+      <div class="pagination" id="api-calls-pg" style="display:none;margin-top:10px">
+        <button class="btn btn-secondary" onclick="loadApiCalls(apiCallsPage-1)">← 이전</button>
+        <span id="api-calls-pginfo" style="font-size:.82rem;color:#888"></span>
+        <button class="btn btn-secondary" onclick="loadApiCalls(apiCallsPage+1)">다음 →</button>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <!-- ── 모달 (공용) ── -->
@@ -656,6 +695,107 @@
       if (gbody.children.length === 1 && gbody.children[0].children[0].colSpan > 1) loadGroups(1);
     }
     if (name === 'settings') loadSettings();
+    if (name === 'api') { loadApiClients(); loadApiCalls(1); }
+  }
+
+  // ── API 탭 (#56 인사이트 API 관리) ────────────────────────────────────────
+  let apiCallsPage = 1, apiCallsTotalPages = 1;
+
+  async function loadApiClients() {
+    const res  = await fetch('/admin/api/clients');
+    const data = await res.json();
+    document.getElementById('api-domains-hint').textContent =
+      '사용 가능 도메인: ' + (data.available_domains || []).join(', ');
+    const tbody = document.getElementById('api-clients-tbody');
+    const rows = data.clients || [];
+    // 이력 필터 셀렉트 동기화
+    const sel = document.getElementById('api-h-client');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">전체 클라이언트</option>' +
+      rows.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('');
+    sel.value = cur;
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">등록된 클라이언트가 없습니다.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(c => `
+      <tr>
+        <td>${c.id}</td>
+        <td>${escHtml(c.name)}</td>
+        <td>${escHtml(c.scopes)}</td>
+        <td>${c.rate_limit_per_min ?? '기본'}</td>
+        <td>${c.is_active ? '<span class="badge badge-ok">활성</span>' : '<span class="badge badge-no-answer">차단</span>'}</td>
+        <td>${(c.created_at || '').slice(0, 10)}</td>
+        <td><button class="btn btn-secondary" onclick="toggleApiClient(${c.id}, ${c.is_active ? 'false' : 'true'})">
+          ${c.is_active ? '차단' : '활성화'}</button></td>
+      </tr>`).join('');
+  }
+
+  async function issueApiClient() {
+    const name   = document.getElementById('api-c-name').value.trim();
+    const scopes = document.getElementById('api-c-scopes').value.trim();
+    const rate   = document.getElementById('api-c-rate').value;
+    if (!name || !scopes) { alert('클라이언트명과 scopes를 입력하세요.'); return; }
+    const res = await fetch('/admin/api/clients', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name, scopes: scopes.split(',').map(s => s.trim()).filter(Boolean),
+        rate_limit_per_min: rate ? parseInt(rate, 10) : null,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || '발급 실패'); return; }
+    document.getElementById('api-c-name').value = '';
+    document.getElementById('api-c-scopes').value = '';
+    document.getElementById('api-c-rate').value = '';
+    showModal('API 키 발급 완료', `
+      <p style="margin-bottom:10px"><b>${escHtml(data.name)}</b> (id=${data.id})</p>
+      <div style="background:#f6f6fa;border:1px solid #e0e0ea;border-radius:8px;padding:12px;
+                  font-family:monospace;font-size:.9rem;word-break:break-all">${escHtml(data.api_key)}</div>
+      <p style="margin-top:10px;color:#c0392b;font-size:.85rem">
+        ⚠️ 이 키는 지금 1회만 표시됩니다. 지금 복사해 안전한 곳에 보관하세요.</p>`);
+    loadApiClients();
+  }
+
+  async function toggleApiClient(id, active) {
+    await fetch(`/admin/api/clients/${id}/active?is_active=${active}`, { method: 'POST' });
+    loadApiClients();
+  }
+
+  async function loadApiCalls(page) {
+    if (page < 1 || (apiCallsTotalPages && page > apiCallsTotalPages)) return;
+    apiCallsPage = page;
+    const params = new URLSearchParams({ page, page_size: 20 });
+    const cid = document.getElementById('api-h-client').value;
+    const dom = document.getElementById('api-h-domain').value.trim();
+    if (cid) params.set('client_id', cid);
+    if (dom) params.set('domain', dom);
+    const res  = await fetch('/admin/api/calls?' + params);
+    const data = await res.json();
+    apiCallsTotalPages = data.total_pages || 1;
+    const tbody = document.getElementById('api-calls-tbody');
+    const items = data.items || [];
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">호출 이력이 없습니다.</td></tr>';
+    } else {
+      tbody.innerHTML = items.map(i => {
+        const ok = i.status === 200;
+        const summary = (i.request_summary || '') + (i.error ? ` | ⚠ ${i.error}` : '');
+        return `<tr>
+          <td style="white-space:nowrap">${(i.created_at || '').slice(0, 19).replace('T', ' ')}</td>
+          <td>${escHtml(i.client_name || String(i.client_id))}</td>
+          <td>${escHtml(i.domain)}</td>
+          <td><span class="badge ${ok ? 'badge-ok' : 'badge-no-answer'}">${i.status}</span></td>
+          <td style="white-space:nowrap">${i.latency_ms != null ? i.latency_ms + 'ms' : '-'}</td>
+          <td style="max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+              title="${escHtml(summary)}">${escHtml(summary)}</td>
+        </tr>`;
+      }).join('');
+    }
+    const pg = document.getElementById('api-calls-pg');
+    pg.style.display = data.total > 20 ? 'flex' : 'none';
+    document.getElementById('api-calls-pginfo').textContent =
+      `${page} / ${apiCallsTotalPages} (총 ${data.total}건)`;
   }
 
   // ── 이력 조회 ─────────────────────────────────────────────────────────────
