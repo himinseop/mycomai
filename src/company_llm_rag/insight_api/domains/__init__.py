@@ -11,9 +11,11 @@ from typing import Dict
 
 from company_llm_rag.insight_api.domains.base import InsightDomain
 from company_llm_rag.insight_api.domains.sales import SalesDomain
+from company_llm_rag.insight_api.domains.voc import VocDomain
 
 DOMAIN_REGISTRY: Dict[str, InsightDomain] = {
     d.name: d for d in [
         SalesDomain(),
+        VocDomain(),
     ]
 }

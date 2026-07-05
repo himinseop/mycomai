@@ -132,6 +132,6 @@ async def create_insight(
         "summary": parsed["summary"],
         "highlights": parsed["highlights"],
         "anomalies": parsed["anomalies"],
-        "stats": stats,
+        "stats": domain.postprocess_stats(stats),  # LLM 전용 필드(샘플 등) 제거
         "meta": {"model": _insight_model(), "latency_ms": latency_ms},
     }

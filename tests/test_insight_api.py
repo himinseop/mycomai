@@ -259,3 +259,63 @@ def test_list_domains_scoped(env):
                           headers={"X-API-Key": env["sales_key"]})
     assert r.status_code == 200
     assert r.json()["domains"] == ["sales"]
+
+
+# ── Phase 3: voc 도메인 (레지스트리 확장 검증) ─────────────────────────────
+
+def _voc_body():
+    recs = []
+    for d in range(1, 11):
+        recs.append({"date": f"2026-06-{d:02d}", "text": f"배송이 빨라요 {d}",
+                     "rating": 5, "category": "배송", "channel": "앱"})
+    recs += [
+        {"date": "2026-06-05", "text": "포인트 적립이 안 돼요. 확인 부탁드립니다.",
+         "rating": 1, "category": "포인트", "channel": "앱"},
+        {"date": "2026-06-06", "text": "정산 금액이 이상해요",
+         "rating": 2, "category": "정산", "channel": "웹"},
+    ]
+    return {"period": {"from": "2026-06-01", "to": "2026-06-30"}, "records": recs}
+
+
+@pytest.fixture(scope="module")
+def voc_key(env):
+    return env["store"].create_client("테스트-VOC", ["voc"])["api_key"]
+
+
+def test_voc_registered(env):
+    from company_llm_rag.insight_api.domains import DOMAIN_REGISTRY
+    assert set(DOMAIN_REGISTRY.keys()) >= {"sales", "voc"}
+
+
+def test_voc_scope_isolation(env, voc_key):
+    # sales 키로 voc 호출 → 403, voc 키로 sales 호출 → 403
+    r = env["client"].post("/api/v1/insights/voc", json=_voc_body(),
+                           headers={"X-API-Key": env["sales_key"]})
+    assert r.status_code == 403
+    assert _post(env, _sales_body(), key=voc_key).status_code == 403
+
+
+def test_voc_stats_and_sample_privacy(env, voc_key):
+    r = env["client"].post("/api/v1/insights/voc", json=_voc_body(),
+                           headers={"X-API-Key": voc_key})
+    assert r.status_code == 200
+    stats = r.json()["stats"]
+    assert stats["total_count"] == 12
+    assert stats["rating"]["negative_count"] == 2
+    assert abs(stats["rating"]["negative_ratio"] - 2 / 12) < 0.001
+    cats = {c["value"]: c["count"] for c in stats["categories"]}
+    assert cats == {"배송": 10, "포인트": 1, "정산": 1}
+    assert "samples" not in stats                     # 원문 샘플은 응답에 비노출
+    # 이력에도 VOC 원문 미저장
+    item = env["store"].get_call_history(limit=1)["items"][0]
+    assert item["status"] == 200 and item["domain"] == "voc"
+    assert "포인트 적립이 안 돼요" not in (item["request_summary"] or "")
+
+
+def test_voc_negative_priority_sampling(env, voc_key):
+    from company_llm_rag.insight_api.domains.voc import VocDomain, VocInsightRequest
+    req = VocInsightRequest.model_validate(_voc_body())
+    stats = VocDomain().preprocess(req)
+    # 샘플 선두는 부정 피드백 (최신순)
+    assert stats["samples"][0]["rating"] <= 2
+    assert stats["samples"][1]["rating"] <= 2

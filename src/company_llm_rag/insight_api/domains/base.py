@@ -39,6 +39,10 @@ class InsightDomain(ABC):
         path = _PROMPTS_DIR / f"{self.name}.txt"
         return path.read_text(encoding="utf-8")
 
+    def postprocess_stats(self, stats: Dict) -> Dict:
+        """응답에 노출할 stats 가공 (기본: 그대로). LLM 전용 필드 제거 등에 사용."""
+        return stats
+
     def request_summary(self, req: BaseModel, stats: Dict) -> Dict:
         """이력에 남길 요청 요약 (원본 데이터 제외). 도메인별 오버라이드 가능."""
         return {}
