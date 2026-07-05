@@ -17,6 +17,9 @@ GitHub Issue: https://github.com/himinseop/mycomai/issues/56
 > - `period` 생략 시 records의 date 범위로 자동 추론
 > - scope는 자동 선택된 도메인 기준 검사, `*` = 전체 도메인 허용
 > - 응답·이력에 `domain_selection`(explicit|structure|llm) 기록
+>
+> **보류 (2026-07-05)**: API 대화 세션화·이어질문(지식허브 질문방 연계 포함)은
+> 검토만 완료하고 보류. API는 무상태 유지.
 
 ## 배경
 
