@@ -40,3 +40,30 @@ summarizer_llm = _make_llm(
     default_model=settings.OPENAI_SUMMARIZE_MODEL,
     default_temperature=0.3,
 )
+
+
+# ── 역할별 모델 런타임 스위치 (관리자 설정에서 변경 가능) ────────────────────
+# app_settings의 llm_model_<role> 오버라이드 > .env 기본값. 재시작 없이 즉시 반영.
+
+_ROLE_DEFAULTS = {
+    "chat":      lambda: settings.OPENAI_CHAT_MODEL,        # RAG 답변 생성
+    "summarize": lambda: settings.OPENAI_SUMMARIZE_MODEL,   # 요약·후속질문·안내 멘트
+    "rewrite":   lambda: settings.QUERY_REWRITE_MODEL,      # 질문 재작성/해석
+    "insight":   lambda: settings.INSIGHT_LLM_MODEL or settings.OPENAI_SUMMARIZE_MODEL,  # 인사이트 API
+}
+
+
+def current_model(role: str) -> Optional[str]:
+    """역할별로 지금 사용할 모델명을 반환합니다. None이면 provider 기본 모델 사용.
+
+    ollama 등 비-OpenAI provider에서는 OpenAI 모델명 오버라이드가 무의미하므로
+    None을 반환해 provider 기본 모델을 쓰게 합니다.
+    """
+    if settings.LLM_PROVIDER != "openai":
+        return None
+    try:
+        from company_llm_rag.history_store import get_setting
+        override = (get_setting(f"llm_model_{role}", "") or "").strip()
+    except Exception:
+        override = ""
+    return override or _ROLE_DEFAULTS[role]()

@@ -7,7 +7,7 @@ from typing import List, Dict, Optional, Tuple
 
 from company_llm_rag.config import settings
 from company_llm_rag.exceptions import LLMError
-from company_llm_rag.llm.factory import default_llm, summarizer_llm
+from company_llm_rag.llm.factory import current_model, default_llm, summarizer_llm
 from company_llm_rag.rag.citations import (
     ensure_list, build_teams_url, doc_source_label, doc_display_name, resolve_citations,
 )
@@ -388,7 +388,8 @@ def _suggest_followups(question: str, answer: str, references: list) -> List[str
     """답변 기반 후속 질문 2~3개를 제안합니다. 실패 시 빈 리스트."""
     try:
         prompt = _FOLLOWUP_PROMPT.format(question=question, answer=(answer or "")[:1500])
-        raw = summarizer_llm.chat([{"role": "user", "content": prompt}], max_tokens=200).strip()
+        raw = summarizer_llm.chat([{"role": "user", "content": prompt}],
+                                  model=current_model("summarize"), max_tokens=200).strip()
         start, end = raw.find("["), raw.rfind("]")
         if start < 0 or end <= start:
             return []
@@ -554,7 +555,7 @@ def get_llm_response(
     messages.append({"role": "user", "content": prompt})
 
     try:
-        return default_llm.chat(messages, model=model, temperature=temperature)
+        return default_llm.chat(messages, model=model or current_model("chat"), temperature=temperature)
     except LLMError as e:
         logger.error(f"LLM 호출 실패: {e}", exc_info=True)
         return "답변 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
@@ -627,7 +628,7 @@ def rag_query(
 
     if not retrieved_docs:
         answer = "관련 정보를 회사 지식베이스에서 찾을 수 없습니다."
-        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm.model_name}
+        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": current_model("chat") or default_llm.model_name}
         return (answer, [], timing) if return_refs else answer
 
     # Knowledge Hub 원문 직접 응답: 1위 문서가 Knowledge Hub이면 LLM 없이 원문 반환
@@ -655,7 +656,7 @@ def rag_query(
         f"[RAG 성능] 검색={retrieval_ms}ms (벡터={ret_timing['vector_ms']}ms / FTS={ret_timing['keyword_ms']}ms / rerank={ret_timing.get('rerank_ms',0)}ms) | 직접조회={inject_ms}ms | LLM={llm_ms}ms | "
         f"총={total_ms}ms | 문서={len(retrieved_docs)}개 | 인용={len(cited)}건"
     )
-    timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm.model_name}
+    timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": current_model("chat") or default_llm.model_name}
 
     if not return_refs:
         return llm_response
@@ -740,7 +741,7 @@ def rag_query_stream(
 
     if not retrieved_docs:
         answer = _NO_ANSWER_PHRASE
-        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": default_llm.model_name}
+        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": current_model("chat") or default_llm.model_name}
         yield {"type": "done", "answer": answer, "references": [], "timing": timing, "is_no_answer": True}
         return
 
@@ -766,7 +767,7 @@ def rag_query_stream(
     full_answer = ""
     t_llm_start = time.monotonic()
     try:
-        for chunk in default_llm.stream_chat(messages):
+        for chunk in default_llm.stream_chat(messages, model=current_model("chat")):
             full_answer += chunk
             yield {"type": "token", "text": chunk}
     except Exception as e:
@@ -783,7 +784,7 @@ def rag_query_stream(
     # 실답변 뒤 hedge로 붙은 no-answer 문구 정리 + 정확한 no-answer 판정 (#53)
     full_answer, is_no_answer = _finalize_answer(full_answer)
 
-    timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": default_llm.model_name}
+    timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": current_model("chat") or default_llm.model_name}
     logger.info(
         f"[RAG 스트리밍 성능] 검색={retrieval_ms}ms (벡터={ret_timing['vector_ms']}ms / FTS={ret_timing['keyword_ms']}ms / rerank={ret_timing.get('rerank_ms',0)}ms) | 직접조회={inject_ms}ms | LLM={llm_ms}ms | "
         f"총={total_ms}ms | 문서={len(retrieved_docs)}개 | 인용={len(cited)}건"

@@ -17,7 +17,7 @@ _HUB_DIRECT_RRF_RATIO = 2.0
 
 def _build_hub_intro(question: str) -> str:
     """LLM으로 Knowledge Hub 안내 멘트를 생성합니다."""
-    from company_llm_rag.llm.factory import summarizer_llm
+    from company_llm_rag.llm.factory import current_model, summarizer_llm
     try:
         messages = [
             {"role": "system", "content": (
@@ -28,7 +28,7 @@ def _build_hub_intro(question: str) -> str:
             )},
             {"role": "user", "content": question},
         ]
-        intro = summarizer_llm.chat(messages).strip()
+        intro = summarizer_llm.chat(messages, model=current_model("summarize")).strip()
     except Exception:
         intro = "유사한 질문에 대한 답변이 있어 안내드립니다."
     return intro + "\n\n---\n\n"

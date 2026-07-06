@@ -30,6 +30,7 @@ from company_llm_rag.history_store import (
     get_last_turn_in_session,
     get_session_groups, get_session_detail,
     set_group_analysis_pending,
+    log_access, get_access_log,
 )
 from company_llm_rag.no_answer_analyzer import analyze_bad_feedback
 from company_llm_rag.logger import get_logger
@@ -86,6 +87,13 @@ app.mount("/static", StaticFiles(directory="/app/company_llm_rag/static"), name=
 
 # DB 초기화 (앱 시작 시 마이그레이션 + 만료 레코드 정리)
 init_db()
+
+# 도메인별 LLM 인사이트 API (#56) — 내부 솔루션용
+if settings.INSIGHT_API_ENABLED:
+    from company_llm_rag.insight_api.router import router as insight_router
+    from company_llm_rag.insight_api.store import init_insight_db
+    init_insight_db()
+    app.include_router(insight_router)
 
 
 @app.on_event("startup")
@@ -187,8 +195,20 @@ def _last_collected_str() -> str:
         return "-"
 
 
+def _client_ip(request: Request) -> str:
+    """접속 IP. 프록시 뒤라면 X-Forwarded-For 첫 항목 사용.
+    주의: Docker Desktop(macOS) NAT에서는 호스트 외부 IP가 192.168.65.1로 보임 —
+    실제 클라이언트 IP가 필요하면 앞단 리버스 프록시에서 XFF를 설정해야 함."""
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "-"
+
+
 @app.get("/", response_class=HTMLResponse)
-async def index():
+async def index(request: Request):
+    # 채팅방 접속 이력 (IP·시각·클라이언트 정보)
+    log_access(_client_ip(request), request.headers.get("user-agent", ""), "/")
     company_name = settings.COMPANY_NAME or "오사장"
     with open("/app/company_llm_rag/templates/index.html", encoding="utf-8") as f:
         html = f.read()
@@ -425,6 +445,8 @@ async def admin_page(request: Request):
             (b"www-authenticate", 'Basic realm="오사장 어드민"'.encode("utf-8"))
         )
         return response
+    # 어드민 접속 이력
+    log_access(_client_ip(request), request.headers.get("user-agent", ""), "/admin")
     company_name = settings.COMPANY_NAME or "오사장"
     with open("/app/company_llm_rag/templates/admin.html", encoding="utf-8") as f:
         html = f.read()
@@ -650,17 +672,43 @@ async def admin_session_analyze(request: Request, session_id: str):
     return {"success": True}
 
 
+# 관리자에서 선택 가능한 LLM 모델 (오타로 인한 장애 방지를 위해 화이트리스트)
+_LLM_MODEL_CHOICES = ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"]
+# 역할별 라벨/설명 (설정 UI 표시용)
+_LLM_ROLES = {
+    "chat":      {"label": "답변 생성", "desc": "RAG 채팅의 본답변을 생성하는 모델"},
+    "rewrite":   {"label": "질문 재작성/해석", "desc": "검색문 변환과 질문 해석 문구 생성"},
+    "summarize": {"label": "요약·보조", "desc": "후속 질문 제안, Teams 요약, Hub 안내 멘트"},
+    "insight":   {"label": "인사이트 API", "desc": "매출/VOC 등 도메인 데이터 해석 (#56)"},
+}
+
+
 @app.get("/admin/settings/data")
 async def admin_settings_get(request: Request):
     if not _check_admin_auth(request):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.llm.factory import _ROLE_DEFAULTS
+    llm_models = {}
+    for role, meta in _LLM_ROLES.items():
+        llm_models[role] = {
+            **meta,
+            "override": get_setting(f"llm_model_{role}", ""),
+            "default": _ROLE_DEFAULTS[role](),
+        }
     return {
         "analyze_no_answer": get_setting("analyze_no_answer", "0") == "1",
+        "llm_models": llm_models,
+        "llm_model_choices": _LLM_MODEL_CHOICES,
+        "llm_provider": settings.LLM_PROVIDER,
     }
 
 
 class SettingsUpdateRequest(BaseModel):
     analyze_no_answer: Optional[bool] = None
+    llm_model_chat: Optional[str] = None
+    llm_model_rewrite: Optional[str] = None
+    llm_model_summarize: Optional[str] = None
+    llm_model_insight: Optional[str] = None
 
 
 @app.post("/admin/settings")
@@ -669,6 +717,19 @@ async def admin_settings_update(request: Request, body: SettingsUpdateRequest):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     if body.analyze_no_answer is not None:
         set_setting("analyze_no_answer", "1" if body.analyze_no_answer else "0")
+    # LLM 모델 오버라이드 (빈 값 = .env 기본값 사용). 즉시 반영, 재시작 불필요.
+    for role in _LLM_ROLES:
+        value = getattr(body, f"llm_model_{role}")
+        if value is None:
+            continue
+        value = value.strip()
+        if value and value not in _LLM_MODEL_CHOICES:
+            return JSONResponse(
+                {"error": f"허용되지 않는 모델: {value} (choices: {_LLM_MODEL_CHOICES})"},
+                status_code=422,
+            )
+        set_setting(f"llm_model_{role}", value)
+        logger.info(f"[Admin] LLM 모델 변경: {role} → {value or '(기본값)'}")
     return {"success": True}
 
 
@@ -704,3 +765,76 @@ async def admin_session_detail(request: Request, session_id: str):
     if not detail:
         return JSONResponse({"error": "Not found"}, status_code=404)
     return detail
+
+
+@app.get("/admin/access-log")
+async def admin_access_log(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    """웹 접속 이력 (채팅방·어드민 페이지 진입 기록)."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    return get_access_log(page=page, page_size=page_size)
+
+
+# ── 어드민: 인사이트 API 관리 (#56 Phase 2) ─────────────────────────────────
+
+class ApiClientCreateRequest(BaseModel):
+    name: str
+    scopes: List[str]
+    rate_limit_per_min: Optional[int] = None
+
+
+@app.get("/admin/api/clients")
+async def admin_api_clients(request: Request):
+    """인사이트 API 클라이언트 목록."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.insight_api.store import list_clients
+    from company_llm_rag.insight_api.domains import DOMAIN_REGISTRY
+    return {"clients": list_clients(), "available_domains": sorted(DOMAIN_REGISTRY.keys())}
+
+
+@app.post("/admin/api/clients")
+async def admin_api_client_create(request: Request, body: ApiClientCreateRequest):
+    """클라이언트 발급 — 원문 키는 이 응답에서 1회만 노출됩니다."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if not body.name.strip() or not body.scopes:
+        return JSONResponse({"error": "name과 scopes는 필수입니다"}, status_code=422)
+    from company_llm_rag.insight_api.store import create_client
+    return create_client(body.name.strip(), body.scopes, body.rate_limit_per_min)
+
+
+@app.post("/admin/api/clients/{client_id}/active")
+async def admin_api_client_active(request: Request, client_id: int, is_active: bool = Query(...)):
+    """클라이언트 활성/비활성 전환 (비활성 = 즉시 차단)."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.insight_api.store import set_client_active
+    if not set_client_active(client_id, is_active):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {"ok": True}
+
+
+@app.get("/admin/api/calls")
+async def admin_api_calls(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    client_id: Optional[int] = Query(None),
+    domain: Optional[str] = Query(None),
+):
+    """인사이트 API 호출 이력 (페이지네이션 + 클라이언트/도메인 필터)."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.insight_api.store import get_call_history
+    result = get_call_history(
+        limit=page_size, offset=(page - 1) * page_size,
+        client_id=client_id, domain=domain,
+    )
+    result["page"] = page
+    result["total_pages"] = max(1, -(-result["total"] // page_size))
+    return result

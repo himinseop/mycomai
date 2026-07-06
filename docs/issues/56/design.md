@@ -2,6 +2,25 @@
 
 GitHub Issue: https://github.com/himinseop/mycomai/issues/56
 
+> **진행 상황 (2026-07-05)**: Phase 1~3 구현 완료 (`feature/56-insight-api`).
+> - Phase 1 ✅ 인증(API Key+scope+IP) / sales 도메인 / 호출 이력 — 테스트 17건 + 실서버 E2E
+> - Phase 2 ✅ 관리자 API 탭(키 발급/차단, 이력 조회) / rate limit(429 이력 기록)
+> - Phase 3 ✅ voc 도메인 추가로 레지스트리 확장 검증 — 파일 1개+등록+프롬프트만으로 완료
+> - 구현 중 발견·반영: LLM 한글 금액 단위 변환 오류 → `*_display` 문자열을 서버가 확정
+>   (모든 금액·증감률 표기는 서버 포맷값 사용). VOC 샘플 원문은 응답/이력에 비노출.
+>
+> **설계 변경 (2026-07-05)**: 도메인별 경로 → **단일 엔드포인트 `POST /api/v1/insights`**.
+> 서버가 요청 데이터를 근거로 도메인 프롬프트를 자동 선택한다.
+> - 선택 순서: payload `domain` 명시(explicit) > records 구조 감지(structure,
+>   도메인별 signature_fields 커버리지 ≥0.8 단독) > LLM 분류(llm, 질문+필드+샘플 2행)
+> - `question`(자연어) 필드 신설 — 분류와 해석 프롬프트에 모두 반영
+> - `period` 생략 시 records의 date 범위로 자동 추론
+> - scope는 자동 선택된 도메인 기준 검사, `*` = 전체 도메인 허용
+> - 응답·이력에 `domain_selection`(explicit|structure|llm) 기록
+>
+> **보류 (2026-07-05)**: API 대화 세션화·이어질문(지식허브 질문방 연계 포함)은
+> 검토만 완료하고 보류. API는 무상태 유지.
+
 ## 배경
 
 사내 다른 솔루션들이 이 프로젝트의 LLM 역량을 API로 활용하고 싶어 한다. 첫 수요는 **기간별 매출 데이터 분석**: 매출 데이터를 보내면 (1) 데이터 자체를 요약 설명하고 (2) 눈여겨볼 포인트를 짚어주는 것.
