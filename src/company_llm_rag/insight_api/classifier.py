@@ -12,7 +12,7 @@ import json
 from typing import Dict, List, Optional, Tuple
 
 from company_llm_rag.insight_api.domains.base import parse_llm_json
-from company_llm_rag.llm.factory import current_model, summarizer_llm
+from company_llm_rag.llm.factory import resolve_llm
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
@@ -35,12 +35,8 @@ def _field_coverage(records: List[Dict], fields: set) -> float:
 
 def _call_llm(messages: List[Dict[str, str]]) -> str:
     """LLM 분류 호출 (테스트 monkeypatch 지점)."""
-    return summarizer_llm.chat(
-        messages,
-        model=current_model("insight"),
-        temperature=0.0,
-        max_tokens=100,
-    )
+    llm, model = resolve_llm("insight")
+    return llm.chat(messages, model=model, temperature=0.0, max_tokens=100)
 
 
 def _llm_classify(

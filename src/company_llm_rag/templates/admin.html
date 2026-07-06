@@ -1796,17 +1796,25 @@
     } catch(e) {}
   }
 
-  // ── LLM 모델 스위치 (역할별 셀렉트, 즉시 반영) ───────────────────────────
+  // ── LLM 모델/프로바이더 스위치 (역할별 셀렉트, 즉시 반영) ────────────────
   function renderLlmModels(data) {
     const box = document.getElementById('llm-model-rows');
     if (!box || !data.llm_models) return;
-    const isOpenai = data.llm_provider === 'openai';
+    const ollamaUp = !!data.ollama_available;
     document.getElementById('llm-provider-note').textContent =
-      isOpenai ? '' : `현재 LLM_PROVIDER=${data.llm_provider} — 모델 스위치는 openai에서만 동작합니다.`;
+      `전역 provider: ${data.llm_provider} · Ollama(${data.ollama_model}): ` +
+      (ollamaUp ? '🟢 연결됨' : '🔴 응답 없음 — ollama 선택 시 해당 역할이 실패할 수 있습니다');
     box.innerHTML = ['chat', 'rewrite', 'summarize', 'insight'].map(role => {
       const m = data.llm_models[role];
       if (!m) return '';
-      const opts = [`<option value="">기본값 (${escHtml(m.default)})</option>`]
+      const isOllama = m.provider_override === 'ollama' ||
+                       (!m.provider_override && data.llm_provider === 'ollama');
+      const provOpts = [
+        `<option value="">기본 (${data.llm_provider})</option>`,
+        `<option value="openai" ${m.provider_override === 'openai' ? 'selected' : ''}>openai</option>`,
+        `<option value="ollama" ${m.provider_override === 'ollama' ? 'selected' : ''}>ollama${ollamaUp ? '' : ' ⚠'}</option>`,
+      ].join('');
+      const modelOpts = [`<option value="">기본값 (${escHtml(m.default)})</option>`]
         .concat(data.llm_model_choices.map(c =>
           `<option value="${c}" ${m.override === c ? 'selected' : ''}>${c}</option>`))
         .join('');
@@ -1815,9 +1823,15 @@
           <div class="setting-label">${escHtml(m.label)}</div>
           <div class="setting-desc">${escHtml(m.desc)}</div>
         </div>
-        <select onchange="updateSetting('llm_model_${role}', this.value)" ${isOpenai ? '' : 'disabled'}
-                style="padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:.85rem;min-width:200px">
-          ${opts}</select>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select onchange="updateSetting('llm_provider_${role}', this.value)"
+                  title="이 역할이 사용할 LLM provider"
+                  style="padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:.85rem">
+            ${provOpts}</select>
+          <select onchange="updateSetting('llm_model_${role}', this.value)" ${isOllama ? 'disabled title="ollama는 ' + escHtml(data.ollama_model) + ' 고정"' : ''}
+                  style="padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:.85rem;min-width:190px">
+            ${modelOpts}</select>
+        </div>
       </div>`;
     }).join('');
   }
@@ -1833,6 +1847,8 @@
         const err = await res.json().catch(() => ({}));
         alert(err.error || '설정 저장 실패');
         loadSettings();
+      } else if (key.startsWith('llm_')) {
+        loadSettings();  // provider 변경 시 모델 셀렉트 활성/비활성 갱신
       }
     } catch(e) {
       alert('설정 저장 실패: ' + e.message);

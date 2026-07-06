@@ -42,8 +42,11 @@ summarizer_llm = _make_llm(
 )
 
 
-# ── 역할별 모델 런타임 스위치 (관리자 설정에서 변경 가능) ────────────────────
-# app_settings의 llm_model_<role> 오버라이드 > .env 기본값. 재시작 없이 즉시 반영.
+# ── 역할별 모델/프로바이더 런타임 스위치 (관리자 설정에서 변경 가능) ─────────
+# app_settings 오버라이드 > .env 기본값. 재시작 없이 즉시 반영.
+#   llm_model_<role>:    OpenAI 모델명 오버라이드 (openai provider일 때만 의미)
+#   llm_provider_<role>: 역할별 provider ("openai" | "ollama", 빈 값 = 전역 LLM_PROVIDER)
+# 역할: chat(답변 생성), rewrite(질문 재작성), summarize(요약·보조), insight(인사이트 API)
 
 _ROLE_DEFAULTS = {
     "chat":      lambda: settings.OPENAI_CHAT_MODEL,        # RAG 답변 생성
@@ -52,18 +55,56 @@ _ROLE_DEFAULTS = {
     "insight":   lambda: settings.INSIGHT_LLM_MODEL or settings.OPENAI_SUMMARIZE_MODEL,  # 인사이트 API
 }
 
+# openai provider일 때 역할별로 재사용할 인스턴스 (temperature 기본값 차이)
+_OPENAI_BY_ROLE = {
+    "chat": default_llm,
+    "rewrite": default_llm,
+    "summarize": summarizer_llm,
+    "insight": summarizer_llm,
+}
 
-def current_model(role: str) -> Optional[str]:
-    """역할별로 지금 사용할 모델명을 반환합니다. None이면 provider 기본 모델 사용.
+_ollama_llm: Optional[OpenAIProvider] = None
 
-    ollama 등 비-OpenAI provider에서는 OpenAI 모델명 오버라이드가 무의미하므로
-    None을 반환해 provider 기본 모델을 쓰게 합니다.
-    """
-    if settings.LLM_PROVIDER != "openai":
-        return None
+
+def _get_setting_safe(key: str) -> str:
     try:
         from company_llm_rag.history_store import get_setting
-        override = (get_setting(f"llm_model_{role}", "") or "").strip()
+        return (get_setting(key, "") or "").strip()
     except Exception:
-        override = ""
-    return override or _ROLE_DEFAULTS[role]()
+        return ""
+
+
+def current_provider_name(role: str) -> str:
+    """역할별 provider 이름 ("openai" | "ollama")."""
+    return _get_setting_safe(f"llm_provider_{role}") or settings.LLM_PROVIDER
+
+
+def resolve_llm(role: str):
+    """역할별 (LLM 인스턴스, 모델명 오버라이드)를 반환합니다.
+
+    모델명이 None이면 인스턴스의 기본 모델을 사용합니다 (ollama = OLLAMA_MODEL).
+    """
+    if current_provider_name(role) == "ollama":
+        global _ollama_llm
+        if _ollama_llm is None:
+            _ollama_llm = OpenAIProvider(
+                api_key="ollama",  # Ollama는 인증 불필요 (더미 키)
+                base_url=settings.OLLAMA_BASE_URL,
+                default_model=settings.OLLAMA_MODEL,
+                default_temperature=0.3,
+            )
+        return _ollama_llm, None
+    return _OPENAI_BY_ROLE[role], current_model(role)
+
+
+def current_model(role: str) -> Optional[str]:
+    """openai provider에서 역할별 사용할 모델명 (오버라이드 > .env 기본값)."""
+    if current_provider_name(role) != "openai":
+        return None
+    return _get_setting_safe(f"llm_model_{role}") or _ROLE_DEFAULTS[role]()
+
+
+def current_model_name(role: str) -> str:
+    """표시/로깅용: 역할이 실제 사용할 모델명."""
+    llm, model = resolve_llm(role)
+    return model or llm.model_name

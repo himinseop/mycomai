@@ -16,8 +16,7 @@ import requests
 
 from company_llm_rag.config import settings
 from company_llm_rag.logger import get_logger
-from company_llm_rag.llm.factory import current_model as _current_model
-from company_llm_rag.llm.factory import summarizer_llm as _summarizer_llm
+from company_llm_rag.llm.factory import resolve_llm as _resolve_llm
 
 logger = get_logger(__name__)
 
@@ -33,8 +32,9 @@ def _summarize_conversation(question: str, conversation_history: List[Dict]) -> 
     )
 
     try:
-        return _summarizer_llm.chat(
-            model=_current_model("summarize"),
+        _llm, _model = _resolve_llm("summarize")
+        return _llm.chat(
+            model=_model,
             messages=[
                 {
                     "role": "system",

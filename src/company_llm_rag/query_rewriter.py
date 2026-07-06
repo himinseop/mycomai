@@ -14,7 +14,7 @@ import json
 from typing import Dict, List, Optional
 
 from company_llm_rag.config import settings
-from company_llm_rag.llm.factory import current_model, default_llm
+from company_llm_rag.llm.factory import resolve_llm
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
@@ -101,9 +101,10 @@ def rewrite_query(
     messages.append({"role": "user", "content": f"질문: {q}"})
 
     try:
-        raw = default_llm.chat(
+        llm, model = resolve_llm("rewrite")
+        raw = llm.chat(
             messages,
-            model=current_model("rewrite"),
+            model=model,
             temperature=0.0,
             max_tokens=450,
         )

@@ -21,7 +21,7 @@ from company_llm_rag.insight_api.classifier import classify_domain
 from company_llm_rag.insight_api.domains import DOMAIN_REGISTRY
 from company_llm_rag.insight_api.ratelimit import check_rate_limit
 from company_llm_rag.insight_api.store import log_call
-from company_llm_rag.llm.factory import current_model, summarizer_llm
+from company_llm_rag.llm.factory import current_model_name, resolve_llm
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
@@ -43,20 +43,17 @@ class UnifiedInsightRequest(BaseModel):
 
 
 def _insight_model() -> str:
-    return current_model("insight") or summarizer_llm.model_name
+    return current_model_name("insight")
 
 
 def _call_llm(messages) -> str:
     """LLM 호출 (테스트에서 monkeypatch 지점). 실패 시 1회 재시도."""
+    llm, model = resolve_llm("insight")
     try:
-        return summarizer_llm.chat(
-            messages, model=_insight_model(), temperature=0.2, max_tokens=1500
-        )
+        return llm.chat(messages, model=model, temperature=0.2, max_tokens=1500)
     except Exception as e:
         logger.warning(f"[InsightAPI] LLM 1차 실패, 재시도: {e}")
-        return summarizer_llm.chat(
-            messages, model=_insight_model(), temperature=0.2, max_tokens=1500
-        )
+        return llm.chat(messages, model=model, temperature=0.2, max_tokens=1500)
 
 
 def _infer_period(records: List[Dict[str, Any]]) -> Dict[str, str]:

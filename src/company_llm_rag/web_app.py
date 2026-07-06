@@ -683,6 +683,20 @@ _LLM_ROLES = {
 }
 
 
+_LLM_PROVIDER_CHOICES = ["openai", "ollama"]
+
+
+def _ollama_available() -> bool:
+    """Ollama 서버 헬스체크 (짧은 타임아웃)."""
+    import urllib.request
+    try:
+        base = settings.OLLAMA_BASE_URL.rstrip("/").removesuffix("/v1")
+        urllib.request.urlopen(f"{base}/api/version", timeout=1.5)
+        return True
+    except Exception:
+        return False
+
+
 @app.get("/admin/settings/data")
 async def admin_settings_get(request: Request):
     if not _check_admin_auth(request):
@@ -694,12 +708,18 @@ async def admin_settings_get(request: Request):
             **meta,
             "override": get_setting(f"llm_model_{role}", ""),
             "default": _ROLE_DEFAULTS[role](),
+            "provider_override": get_setting(f"llm_provider_{role}", ""),
         }
+    loop = asyncio.get_event_loop()
+    ollama_up = await loop.run_in_executor(None, _ollama_available)
     return {
         "analyze_no_answer": get_setting("analyze_no_answer", "0") == "1",
         "llm_models": llm_models,
         "llm_model_choices": _LLM_MODEL_CHOICES,
         "llm_provider": settings.LLM_PROVIDER,
+        "llm_provider_choices": _LLM_PROVIDER_CHOICES,
+        "ollama_available": ollama_up,
+        "ollama_model": settings.OLLAMA_MODEL,
     }
 
 
@@ -709,6 +729,10 @@ class SettingsUpdateRequest(BaseModel):
     llm_model_rewrite: Optional[str] = None
     llm_model_summarize: Optional[str] = None
     llm_model_insight: Optional[str] = None
+    llm_provider_chat: Optional[str] = None
+    llm_provider_rewrite: Optional[str] = None
+    llm_provider_summarize: Optional[str] = None
+    llm_provider_insight: Optional[str] = None
 
 
 @app.post("/admin/settings")
@@ -717,19 +741,28 @@ async def admin_settings_update(request: Request, body: SettingsUpdateRequest):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     if body.analyze_no_answer is not None:
         set_setting("analyze_no_answer", "1" if body.analyze_no_answer else "0")
-    # LLM 모델 오버라이드 (빈 값 = .env 기본값 사용). 즉시 반영, 재시작 불필요.
+    # LLM 모델/프로바이더 오버라이드 (빈 값 = 기본값). 즉시 반영, 재시작 불필요.
     for role in _LLM_ROLES:
         value = getattr(body, f"llm_model_{role}")
-        if value is None:
-            continue
-        value = value.strip()
-        if value and value not in _LLM_MODEL_CHOICES:
-            return JSONResponse(
-                {"error": f"허용되지 않는 모델: {value} (choices: {_LLM_MODEL_CHOICES})"},
-                status_code=422,
-            )
-        set_setting(f"llm_model_{role}", value)
-        logger.info(f"[Admin] LLM 모델 변경: {role} → {value or '(기본값)'}")
+        if value is not None:
+            value = value.strip()
+            if value and value not in _LLM_MODEL_CHOICES:
+                return JSONResponse(
+                    {"error": f"허용되지 않는 모델: {value} (choices: {_LLM_MODEL_CHOICES})"},
+                    status_code=422,
+                )
+            set_setting(f"llm_model_{role}", value)
+            logger.info(f"[Admin] LLM 모델 변경: {role} → {value or '(기본값)'}")
+        prov = getattr(body, f"llm_provider_{role}")
+        if prov is not None:
+            prov = prov.strip()
+            if prov and prov not in _LLM_PROVIDER_CHOICES:
+                return JSONResponse(
+                    {"error": f"허용되지 않는 provider: {prov} (choices: {_LLM_PROVIDER_CHOICES})"},
+                    status_code=422,
+                )
+            set_setting(f"llm_provider_{role}", prov)
+            logger.info(f"[Admin] LLM provider 변경: {role} → {prov or '(전역 기본)'}")
     return {"success": True}
 
 
