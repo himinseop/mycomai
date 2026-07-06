@@ -184,6 +184,19 @@ def init_db() -> None:
             logger.info(f"[History] hub_documents → hub_replies 마이그레이션 완료 ({len(existing)}건)")
         con.commit()
 
+        # 웹 접속 이력 (채팅/어드민 페이지 접속: IP·시각·클라이언트 정보)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS web_access_log (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip         TEXT    NOT NULL,
+                user_agent TEXT    DEFAULT '',
+                path       TEXT    NOT NULL,
+                created_at TEXT    NOT NULL
+            )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_access_created ON web_access_log(created_at)")
+        con.commit()
+
     init_fts_db()
     _purge_expired()
 
@@ -192,10 +205,49 @@ def init_db() -> None:
 from company_llm_rag.hub_store import hub_upsert, hub_get_reply, hub_find_duplicate, hub_get_reply_history  # noqa: F401
 
 
+ACCESS_LOG_TTL_DAYS = 30   # 접속 이력 보관 기간
+
+
+def log_access(ip: str, user_agent: str, path: str) -> None:
+    """웹 접속 이력을 기록합니다 (채팅방·어드민 페이지 진입 시)."""
+    try:
+        with _conn() as con:
+            con.execute(
+                "INSERT INTO web_access_log (ip, user_agent, path, created_at) VALUES (?, ?, ?, ?)",
+                (ip or "-", (user_agent or "")[:300], path,
+                 datetime.now(timezone.utc).isoformat()),
+            )
+            con.commit()
+    except Exception as e:  # 접속 기록 실패가 페이지 응답을 막으면 안 됨
+        logger.warning(f"[Access] 접속 이력 기록 실패: {e}")
+
+
+def get_access_log(page: int = 1, page_size: int = 20) -> Dict:
+    """접속 이력 페이지 조회 (최신순) + 오늘 접속 수."""
+    offset = (page - 1) * page_size
+    with _conn() as con:
+        total = con.execute("SELECT COUNT(*) FROM web_access_log").fetchone()[0]
+        rows = con.execute(
+            "SELECT ip, user_agent, path, created_at FROM web_access_log "
+            "ORDER BY id DESC LIMIT ? OFFSET ?", (page_size, offset),
+        ).fetchall()
+    return {
+        "total": total,
+        "page": page,
+        "total_pages": max(1, -(-total // page_size)),
+        "items": [dict(r) for r in rows],
+    }
+
+
 def _purge_expired() -> None:
     """14일 초과 레코드 삭제."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=HISTORY_TTL_DAYS)).isoformat()
     with _conn() as con:
+        access_cutoff = (datetime.now(timezone.utc) - timedelta(days=ACCESS_LOG_TTL_DAYS)).isoformat()
+        try:
+            con.execute("DELETE FROM web_access_log WHERE created_at < ?", (access_cutoff,))
+        except sqlite3.OperationalError:
+            pass  # 테이블 미생성 시점
         cur = con.execute("DELETE FROM chat_history WHERE created_at < ?", (cutoff,))
         if cur.rowcount:
             logger.info(f"[History] 만료 레코드 {cur.rowcount}건 삭제 (>{HISTORY_TTL_DAYS}일)")

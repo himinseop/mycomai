@@ -11,9 +11,8 @@
 import json
 from typing import Dict, List, Optional, Tuple
 
-from company_llm_rag.config import settings
 from company_llm_rag.insight_api.domains.base import parse_llm_json
-from company_llm_rag.llm.factory import summarizer_llm
+from company_llm_rag.llm.factory import current_model, summarizer_llm
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
@@ -38,7 +37,7 @@ def _call_llm(messages: List[Dict[str, str]]) -> str:
     """LLM 분류 호출 (테스트 monkeypatch 지점)."""
     return summarizer_llm.chat(
         messages,
-        model=settings.INSIGHT_LLM_MODEL or settings.OPENAI_SUMMARIZE_MODEL,
+        model=current_model("insight"),
         temperature=0.0,
         max_tokens=100,
     )

@@ -21,7 +21,7 @@ from company_llm_rag.insight_api.classifier import classify_domain
 from company_llm_rag.insight_api.domains import DOMAIN_REGISTRY
 from company_llm_rag.insight_api.ratelimit import check_rate_limit
 from company_llm_rag.insight_api.store import log_call
-from company_llm_rag.llm.factory import summarizer_llm
+from company_llm_rag.llm.factory import current_model, summarizer_llm
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
@@ -43,7 +43,7 @@ class UnifiedInsightRequest(BaseModel):
 
 
 def _insight_model() -> str:
-    return settings.INSIGHT_LLM_MODEL or settings.OPENAI_SUMMARIZE_MODEL
+    return current_model("insight") or summarizer_llm.model_name
 
 
 def _call_llm(messages) -> str:

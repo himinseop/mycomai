@@ -14,7 +14,7 @@ import json
 from typing import Dict, List, Optional
 
 from company_llm_rag.config import settings
-from company_llm_rag.llm.factory import default_llm
+from company_llm_rag.llm.factory import current_model, default_llm
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
@@ -103,7 +103,7 @@ def rewrite_query(
     try:
         raw = default_llm.chat(
             messages,
-            model=settings.QUERY_REWRITE_MODEL,
+            model=current_model("rewrite"),
             temperature=0.0,
             max_tokens=450,
         )

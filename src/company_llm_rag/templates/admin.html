@@ -436,7 +436,6 @@
     <button class="tab-btn active" onclick="switchTab('dashboard', this)">대시보드</button>
     <button class="tab-btn" onclick="switchTab('history', this)">이력 조회</button>
     <button class="tab-btn" onclick="switchTab('settings', this)">설정</button>
-    <button class="tab-btn" onclick="switchTab('api', this)">API</button>
   </nav>
 </header>
 
@@ -557,6 +556,29 @@
         <tbody id="bad-tbody"></tbody>
       </table>
     </div>
+
+    <!-- ── 접속 이력 ── -->
+    <div class="bad-list-card" style="margin-top:16px">
+      <h2>🖥 접속 이력 <span id="access-total" style="color:#aaa;font-weight:400;font-size:.8rem"></span></h2>
+      <div style="overflow-x:auto">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:140px">시간</th>
+            <th style="width:130px">IP</th>
+            <th style="width:80px">경로</th>
+            <th>클라이언트 정보 (User-Agent)</th>
+          </tr>
+        </thead>
+        <tbody id="access-tbody"><tr><td colspan="4" class="empty">로딩 중...</td></tr></tbody>
+      </table>
+      </div>
+      <div class="pagination" id="access-pg" style="display:none;margin-top:10px">
+        <button class="btn btn-secondary" onclick="loadAccessLog(accessPage-1)">← 이전</button>
+        <span id="access-pginfo" style="font-size:.82rem;color:#888"></span>
+        <button class="btn btn-secondary" onclick="loadAccessLog(accessPage+1)">다음 →</button>
+      </div>
+    </div>
   </div>
 
   <!-- ── 이력 조회 탭 ── -->
@@ -614,11 +636,18 @@
         </label>
       </div>
     </div>
-  </div>
 
-  <!-- ── API 탭 (#56 인사이트 API 관리) ── -->
-  <div class="tab-panel" id="tab-api">
-    <div class="settings-card" style="margin-bottom:16px">
+    <!-- ── LLM 모델 스위치 (역할별, 즉시 반영) ── -->
+    <div class="settings-card" style="margin-top:16px">
+      <h2>🤖 LLM 모델</h2>
+      <div id="llm-model-rows"></div>
+      <p style="font-size:.78rem;color:#999;margin-top:10px">
+        변경 즉시 반영됩니다 (재시작 불필요). "기본값"은 .env 설정을 따릅니다.
+        <span id="llm-provider-note"></span></p>
+    </div>
+
+    <!-- ── 인사이트 API 관리 (#56) ── -->
+    <div class="settings-card" style="margin-top:16px">
       <h2>🔑 API 클라이언트</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
         <input id="api-c-name" placeholder="클라이언트명" style="padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:.85rem">
@@ -627,10 +656,12 @@
         <button class="btn btn-primary" onclick="issueApiClient()">키 발급</button>
         <span id="api-domains-hint" style="font-size:.78rem;color:#999"></span>
       </div>
+      <div style="overflow-x:auto">
       <table>
         <thead><tr><th>ID</th><th>이름</th><th>scopes</th><th>분당 한도</th><th>상태</th><th>생성일</th><th></th></tr></thead>
         <tbody id="api-clients-tbody"><tr><td colspan="7" class="empty">로딩 중...</td></tr></tbody>
       </table>
+      </div>
     </div>
 
     <div class="settings-card">
@@ -642,10 +673,12 @@
         <input id="api-h-domain" placeholder="도메인 필터" onkeydown="if(event.key==='Enter')loadApiCalls(1)" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:.85rem">
         <button class="btn btn-secondary" onclick="loadApiCalls(1)">조회</button>
       </div>
+      <div style="overflow-x:auto">
       <table>
         <thead><tr><th>시각</th><th>클라이언트</th><th>도메인</th><th>상태</th><th>지연</th><th>요청 요약</th></tr></thead>
         <tbody id="api-calls-tbody"><tr><td colspan="6" class="empty">로딩 중...</td></tr></tbody>
       </table>
+      </div>
       <div class="pagination" id="api-calls-pg" style="display:none;margin-top:10px">
         <button class="btn btn-secondary" onclick="loadApiCalls(apiCallsPage-1)">← 이전</button>
         <span id="api-calls-pginfo" style="font-size:.82rem;color:#888"></span>
@@ -689,17 +722,32 @@
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
     btn.classList.add('active');
-    if (name === 'dashboard') { loadStats(); loadDbStats(); }
+    if (name === 'dashboard') { loadStats(); loadDbStats(); loadAccessLog(1); }
     if (name === 'history') {
       const gbody = document.getElementById('group-tbody');
       if (gbody.children.length === 1 && gbody.children[0].children[0].colSpan > 1) loadGroups(1);
     }
-    if (name === 'settings') loadSettings();
-    if (name === 'api') { loadApiClients(); loadApiCalls(1); }
+    if (name === 'settings') { loadSettings(); loadApiClients(); loadApiCalls(1); }
   }
 
-  // ── API 탭 (#56 인사이트 API 관리) ────────────────────────────────────────
+  // ── 인사이트 API 관리 (#56, 설정 탭 내) ──────────────────────────────────
   let apiCallsPage = 1, apiCallsTotalPages = 1;
+
+  // 호출 이력의 요청 요약(JSON)을 읽기 좋은 문구로 변환
+  function fmtApiSummary(raw) {
+    if (!raw) return '-';
+    try {
+      const s = JSON.parse(raw);
+      const parts = [];
+      if (s.period) parts.push(`${s.period.from} ~ ${s.period.to}`);
+      if (s.rows != null) parts.push(`${s.rows}행`);
+      if (s.dimension_keys && s.dimension_keys.length) parts.push('차원: ' + s.dimension_keys.join(','));
+      if (s.categories && s.categories.length) parts.push('카테고리 ' + s.categories.length + '종');
+      if (s.domain_selection) parts.push('선택: ' + s.domain_selection);
+      if (s.question) parts.push('Q: ' + s.question);
+      return parts.join(' · ') || raw;
+    } catch (e) { return raw; }
+  }
 
   async function loadApiClients() {
     const res  = await fetch('/admin/api/clients');
@@ -780,15 +828,16 @@
     } else {
       tbody.innerHTML = items.map(i => {
         const ok = i.status === 200;
-        const summary = (i.request_summary || '') + (i.error ? ` | ⚠ ${i.error}` : '');
+        const summary = fmtApiSummary(i.request_summary);
+        const errLine = i.error
+          ? `<div style="color:#c0392b;font-size:.78rem;margin-top:2px">⚠ ${escHtml(String(i.error).slice(0, 160))}</div>` : '';
         return `<tr>
-          <td style="white-space:nowrap">${(i.created_at || '').slice(0, 19).replace('T', ' ')}</td>
+          <td style="white-space:nowrap">${fmtDate(i.created_at)}</td>
           <td>${escHtml(i.client_name || String(i.client_id))}</td>
           <td>${escHtml(i.domain)}</td>
           <td><span class="badge ${ok ? 'badge-ok' : 'badge-no-answer'}">${i.status}</span></td>
-          <td style="white-space:nowrap">${i.latency_ms != null ? i.latency_ms + 'ms' : '-'}</td>
-          <td style="max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-              title="${escHtml(summary)}">${escHtml(summary)}</td>
+          <td style="white-space:nowrap">${i.latency_ms != null ? fmtMs(i.latency_ms) : '-'}</td>
+          <td style="max-width:420px;word-break:break-all">${escHtml(summary)}${errLine}</td>
         </tr>`;
       }).join('');
     }
@@ -1743,16 +1792,48 @@
       if (!res.ok) return;
       const data = await res.json();
       document.getElementById('toggle-analyze').checked = !!data.analyze_no_answer;
+      renderLlmModels(data);
     } catch(e) {}
+  }
+
+  // ── LLM 모델 스위치 (역할별 셀렉트, 즉시 반영) ───────────────────────────
+  function renderLlmModels(data) {
+    const box = document.getElementById('llm-model-rows');
+    if (!box || !data.llm_models) return;
+    const isOpenai = data.llm_provider === 'openai';
+    document.getElementById('llm-provider-note').textContent =
+      isOpenai ? '' : `현재 LLM_PROVIDER=${data.llm_provider} — 모델 스위치는 openai에서만 동작합니다.`;
+    box.innerHTML = ['chat', 'rewrite', 'summarize', 'insight'].map(role => {
+      const m = data.llm_models[role];
+      if (!m) return '';
+      const opts = [`<option value="">기본값 (${escHtml(m.default)})</option>`]
+        .concat(data.llm_model_choices.map(c =>
+          `<option value="${c}" ${m.override === c ? 'selected' : ''}>${c}</option>`))
+        .join('');
+      return `<div class="setting-row">
+        <div>
+          <div class="setting-label">${escHtml(m.label)}</div>
+          <div class="setting-desc">${escHtml(m.desc)}</div>
+        </div>
+        <select onchange="updateSetting('llm_model_${role}', this.value)" ${isOpenai ? '' : 'disabled'}
+                style="padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:.85rem;min-width:200px">
+          ${opts}</select>
+      </div>`;
+    }).join('');
   }
 
   async function updateSetting(key, value) {
     try {
-      await fetch('/admin/settings', {
+      const res = await fetch('/admin/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [key]: value }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || '설정 저장 실패');
+        loadSettings();
+      }
     } catch(e) {
       alert('설정 저장 실패: ' + e.message);
     }
@@ -1765,9 +1846,59 @@
     if (document.getElementById('modal-backdrop').classList.contains('open')) closeModalDirect();
   });
 
+  // ── 접속 이력 (대시보드) ──────────────────────────────────────────────────
+  let accessPage = 1, accessTotalPages = 1;
+
+  async function loadAccessLog(page) {
+    if (page < 1 || (accessTotalPages && page > accessTotalPages)) return;
+    accessPage = page;
+    try {
+      const res = await fetch(`/admin/access-log?page=${page}&page_size=20`);
+      if (!res.ok) return;
+      const data = await res.json();
+      accessTotalPages = data.total_pages || 1;
+      document.getElementById('access-total').textContent = `총 ${data.total}건 (최근 30일)`;
+      const tbody = document.getElementById('access-tbody');
+      const items = data.items || [];
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">접속 이력이 없습니다.</td></tr>';
+      } else {
+        tbody.innerHTML = items.map(i => `<tr>
+          <td style="white-space:nowrap">${fmtDate(i.created_at)}</td>
+          <td style="white-space:nowrap">${escHtml(i.ip)}</td>
+          <td>${escHtml(i.path)}</td>
+          <td style="max-width:460px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+              title="${escHtml(i.user_agent || '')}">${escHtml(shortUa(i.user_agent))}</td>
+        </tr>`).join('');
+      }
+      const pg = document.getElementById('access-pg');
+      pg.style.display = data.total > 20 ? 'flex' : 'none';
+      document.getElementById('access-pginfo').textContent =
+        `${page} / ${accessTotalPages}`;
+    } catch(e) {}
+  }
+
+  // User-Agent를 "브라우저 · OS" 요약으로 축약
+  function shortUa(ua) {
+    if (!ua) return '-';
+    let browser = '기타', os = '';
+    if (/Edg\//.test(ua)) browser = 'Edge';
+    else if (/Chrome\//.test(ua)) browser = 'Chrome';
+    else if (/Safari\//.test(ua) && /Version\//.test(ua)) browser = 'Safari';
+    else if (/Firefox\//.test(ua)) browser = 'Firefox';
+    else if (/curl|python|axios|okhttp/i.test(ua)) browser = ua.split('/')[0];
+    if (/Windows NT/.test(ua)) os = 'Windows';
+    else if (/iPhone|iPad/.test(ua)) os = 'iOS';
+    else if (/Android/.test(ua)) os = 'Android';
+    else if (/Mac OS X/.test(ua)) os = 'macOS';
+    else if (/Linux/.test(ua)) os = 'Linux';
+    return os ? `${browser} · ${os}` : browser;
+  }
+
   // ── 초기화 ────────────────────────────────────────────────────────────────
   loadStats();
   loadDbStats();
+  loadAccessLog(1);
 </script>
 </body>
 </html>
