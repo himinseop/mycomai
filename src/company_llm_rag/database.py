@@ -20,7 +20,9 @@ logger = get_logger(__name__)
 # ChromaDB segment 캐시 메모리 한도 (Issue #45)
 # - 한도 초과 시 LRU로 가장 오래된 segment 제거 후 재로드
 # - 쿼리/분석 시 RSS 스파이크 방지
-_CHROMA_MEMORY_LIMIT_BYTES = 4 * 1024 * 1024 * 1024  # 4 GB
+# Docker VM 5GB 축소(호스트 RAM을 Ollama에 양보)에 맞춰 2GB로 하향.
+# 재구축 후 활성 HNSW가 0.94GB라 2GB면 전체 인덱스 + 여유를 커버.
+_CHROMA_MEMORY_LIMIT_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
 
 
 class ChromaDBManager:

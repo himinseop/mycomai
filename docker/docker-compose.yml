@@ -29,8 +29,8 @@ services:
       service: base
     volumes:
       - ../data:/app/data
-    mem_limit: 8g
-    mem_reservation: 2g
+    mem_limit: 4g
+    mem_reservation: 1g
     command: >
       bash -c "
         echo 'Starting data extraction...' &&
@@ -57,8 +57,8 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
-    mem_limit: 12g
-    mem_reservation: 4g
+    mem_limit: 4g
+    mem_reservation: 2g
 
   # 개발용: 코드 핫리로드 필요 시 `docker-compose --profile dev up web-dev`
   web-dev:

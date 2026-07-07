@@ -8,7 +8,7 @@ from company_llm_rag.config import settings
 
 client = chromadb.PersistentClient(
     path=settings.CHROMA_DB_PATH,
-    settings=CS(chroma_segment_cache_policy="LRU", chroma_memory_limit_bytes=4 * 1024**3),
+    settings=CS(chroma_segment_cache_policy="LRU", chroma_memory_limit_bytes=2 * 1024**3),
 )
 ef = embedding_functions.OpenAIEmbeddingFunction(
     api_key=settings.OPENAI_API_KEY, model_name=settings.OPENAI_EMBEDDING_MODEL,
