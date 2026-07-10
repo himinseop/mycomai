@@ -51,7 +51,9 @@ def get_spaces_by_label(label: str) -> list:
     # v2 API base URL: CONFLUENCE_BASE_URL에서 /wiki 이후 경로 처리
     base = settings.CONFLUENCE_BASE_URL.rstrip("/")
     url = f"{base}/api/v2/spaces"
-    params = {"label": label, "limit": 50}
+    # 주의: v2 API 파라미터는 "labels"(복수형). "label"(단수)은 조용히 무시되어
+    # 전체 스페이스(개인 스페이스 포함)가 반환됨 — 2026-07-10 실수집에서 발견.
+    params = {"labels": label, "limit": 50}
 
     while url:
         response = requests.get(url, headers=headers, params=params, timeout=30)
