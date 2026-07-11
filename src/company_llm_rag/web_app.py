@@ -800,6 +800,25 @@ async def admin_session_detail(request: Request, session_id: str):
     return detail
 
 
+@app.get("/health/search")
+async def health_search():
+    """검색 엔진(ChromaDB) 가용 여부 — 채팅 페이지 상태 표시용 (#60). 캐시된 결과."""
+    from company_llm_rag.database import db_manager
+    loop = asyncio.get_event_loop()
+    h = await loop.run_in_executor(None, db_manager.health)
+    return {"ok": bool(h.get("reachable")), "mode": h.get("mode")}
+
+
+@app.get("/admin/chroma-health")
+async def admin_chroma_health(request: Request):
+    """ChromaDB 접속 상태 상세 — 대시보드 카드용 (#60)."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.database import db_manager
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, db_manager.health)
+
+
 @app.get("/admin/access-log")
 async def admin_access_log(
     request: Request,

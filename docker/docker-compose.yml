@@ -50,6 +50,23 @@ services:
     stdin_open: true
     tty: true
 
+  # ChromaDB 서버 (#60 Stage 1: 로컬 분리 운영 → Stage 2: 별도 장비 이관)
+  # 주의: web이 CHROMA_MODE=http일 때만 기동 (embedded와 동일 디렉토리 동시 접근 금지)
+  chroma:
+    image: chromadb/chroma:1.4.1
+    volumes:
+      - ../db/chroma_db:/data
+    ports:
+      # 주의: 1.x Rust 서버는 파이썬식 토큰 인증 env를 지원하지 않음 →
+      # 로컬 단계에선 호스트 포트를 루프백에만 바인딩 (web은 내부 네트워크 chroma:8000 사용).
+      # 원격 이관(Stage 2) 시 인증 사이드카 필요 — deploy/chroma-server 참고.
+      - "127.0.0.1:9000:8000"
+    restart: unless-stopped
+    mem_limit: 2g
+    networks:
+      - me
+    profiles: ["chroma-server"]
+
   web:
     extends:
       service: base

@@ -24,6 +24,9 @@ logger = get_logger(__name__)
 # 재구축 후 활성 HNSW가 0.94GB라 2GB면 전체 인덱스 + 여유를 커버.
 _CHROMA_MEMORY_LIMIT_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
 
+# 헬스체크 결과 캐시 (초) — 페이지 로드/질의마다 원격 왕복 방지 (#60)
+_HEALTH_CACHE_SECONDS = 8
+
 
 class ChromaDBManager:
     """ChromaDB 관리 클래스"""
@@ -34,19 +37,72 @@ class ChromaDBManager:
         self._collection = None
         self._embedding_function = None
         self._keepalive_started = False
+        self._health_cache = None
+        self._health_cache_at = 0.0
 
     @property
-    def client(self) -> chromadb.PersistentClient:
-        """ChromaDB 클라이언트 (Lazy initialization)"""
+    def client(self):
+        """ChromaDB 클라이언트 (Lazy initialization).
+
+        CHROMA_MODE=http면 별도 서버(HttpClient), 아니면 embedded(PersistentClient) (#60).
+        """
         if self._client is None:
-            self._client = chromadb.PersistentClient(
-                path=settings.CHROMA_DB_PATH,
-                settings=ChromaSettings(
-                    chroma_segment_cache_policy="LRU",
-                    chroma_memory_limit_bytes=_CHROMA_MEMORY_LIMIT_BYTES,
-                ),
-            )
+            if settings.CHROMA_MODE == "http":
+                auth = {}
+                if settings.CHROMA_SERVER_TOKEN:
+                    auth = {
+                        "chroma_client_auth_provider": "chromadb.auth.token_authn.TokenAuthClientProvider",
+                        "chroma_client_auth_credentials": settings.CHROMA_SERVER_TOKEN,
+                    }
+                self._client = chromadb.HttpClient(
+                    host=settings.CHROMA_SERVER_HOST,
+                    port=settings.CHROMA_SERVER_PORT,
+                    settings=ChromaSettings(**auth),
+                )
+            else:
+                self._client = chromadb.PersistentClient(
+                    path=settings.CHROMA_DB_PATH,
+                    settings=ChromaSettings(
+                        chroma_segment_cache_policy="LRU",
+                        chroma_memory_limit_bytes=_CHROMA_MEMORY_LIMIT_BYTES,
+                    ),
+                )
         return self._client
+
+    def health(self) -> dict:
+        """접속 상태 헬스체크 (#60). http는 heartbeat, embedded는 컬렉션 접근으로 판정.
+
+        결과는 _HEALTH_CACHE_SECONDS 동안 캐시 — 질의/페이지 로드마다 원격 왕복 방지.
+        """
+        import time as _time
+        now = _time.monotonic()
+        if self._health_cache and now - self._health_cache_at < _HEALTH_CACHE_SECONDS:
+            return self._health_cache
+
+        result = {
+            "mode": settings.CHROMA_MODE,
+            "server": (f"{settings.CHROMA_SERVER_HOST}:{settings.CHROMA_SERVER_PORT}"
+                       if settings.CHROMA_MODE == "http" else None),
+            "reachable": False,
+            "chunk_count": None,
+            "latency_ms": None,
+        }
+        t0 = _time.monotonic()
+        try:
+            if settings.CHROMA_MODE == "http":
+                self.client.heartbeat()
+            result["chunk_count"] = self.get_collection().count()
+            result["reachable"] = True
+            result["latency_ms"] = int((_time.monotonic() - t0) * 1000)
+        except Exception as e:
+            logger.warning(f"[ChromaDB] 헬스체크 실패: {e}")
+            result["error"] = str(e)[:200]
+            # 실패 시 다음 헬스체크에서 클라이언트 재생성 시도
+            self._client = None
+            self._collection = None
+        self._health_cache = result
+        self._health_cache_at = now
+        return result
 
     @property
     def embedding_function(self) -> embedding_functions.OpenAIEmbeddingFunction:

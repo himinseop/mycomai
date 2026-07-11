@@ -1,0 +1,15 @@
+# ChromaDB 인증 프록시 (#60) — Bearer 토큰 검증 후 chroma로 전달
+server {
+    listen 9000;
+    client_max_body_size 64m;
+
+    location / {
+        if ($http_authorization != "Bearer ${CHROMA_SERVER_TOKEN}") {
+            return 401 '{"error":"unauthorized"}';
+        }
+        proxy_pass http://chroma:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_read_timeout 120s;
+    }
+}

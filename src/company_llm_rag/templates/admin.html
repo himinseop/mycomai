@@ -557,6 +557,14 @@
       </table>
     </div>
 
+    <!-- ── ChromaDB 접속 상태 (#60) ── -->
+    <div class="bad-list-card" style="margin-top:16px">
+      <h2>🧠 ChromaDB 상태</h2>
+      <div id="chroma-health" style="display:flex;gap:22px;flex-wrap:wrap;align-items:center;font-size:.88rem;color:#555">
+        <span class="empty">확인 중...</span>
+      </div>
+    </div>
+
     <!-- ── 접속 이력 ── -->
     <div class="bad-list-card" style="margin-top:16px">
       <h2>🖥 접속 이력 <span id="access-total" style="color:#aaa;font-weight:400;font-size:.8rem"></span></h2>
@@ -722,7 +730,7 @@
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
     btn.classList.add('active');
-    if (name === 'dashboard') { loadStats(); loadDbStats(); loadAccessLog(1); }
+    if (name === 'dashboard') { loadStats(); loadDbStats(); loadAccessLog(1); loadChromaHealth(); }
     if (name === 'history') {
       const gbody = document.getElementById('group-tbody');
       if (gbody.children.length === 1 && gbody.children[0].children[0].colSpan > 1) loadGroups(1);
@@ -1911,10 +1919,33 @@
     return os ? `${browser} · ${os}` : browser;
   }
 
+  // ── ChromaDB 접속 상태 (#60) ─────────────────────────────────────────────
+  async function loadChromaHealth() {
+    const box = document.getElementById('chroma-health');
+    try {
+      const res = await fetch('/admin/chroma-health');
+      if (!res.ok) return;
+      const h = await res.json();
+      const dot = h.reachable ? '🟢' : '🔴';
+      const parts = [
+        `${dot} <b>${h.reachable ? '연결됨' : '연결 안 됨'}</b>`,
+        `모드: ${escHtml(h.mode || '-')}`,
+      ];
+      if (h.server) parts.push(`서버: ${escHtml(h.server)}`);
+      if (h.chunk_count != null) parts.push(`청크: ${h.chunk_count.toLocaleString()}`);
+      if (h.latency_ms != null) parts.push(`응답: ${h.latency_ms}ms`);
+      if (h.error) parts.push(`<span style="color:#c0392b">⚠ ${escHtml(String(h.error).slice(0, 80))}</span>`);
+      box.innerHTML = parts.map(p => `<span>${p}</span>`).join('');
+    } catch(e) {
+      box.innerHTML = '<span style="color:#c0392b">상태 조회 실패</span>';
+    }
+  }
+
   // ── 초기화 ────────────────────────────────────────────────────────────────
   loadStats();
   loadDbStats();
   loadAccessLog(1);
+  loadChromaHealth();
 </script>
 </body>
 </html>

@@ -272,6 +272,16 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       white-space: nowrap; pointer-events: none;
     }
+    /* 검색 엔진(ChromaDB) 상태 표시 (#60) */
+    #search-health-dot { margin-right: 6px; }
+    #search-health-banner {
+      display: none; position: fixed; left: 50%; transform: translateX(-50%);
+      bottom: 88px; z-index: 5;
+      background: #fff7ed; border: 1px solid #fdba74; color: #9a3412;
+      padding: 8px 14px; border-radius: 10px; font-size: 13px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    }
+    #search-health-banner.visible { display: block; }
 
     /* ── 반응형 ── */
     @media (max-width: 480px) {
@@ -334,10 +344,24 @@
     </div>
   </div>
 </div>
-<div id="status-bar">updated:{{ build_version }} | collected:{{ last_collected }}</div>
+<div id="status-bar"><span id="search-health-dot" title="검색 엔진 상태"></span>updated:{{ build_version }} | collected:{{ last_collected }}</div>
+<div id="search-health-banner">⚠ 검색 엔진 연결이 원활하지 않아 답변이 제한될 수 있어요.</div>
 
 <script src="https://cdn.jsdelivr.net/npm/marked@13/marked.min.js"></script>
 <script>
+  // ── 검색 엔진 상태 확인 (#60): 접속 시 1회 — 정상 🟢, 불가 🔴 + 배너 ──
+  (async () => {
+    try {
+      const res = await fetch('/health/search');
+      const h = res.ok ? await res.json() : { ok: false };
+      document.getElementById('search-health-dot').textContent = h.ok ? '🟢' : '🔴';
+      if (!h.ok) document.getElementById('search-health-banner').classList.add('visible');
+    } catch (e) {
+      document.getElementById('search-health-dot').textContent = '🔴';
+      document.getElementById('search-health-banner').classList.add('visible');
+    }
+  })();
+
   // ── 상태 ─────────────────────────────────────────────────────────────
   let activeCtxId = null;
   const ctxSessions   = {};   // ctxId → sessionId

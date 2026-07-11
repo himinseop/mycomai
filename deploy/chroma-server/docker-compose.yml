@@ -1,0 +1,30 @@
+# ChromaDB 서버 — 이관 장비용 (#60 Stage 2, 예: 192.168.0.18 M1 36GB)
+#
+# 구성: chroma(내부 전용) + nginx 인증 프록시(9000, Bearer 토큰 검증)
+# 배경: chroma 1.x Rust 서버는 서버측 토큰 인증을 지원하지 않아 (2026-07 확인)
+#       LAN 노출 시 프록시에서 Authorization 헤더를 검증한다.
+#       클라이언트(chromadb TokenAuthClientProvider)가 보내는 Bearer 헤더와 호환.
+#
+# 사용법: README.md 참고
+name: mycomai-chroma
+
+services:
+  chroma:
+    image: chromadb/chroma:1.4.1   # 클라이언트(chromadb 1.4.1)와 버전 일치 필수
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    mem_limit: 8g   # 36GB 장비 — 인덱스 전체 RAM 상주 여유
+    # ports 없음 — proxy 경유로만 접근
+
+  proxy:
+    image: nginx:alpine
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+    environment:
+      - CHROMA_SERVER_TOKEN=${CHROMA_SERVER_TOKEN}
+    depends_on:
+      - chroma
+    restart: unless-stopped

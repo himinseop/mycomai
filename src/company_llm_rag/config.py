@@ -36,6 +36,11 @@ class Settings:
     # ChromaDB 설정
     CHROMA_DB_PATH: str = os.getenv("CHROMA_DB_PATH", "./db/chroma_db")
     COLLECTION_NAME: str = os.getenv("COLLECTION_NAME", "company_llm_rag_collection")
+    # ChromaDB 모드 (#60): embedded(기본, 프로세스 내장) | http(별도 서버 접속)
+    CHROMA_MODE: str = os.getenv("CHROMA_MODE", "embedded").lower()
+    CHROMA_SERVER_HOST: str = os.getenv("CHROMA_SERVER_HOST", "chroma")
+    CHROMA_SERVER_PORT: int = int(os.getenv("CHROMA_SERVER_PORT", "8000"))
+    CHROMA_SERVER_TOKEN: str = os.getenv("CHROMA_SERVER_TOKEN", "")
     # 벡터 인덱스 keep-alive 주기(초). 유휴 후 HNSW 콜드 page-in 방지. 0이면 비활성화 (#54)
     INDEX_KEEPALIVE_SECONDS: int = int(os.getenv("INDEX_KEEPALIVE_SECONDS", "240"))
 
