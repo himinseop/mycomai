@@ -72,6 +72,29 @@ else:
 - `scripts/rebuild_collection.py` 등 PersistentClient 직접 사용 스크립트: db_manager 경유로 통일
 - 클라이언트-서버 **버전 일치 필수**: 서버 이미지 `chromadb/chroma:1.4.x` = 클라이언트 1.4.1
 
+### 접속 상태 표시 (Phase 1에 포함)
+
+원격 분리로 "ChromaDB 연결 끊김"이 새 장애 유형이 되므로 상태 가시화를 함께 구축한다.
+
+**공통 헬스체크** — `db_manager.health()`:
+```
+{mode: embedded|http, reachable: bool, server: "host:port"|None,
+ chunk_count: int|None, latency_ms: int|None, checked_at: ...}
+```
+- http: `heartbeat()` 1.5초 타임아웃, 결과 5~10초 캐시 (질의마다 체크 금지)
+- embedded: 컬렉션 접근 가능 여부로 판정
+
+**관리자 대시보드 카드** — "🧠 ChromaDB 상태":
+- 모드(embedded/http) · 서버 주소 · 연결 상태(🟢/🔴) · 청크 수 · heartbeat 지연
+- 기존 db-stats 카드 옆 배치, `/admin/chroma-health` 엔드포인트
+
+**채팅 페이지 상태 표시**:
+- 신규 경량 엔드포인트 `GET /health/search` (인증 불필요, 캐시된 health 반환)
+- 프론트: 페이지 로드 시 1회 호출 →
+  - 정상: 상태바(#status-bar)에 🟢 점 추가 (기존 문구 옆, 방해 없이)
+  - 불가: 입력창 위 배너 "⚠ 검색 엔진 연결이 원활하지 않아 답변이 제한될 수 있어요" + 상태바 🔴
+- 스트리밍 중 연결 실패 시에도 동일 안내로 에러 메시지 개선 (TC5와 연계)
+
 ## .18 장비 구축 (Phase 2)
 
 `deploy/chroma-server/docker-compose.yml` (레포에 포함, .18에서 사용):
@@ -123,6 +146,9 @@ services:
 | 6 | data-loader 원격 적재 | upsert 정상, count 증가 반영 |
 | 7 | .18 재부팅 | restart 정책으로 자동 복구, web 재접속 정상 |
 | 8 | 롤백 | .env 원복만으로 embedded 복귀 |
+| 9 | 서버 정상 상태 대시보드 | ChromaDB 카드 🟢 + 청크 수 + 지연 표시 |
+| 10 | 서버 중지 후 대시보드/채팅 접속 | 카드 🔴, 채팅 페이지 배너 표시 (10초 내 반영) |
+| 11 | health 캐시 | 연속 질의에도 heartbeat 초당 1회 미만 (캐시 동작) |
 
 ## 리스크
 
