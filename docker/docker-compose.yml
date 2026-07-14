@@ -74,8 +74,9 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
-    mem_limit: 4g
-    mem_reservation: 2g
+    # ChromaDB 원격 이관(#60) 후 하향 — 인덱스 캐시가 web에서 사라짐 (실사용 ~1GiB)
+    mem_limit: 3g
+    mem_reservation: 1g
 
   # 개발용: 코드 핫리로드 필요 시 `docker-compose --profile dev up web-dev`
   web-dev:
