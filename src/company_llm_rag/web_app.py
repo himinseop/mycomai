@@ -95,6 +95,10 @@ if settings.INSIGHT_API_ENABLED:
     init_insight_db()
     app.include_router(insight_router)
 
+# LLM 위키 (#58)
+from company_llm_rag.wiki.wiki_store import init_wiki_db
+init_wiki_db()
+
 
 @app.on_event("startup")
 async def _warmup_reranker():
@@ -829,6 +833,97 @@ async def admin_access_log(
     if not _check_admin_auth(request):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     return get_access_log(page=page, page_size=page_size)
+
+
+# ── 어드민: LLM 위키 (#58 Phase 1) ──────────────────────────────────────────
+
+class WikiCreateRequest(BaseModel):
+    topic: str
+    title: str
+    questions: List[str]
+
+
+@app.post("/admin/wiki/mine-topics")
+async def admin_wiki_mine_topics(request: Request):
+    """질문 로그를 LLM 클러스터링해 토픽 후보를 반환합니다 (미저장, 온디맨드)."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.wiki.topic_miner import mine_topics
+    loop = asyncio.get_event_loop()
+    topics = await loop.run_in_executor(None, mine_topics)
+    return {"topics": topics}
+
+
+@app.get("/admin/wiki/pages")
+async def admin_wiki_pages(request: Request):
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.wiki.wiki_store import list_pages
+    pages = list_pages()
+    for p in pages:  # 목록엔 본문 제외 (미리보기는 상세 API)
+        p["content_length"] = len(p.pop("content", "") or "")
+    return {"pages": pages}
+
+
+@app.get("/admin/wiki/pages/{page_id}")
+async def admin_wiki_page_detail(request: Request, page_id: int):
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.wiki.wiki_store import get_page
+    page = get_page(page_id)
+    if not page:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return page
+
+
+@app.post("/admin/wiki/pages")
+async def admin_wiki_page_create(request: Request, body: WikiCreateRequest):
+    """페이지 합성 (LLM — 수십 초 소요). 성공 시 draft로 저장."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.wiki.page_builder import build_page
+    loop = asyncio.get_event_loop()
+    try:
+        page = await loop.run_in_executor(
+            None, build_page, body.topic.strip(), body.title.strip(), body.questions)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=422)
+    page = dict(page)
+    return page
+
+
+@app.post("/admin/wiki/pages/{page_id}/rebuild")
+async def admin_wiki_page_rebuild(request: Request, page_id: int):
+    """소스 재검색 + 재합성 (draft로 강등 — 재검수)."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.wiki.wiki_store import get_page
+    from company_llm_rag.wiki.page_builder import build_page
+    page = get_page(page_id)
+    if not page:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    loop = asyncio.get_event_loop()
+    try:
+        rebuilt = await loop.run_in_executor(
+            None, build_page, page["topic"], page["title"], page["questions"])
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=422)
+    return rebuilt
+
+
+@app.post("/admin/wiki/pages/{page_id}/status")
+async def admin_wiki_page_status(request: Request, page_id: int, status: str = Query(...)):
+    """상태 전이: draft ↔ approved ↔ disabled."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.wiki.wiki_store import set_status
+    try:
+        ok = set_status(page_id, status)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=422)
+    if not ok:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {"ok": True}
 
 
 # ── 어드민: 인사이트 API 관리 (#56 Phase 2) ─────────────────────────────────

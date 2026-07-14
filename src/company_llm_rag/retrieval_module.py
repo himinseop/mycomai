@@ -358,6 +358,9 @@ def retrieve_documents(
                 team = doc_map[doc_id].get('metadata', {}).get('teams_team_name', '')
                 if team == hub_team:
                     rrf *= hub_rrf_boost
+            # LLM 위키 질문 매칭 부스트 (#58) — Hub보다 낮은 배수로 Hub 우선 유지
+            if doc_map[doc_id].get('metadata', {}).get('is_wiki'):
+                rrf *= settings.WIKI_RRF_BOOST
             # 최신성 부스트: created_at 기반 가중치 적용
             if recency_boost:
                 meta = doc_map[doc_id].get('metadata', {})
@@ -402,6 +405,22 @@ def retrieve_documents(
                 _seen_docs.add(key)
             _deduped.append(c)
         scored = _deduped
+
+        # 위키 문서 컨텍스트 주입 (#58): 임베딩된 건 대표 질문 텍스트뿐이므로,
+        # LLM 컨텍스트에는 위키 페이지 본문을 넣어준다 (disabled 페이지는 제외).
+        _wiki_filtered = []
+        for c in scored:
+            meta = c.get("metadata", {})
+            if meta.get("is_wiki"):
+                from company_llm_rag.wiki.wiki_store import get_page_by_wiki_id
+                page = get_page_by_wiki_id(meta.get("wiki_id"))
+                if page is None:
+                    continue  # disabled/삭제 페이지 — 결과에서 제외
+                c = {**c, "content": f"[사내 위키: {page['title']}]\n{page['content'][:4000]}",
+                     "metadata": {**meta, "title": f"📖 위키: {page['title']}",
+                                  "wiki_status": page["status"]}}
+            _wiki_filtered.append(c)
+        scored = _wiki_filtered
 
         if return_scores:
             docs = [

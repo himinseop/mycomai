@@ -96,6 +96,9 @@ class Settings:
     KNOWLEDGE_HUB_WEBHOOK_URL: str = os.getenv("KNOWLEDGE_HUB_WEBHOOK_URL", "")
     KNOWLEDGE_HUB_RRF_BOOST: float = float(os.getenv("KNOWLEDGE_HUB_RRF_BOOST", "5.0"))
 
+    # LLM 위키 (#58) — 위키 질문 매칭 RRF 부스트 (Hub 5.0보다 낮게 = Hub 우선)
+    WIKI_RRF_BOOST: float = float(os.getenv("WIKI_RRF_BOOST", "3.0"))
+
 
     # RAG 설정 (토큰 기준 — tiktoken 사용)
     # text-embedding-3-small 최대 컨텍스트: 8191 토큰
