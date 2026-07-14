@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 야간 자동 수집 (#60 후속): 매일 02:00 수집→.18 적재→로컬 동기화 백업
+     설치: cp deploy/launchd/com.mycomai.collect.plist ~/Library/LaunchAgents/
+           launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mycomai.collect.plist
+     해제: launchctl bootout gui/$(id -u)/com.mycomai.collect
+     로그: ~/Library/Logs/mycomai-collect.log -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mycomai.collect</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/we/Dev/lab/mycomai/scripts/collect_and_sync.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/we/Dev/lab/mycomai</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>2</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/we/Library/Logs/mycomai-collect.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/we/Library/Logs/mycomai-collect.log</string>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
