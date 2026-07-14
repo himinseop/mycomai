@@ -272,8 +272,11 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       white-space: nowrap; pointer-events: none;
     }
-    /* 검색 엔진(ChromaDB) 상태 표시 (#60) */
-    #search-health-dot { margin-right: 6px; }
+    /* 검색 엔진(ChromaDB) 상태 표시 (#60) — 헤더 우측 */
+    #search-health {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: rgba(255,255,255,0.75);
+    }
     #search-health-banner {
       display: none; position: fixed; left: 50%; transform: translateX(-50%);
       bottom: 88px; z-index: 5;
@@ -314,6 +317,7 @@
     <img src="/static/osajang-header.jpg" alt="오사장" style="width:28px;height:28px;object-fit:contain;border-radius:50%;">
     {{ company_name }} 지식허브
   </div>
+  <div id="search-health" title="검색 엔진 상태"></div>
 </header>
 
 <div id="main">
@@ -344,22 +348,23 @@
     </div>
   </div>
 </div>
-<div id="status-bar"><span id="search-health-dot" title="검색 엔진 상태"></span>updated:{{ build_version }} | collected:{{ last_collected }}</div>
+<div id="status-bar">updated:{{ build_version }} | collected:{{ last_collected }}</div>
 <div id="search-health-banner">⚠ 검색 엔진 연결이 원활하지 않아 답변이 제한될 수 있어요.</div>
 
 <script src="https://cdn.jsdelivr.net/npm/marked@13/marked.min.js"></script>
 <script>
-  // ── 검색 엔진 상태 확인 (#60): 접속 시 1회 — 정상 🟢, 불가 🔴 + 배너 ──
+  // ── 검색 엔진 상태 확인 (#60): 접속 시 1회 — 헤더 우측 🟢/🔴, 불가 시 배너 ──
   (async () => {
+    const el = document.getElementById('search-health');
+    const down = () => {
+      el.innerHTML = '🔴 <span>검색 연결 안 됨</span>';
+      document.getElementById('search-health-banner').classList.add('visible');
+    };
     try {
       const res = await fetch('/health/search');
       const h = res.ok ? await res.json() : { ok: false };
-      document.getElementById('search-health-dot').textContent = h.ok ? '🟢' : '🔴';
-      if (!h.ok) document.getElementById('search-health-banner').classList.add('visible');
-    } catch (e) {
-      document.getElementById('search-health-dot').textContent = '🔴';
-      document.getElementById('search-health-banner').classList.add('visible');
-    }
+      if (h.ok) el.textContent = '🟢'; else down();
+    } catch (e) { down(); }
   })();
 
   // ── 상태 ─────────────────────────────────────────────────────────────
