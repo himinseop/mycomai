@@ -633,12 +633,17 @@ def rag_query(
         timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": retrieval_ms, "doc_count": 0, "model": current_model_name("chat")}
         return (answer, [], timing) if return_refs else answer
 
-    # Knowledge Hub 원문 직접 응답: 1위 문서가 Knowledge Hub이면 LLM 없이 원문 반환
+    # 원문 직접 응답: Hub 우선 → 승인된 위키 (#58 Phase 2). 둘 다 LLM 생성 생략.
+    direct_model = "knowledge_hub_direct"
     hub_direct = _try_hub_direct_answer(retrieved_docs)
+    if not hub_direct:
+        from company_llm_rag.wiki.direct import try_wiki_direct_answer
+        hub_direct = try_wiki_direct_answer(retrieved_docs, user_query)
+        direct_model = "wiki_direct"
     if hub_direct:
         t_llm = time.monotonic()
         total_ms = int((t_llm - t0) * 1000)
-        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": "knowledge_hub_direct"}
+        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": direct_model}
         if not return_refs:
             return hub_direct
         return hub_direct, [], timing
@@ -750,11 +755,16 @@ def rag_query_stream(
     # UX: 검색된 근거 문서 수를 답변 전에 먼저 노출 (#2)
     yield {"type": "sources", "count": len(retrieved_docs)}
 
-    # Knowledge Hub 원문 직접 응답
+    # 원문 직접 응답: Hub 우선 → 승인된 위키 (#58 Phase 2)
+    direct_model = "knowledge_hub_direct"
     hub_direct = _try_hub_direct_answer(retrieved_docs)
+    if not hub_direct:
+        from company_llm_rag.wiki.direct import try_wiki_direct_answer
+        hub_direct = try_wiki_direct_answer(retrieved_docs, user_query)
+        direct_model = "wiki_direct"
     if hub_direct:
         total_ms = int((time.monotonic() - t0) * 1000)
-        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": "knowledge_hub_direct"}
+        timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": 0, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": direct_model}
         yield {"type": "token", "text": hub_direct}
         yield {"type": "done", "answer": hub_direct, "references": [], "timing": timing, "is_no_answer": False}
         return

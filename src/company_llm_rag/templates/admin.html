@@ -289,7 +289,7 @@
     border-radius: 12px;
     padding: 24px;
     box-shadow: 0 1px 4px rgba(0,0,0,.08);
-    max-width: 560px;
+    /* 대시보드/이력조회와 동일하게 전체 폭 사용 */
   }
   .settings-card h2 { font-size: 0.95rem; color: #555; margin-bottom: 20px; font-weight: 600; }
   .setting-row {
@@ -632,8 +632,15 @@
 
   <!-- ── 위키 탭 (#58 LLM 위키) ── -->
   <div class="tab-panel" id="tab-wiki">
+    <!-- 팩트 상충 경고 (#58 Phase 2) -->
+    <div class="settings-card" id="wiki-conflicts-card" style="margin-bottom:16px;display:none;border-left:4px solid #f59e0b">
+      <h2>⚠ 팩트 상충 <span id="wiki-conflicts-count" style="color:#aaa;font-weight:400;font-size:.8rem"></span></h2>
+      <div id="wiki-conflicts-body" style="font-size:.85rem"></div>
+    </div>
+
     <div class="settings-card" style="margin-bottom:16px">
-      <h2>📖 위키 페이지 <span id="wiki-count" style="color:#aaa;font-weight:400;font-size:.8rem"></span></h2>
+      <h2>📖 위키 페이지 <span id="wiki-count" style="color:#aaa;font-weight:400;font-size:.8rem"></span>
+        <button class="btn btn-secondary" style="float:right" onclick="refreshWiki(this)">신선도 점검 (소스 변경 재생성)</button></h2>
       <div style="overflow-x:auto">
       <table>
         <thead><tr><th>토픽</th><th>제목</th><th>상태</th><th>대표질문</th><th>소스</th><th>갱신일</th><th></th></tr></thead>
@@ -777,7 +784,33 @@
       if (gbody.children.length === 1 && gbody.children[0].children[0].colSpan > 1) loadGroups(1);
     }
     if (name === 'settings') { loadSettings(); loadApiClients(); loadApiCalls(1); }
-    if (name === 'wiki') loadWikiPages();
+    if (name === 'wiki') { loadWikiPages(); loadWikiConflicts(); }
+  }
+
+  async function loadWikiConflicts() {
+    const res = await fetch('/admin/wiki/conflicts');
+    if (!res.ok) return;
+    const conflicts = (await res.json()).conflicts || [];
+    const card = document.getElementById('wiki-conflicts-card');
+    if (!conflicts.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    document.getElementById('wiki-conflicts-count').textContent = `${conflicts.length}건 — 담당자 확인 필요`;
+    document.getElementById('wiki-conflicts-body').innerHTML = conflicts.map(c => `
+      <div style="margin-bottom:8px"><b>${escHtml(c.key)}</b>:
+        ${c.entries.map(e => `<span style="margin-left:8px">「${escHtml(e.value)}」 <span style="color:#999">(${escHtml(e.page_title)} ← ${escHtml(e.source)})</span></span>`).join(' vs ')}
+      </div>`).join('');
+  }
+
+  async function refreshWiki(btn) {
+    btn.disabled = true; btn.textContent = '점검 중 (변경 시 재생성, 수십 초~)...';
+    try {
+      const res = await fetch('/admin/wiki/refresh', { method: 'POST' });
+      const d = await res.json();
+      alert(`재생성 ${(d.rebuilt || []).length}건 · 유지 ${(d.unchanged || []).length}건 · 실패 ${(d.failed || []).length}건`);
+    } finally {
+      btn.disabled = false; btn.textContent = '신선도 점검 (소스 변경 재생성)';
+      loadWikiPages(); loadWikiConflicts();
+    }
   }
 
   // ── LLM 위키 (#58) ────────────────────────────────────────────────────────

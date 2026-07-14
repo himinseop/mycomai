@@ -506,6 +506,13 @@ def load_data_to_chromadb(data_stream):
         set_collection_date(src)
     invalidate_stats_cache()
 
+    # 위키 신선도 점검 (#58 Phase 2): 소스 변경 페이지 재생성 (실패해도 적재에 영향 없음)
+    try:
+        from company_llm_rag.wiki.freshness import refresh_stale_pages
+        refresh_stale_pages()
+    except Exception as e:
+        logger.warning(f"[Wiki] 신선도 점검 실패 (적재는 정상): {e}")
+
 
 if __name__ == "__main__":
     logger.info(f"Loading data into ChromaDB collection: {settings.COLLECTION_NAME} at path: {settings.CHROMA_DB_PATH}")

@@ -911,6 +911,25 @@ async def admin_wiki_page_rebuild(request: Request, page_id: int):
     return rebuilt
 
 
+@app.get("/admin/wiki/conflicts")
+async def admin_wiki_conflicts(request: Request):
+    """페이지 간 팩트 상충 목록 (#58 Phase 2 모순 검증)."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.wiki.consistency import find_conflicts
+    return {"conflicts": find_conflicts()}
+
+
+@app.post("/admin/wiki/refresh")
+async def admin_wiki_refresh(request: Request):
+    """수동 신선도 점검: 소스 변경 페이지 재생성 (LLM — 페이지당 수십 초)."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.wiki.freshness import refresh_stale_pages
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, refresh_stale_pages, False)
+
+
 @app.post("/admin/wiki/pages/{page_id}/status")
 async def admin_wiki_page_status(request: Request, page_id: int, status: str = Query(...)):
     """상태 전이: draft ↔ approved ↔ disabled."""

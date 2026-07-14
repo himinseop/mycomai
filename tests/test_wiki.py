@@ -168,6 +168,97 @@ def test_builder_happy_path(wiki_env, monkeypatch):
     assert len(fake.docs) == 1                        # 질문 1개 임베딩
 
 
+# ── Phase 2: 직접 응답 ──────────────────────────────────────────────────────
+
+def _wiki_doc(page_id, rrf=1.0):
+    return {"content": "포인트 적립 어떻게 해?", "_rrf": rrf,
+            "metadata": {"is_wiki": True, "wiki_id": page_id, "title": "📖 위키"}}
+
+
+def test_wiki_direct_answer_approved_only(wiki_env, monkeypatch):
+    ws, _ = wiki_env
+    from company_llm_rag.wiki import direct
+    monkeypatch.setattr(direct, "_build_wiki_intro", lambda q: "안내.\n\n---\n\n")
+    page = _make_page(ws)
+
+    docs = [_wiki_doc(page["id"], 1.0), {"content": "x", "_rrf": 0.1, "metadata": {}}]
+    # draft → 직접 응답 금지
+    assert direct.try_wiki_direct_answer(docs, "질문") is None
+    # 승인 → 직접 응답 (본문 + 기준일 표기)
+    ws.set_status(page["id"], "approved")
+    ans = direct.try_wiki_direct_answer(docs, "질문")
+    assert ans and "[출처:" in ans and "기준일" in ans
+
+
+def test_wiki_direct_requires_dominance(wiki_env, monkeypatch):
+    ws, _ = wiki_env
+    from company_llm_rag.wiki import direct
+    monkeypatch.setattr(direct, "_build_wiki_intro", lambda q: "안내.\n\n")
+    page = _make_page(ws)
+    ws.set_status(page["id"], "approved")
+    # 2위와 점수 차이가 2배 미만 → 직접 응답 안 함 (일반 RAG 경로)
+    docs = [_wiki_doc(page["id"], 1.0), {"content": "x", "_rrf": 0.9, "metadata": {}}]
+    assert direct.try_wiki_direct_answer(docs, "질문") is None
+    # 1위가 위키가 아니면 무조건 None
+    docs2 = [{"content": "x", "_rrf": 5.0, "metadata": {}}, _wiki_doc(page["id"], 1.0)]
+    assert direct.try_wiki_direct_answer(docs2, "질문") is None
+
+
+# ── Phase 2: 신선도 (freshness) ─────────────────────────────────────────────
+
+def test_freshness_rebuilds_only_changed(wiki_env, monkeypatch):
+    ws, _ = wiki_env
+    from company_llm_rag.wiki import freshness, page_builder as pb
+    p1 = _make_page(ws, topic="t-unchanged")          # source_hash="abc123"
+    p2 = _make_page(ws, topic="t-changed")
+    ws.set_status(p2["id"], "approved")
+
+    def fake_collect(questions):
+        return [{"metadata": {"content_hash": "abc-stable"}}]
+    monkeypatch.setattr(pb, "collect_sources", fake_collect)
+    # t-unchanged은 해시 일치, t-changed는 불일치하도록 저장 해시 조작
+    stable_hash = ws.compute_source_hash(["abc-stable"])
+    import sqlite3
+    with ws._conn() as con:
+        con.execute("UPDATE wiki_pages SET source_hash=? WHERE topic='t-unchanged'", (stable_hash,))
+        con.commit()
+
+    rebuilt_topics = []
+    monkeypatch.setattr(pb, "build_page",
+                        lambda topic, title, qs: rebuilt_topics.append(topic))
+    notified = []
+    monkeypatch.setattr(freshness, "_notify_teams", lambda text: notified.append(text))
+
+    summary = freshness.refresh_stale_pages(notify=True)
+    assert rebuilt_topics == ["t-changed"]
+    assert summary["unchanged"] == ["t-unchanged"]
+    assert summary["rebuilt"][0]["was_approved"] is True
+    assert notified and "재검수" in notified[0]
+
+
+# ── Phase 2: 팩트 모순 검증 ─────────────────────────────────────────────────
+
+def test_fact_conflict_detection(wiki_env):
+    ws, _ = wiki_env
+    ws.upsert_page(topic="a", title="A", content="x [출처: d]",
+                   questions=["q1"], facts=[{"key": "유효기간", "value": "100일", "source": "TC문서"}],
+                   source_doc_ids=[], source_hash="", model="m")
+    ws.upsert_page(topic="b", title="B", content="y [출처: d]",
+                   questions=["q2"], facts=[{"key": "유효 기간", "value": "1년", "source": "기획서"}],
+                   source_doc_ids=[], source_hash="", model="m")
+    ws.upsert_page(topic="c", title="C", content="z [출처: d]",
+                   questions=["q3"], facts=[{"key": "적립시점", "value": "결제 시", "source": "d"}],
+                   source_doc_ids=[], source_hash="", model="m")
+    from company_llm_rag.wiki.consistency import find_conflicts
+    conflicts = find_conflicts()
+    assert len(conflicts) == 1                        # 유효기간(공백 무시 동일 키)만 상충
+    assert {e["value"] for e in conflicts[0]["entries"]} == {"100일", "1년"}
+    # 페이지 폐기 시 상충에서 제외
+    page_b = ws.get_page_by_topic("b")
+    ws.set_status(page_b["id"], "disabled")
+    assert find_conflicts() == []
+
+
 def test_wiki_context_injection(wiki_env):
     """검색 결과의 위키 문서(질문 텍스트)가 페이지 본문으로 치환되는지."""
     ws, _ = wiki_env
