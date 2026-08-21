@@ -5,7 +5,7 @@
 > `docs/issues/` 하위 디렉토리는 GitHub 이슈 번호와 1:1 대응합니다 (예: `docs/issues/41/` → GitHub Issue #41).
 
 ## 프로젝트 개요
-회사 전용 LLM RAG 시스템. Jira, Confluence, SharePoint, Teams 데이터를 수집하여 ChromaDB에 저장하고, OpenAI GPT를 통해 질의응답하는 시스템.
+회사 전용 LLM RAG 시스템. Jira, Confluence, SharePoint, Teams, 플랫폼매뉴얼(bitbucket docs 저장소) 데이터를 수집하여 ChromaDB에 저장하고, OpenAI GPT를 통해 질의응답하는 시스템.
 
 ## 주요 구조
 ```
@@ -25,10 +25,19 @@ src/company_llm_rag/
 └── data_extraction/
     ├── jira/          # Jira API v3 (nextPageToken 페이지네이션)
     ├── confluence/    # Confluence REST API (size<limit 페이지네이션)
-    └── m365/
-        ├── sharepoint_extractor.py
-        └── teams_extractor.py  # 채널 메시지 + 일반 채팅(TEAMS_CHAT_IDS)
+    ├── m365/
+    │   ├── sharepoint_extractor.py
+    │   └── teams_extractor.py  # 채널 메시지 + 일반 채팅(TEAMS_CHAT_IDS)
+    └── docs_repo/     # 플랫폼매뉴얼 (로컬 git checkout 마크다운, source=docs)
 ```
+
+## 플랫폼매뉴얼 수집 (source=docs)
+bitbucket `o2olab/docs` 저장소의 개발 문서를 지식허브 답변에 활용하는 소스.
+- **입력**: 로컬 체크아웃을 data-loader에 read-only 마운트 (`DOCS_REPO_HOST_PATH` → `/app/docs_repo`)
+- **브랜치 가드**: `DOCS_REPO_BRANCH` 설정 시 체크아웃 브랜치가 다르면 수집 건너뜀 (git 바이너리 없이 `.git/HEAD` 파싱)
+- **검색 우선순위 최상**: `DOCS_RRF_BOOST`(4.0, Hub 5.0 다음·위키 3.0 위) + `BOOST_DOCS`(0.5 거리 부스트)
+- **링크 비노출**: 답변 컨텍스트로만 사용. 참고문서 목록 제외, [REF] 인용은 제목만 치환, 프롬프트에 URL 미포함
+- README.md는 작성 규칙/목차 문서라 수집 제외
 
 ## 실행 환경
 - Docker Compose 기반 (`docker/docker-compose.yml`)
@@ -62,6 +71,12 @@ TEAMS_CHAT_IDS=19:40aa52f10c82483382591a326c49c01a@thread.v2,19:692046332e64487c
 KNOWLEDGE_HUB_TEAM_NAME=Knowledge Hub
 KNOWLEDGE_HUB_WEBHOOK_URL=...       # Incoming Webhook URL
 KNOWLEDGE_HUB_RRF_BOOST=5.0         # RRF 점수 배수
+
+# 플랫폼매뉴얼 (bitbucket docs 저장소 수집)
+DOCS_REPO_BRANCH=feature/INFRA-39   # 체크아웃 브랜치 가드 (다르면 수집 건너뜀)
+# DOCS_REPO_HOST_PATH=              # 로컬 체크아웃 경로 (기본: mycomai/../../o2olab/docs)
+# DOCS_REPO_SUBDIRS=                # 기본: guides/documents/platform/features,~/sites
+# DOCS_RRF_BOOST=4.0  BOOST_DOCS=0.5
 
 # OpenAI
 OPENAI_API_KEY=...

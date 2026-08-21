@@ -29,6 +29,10 @@ services:
       service: base
     volumes:
       - ../data:/app/data
+      # 플랫폼매뉴얼 저장소 (로컬 git checkout, read-only)
+      - ${DOCS_REPO_HOST_PATH:-../../../o2olab/docs}:/app/docs_repo:ro
+    environment:
+      - DOCS_REPO_PATH=/app/docs_repo
     mem_limit: 4g
     mem_reservation: 1g
     command: >
@@ -38,8 +42,9 @@ services:
         python3 company_llm_rag/data_extraction/confluence/confluence_extractor.py > data/confluence_data.jsonl 2> >(tee data/confluence_errors.log >&2) &&
         python3 company_llm_rag/data_extraction/m365/sharepoint_extractor.py > data/sharepoint_data.jsonl 2> >(tee data/sharepoint_errors.log >&2) &&
         python3 company_llm_rag/data_extraction/m365/teams_extractor.py > data/teams_data.jsonl 2> >(tee data/teams_errors.log >&2) &&
+        python3 company_llm_rag/data_extraction/docs_repo/docs_extractor.py > data/docs_data.jsonl 2> >(tee data/docs_errors.log >&2) &&
         echo 'Data extraction complete. Starting data loading...' &&
-        cat data/jira_data.jsonl data/confluence_data.jsonl data/sharepoint_data.jsonl data/teams_data.jsonl | python3 company_llm_rag/data_loader.py &&
+        cat data/jira_data.jsonl data/confluence_data.jsonl data/sharepoint_data.jsonl data/teams_data.jsonl data/docs_data.jsonl | python3 company_llm_rag/data_loader.py &&
         echo 'Data loading complete!'
       "
 

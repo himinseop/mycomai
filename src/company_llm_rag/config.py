@@ -91,6 +91,26 @@ class Settings:
         c.strip() for c in os.getenv("TEAMS_CHAT_IDS", "").split(",") if c.strip()
     ]
 
+    # 개발 문서 저장소 수집 설정 (로컬 git checkout을 컨테이너에 read-only 마운트)
+    DOCS_REPO_PATH: str = os.getenv("DOCS_REPO_PATH", "")
+    DOCS_REPO_NAME: str = os.getenv("DOCS_REPO_NAME", "o2olab/docs")
+    # 설정 시 체크아웃 브랜치가 다르면 수집을 건너뜀 (인덱스 오염 방지)
+    DOCS_REPO_BRANCH: str = os.getenv("DOCS_REPO_BRANCH", "")
+    # 환경변수명: DOCS_REPO_SUBDIRS (콤마 구분, 저장소 루트 기준 상대 경로)
+    DOCS_REPO_SUBDIRS: List[str] = [
+        d.strip().strip("/") for d in os.getenv(
+            "DOCS_REPO_SUBDIRS",
+            "guides/documents/platform/features,guides/documents/platform/sites",
+        ).split(",") if d.strip()
+    ]
+    # 참고문서 링크용 소스 뷰 URL prefix (뒤에 /{branch}/{path} 가 붙음)
+    DOCS_REPO_URL_BASE: str = os.getenv(
+        "DOCS_REPO_URL_BASE", "https://bitbucket.org/o2olab/docs/src"
+    )
+    # 플랫폼매뉴얼 RRF 부스트 — 일반 소스 중 최상 우선.
+    # Hub 직접답변(5.0)보다는 낮게, 위키(3.0)보다는 높게.
+    DOCS_RRF_BOOST: float = float(os.getenv("DOCS_RRF_BOOST", "4.0"))
+
     # Knowledge Hub 설정 (답변 우선순위 + 질문 전송)
     KNOWLEDGE_HUB_TEAM_NAME: str = os.getenv("KNOWLEDGE_HUB_TEAM_NAME", "")
     KNOWLEDGE_HUB_WEBHOOK_URL: str = os.getenv("KNOWLEDGE_HUB_WEBHOOK_URL", "")
@@ -131,6 +151,7 @@ class Settings:
         "teams":       float(os.getenv("BOOST_TEAMS", "0.9")),
         "sharepoint":  float(os.getenv("BOOST_SHAREPOINT", "0.7")),
         "local":       float(os.getenv("BOOST_LOCAL", "0.7")),
+        "docs":        float(os.getenv("BOOST_DOCS", "0.5")),
     }
 
     # 소스별 검색 필터 키워드 (쿼리에 포함되면 해당 소스만 검색)
@@ -139,6 +160,7 @@ class Settings:
         "confluence":  ["컨플루언스", "컨플에서", "컨플루", "confluence"],
         "teams":       ["팀즈에서", "팀즈 대화", "팀즈에", "teams", "대화에서", "채팅에서", "채널에서"],
         "sharepoint":  ["쉐어포인트", "sharepoint"],
+        "docs":        ["플랫폼매뉴얼", "플랫폼 매뉴얼", "매뉴얼에서", "개발문서", "개발 문서"],
     }
 
     # 파일 확장자 → 소스 매핑 (쿼리에 해당 키워드가 있으면 extensions 필터 적용)

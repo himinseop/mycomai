@@ -131,6 +131,7 @@
   .db-card.confluence { border-left-color: #0065ff; }
   .db-card.sharepoint { border-left-color: #038387; }
   .db-card.teams      { border-left-color: #6264a7; }
+  .db-card.docs       { border-left-color: #1f883d; }
   .db-card.total      { border-left-color: #555; }
   .db-card.clickable  { cursor: pointer; transition: transform .12s, box-shadow .12s; }
   .db-card.clickable:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.12); }
@@ -507,6 +508,13 @@
         <div class="db-chunks" id="db-teams-chunks"></div>
         <div class="db-date" id="db-teams-date"></div>
       </div>
+      <div class="db-card docs clickable" onclick="showDbDetail('docs')">
+        <div class="db-label">플랫폼매뉴얼</div>
+        <div class="db-value" id="db-docs">—</div>
+        <div class="db-sub">문서</div>
+        <div class="db-chunks" id="db-docs-chunks"></div>
+        <div class="db-date" id="db-docs-date"></div>
+      </div>
     </div>
 
     <!-- DB 상세 팝업 -->
@@ -769,6 +777,7 @@
     confluence: '#172b4d',
     teams:      '#6264a7',
     sharepoint: '#038387',
+    docs:       '#1f883d',
     local:      '#b17e00',
   };
 
@@ -1428,7 +1437,7 @@
       document.getElementById('db-total').textContent       = fmt(data.total_docs);
       document.getElementById('db-total-chunks').textContent = data.total_chunks ? `청크 ${data.total_chunks.toLocaleString()}개` : '';
 
-      ['jira', 'confluence', 'sharepoint', 'teams'].forEach(s => {
+      ['jira', 'confluence', 'sharepoint', 'teams', 'docs'].forEach(s => {
         const info = src[s];
         document.getElementById(`db-${s}`).textContent        = fmt(info?.docs);
         document.getElementById(`db-${s}-chunks`).textContent = info ? `청크 ${fmt(info.chunks)}개` : '';
@@ -1446,7 +1455,7 @@
   function showDbDetail(src) {
     const info = _dbStatsData?.sources?.[src];
     if (!info) return;
-    const srcName  = { jira: 'Jira', confluence: 'Confluence', sharepoint: 'SharePoint', teams: 'Teams' }[src];
+    const srcName  = { jira: 'Jira', confluence: 'Confluence', sharepoint: 'SharePoint', teams: 'Teams', docs: '플랫폼매뉴얼' }[src];
     const detail   = info.detail || {};
     const entries  = Object.entries(detail);
 
@@ -1755,8 +1764,8 @@
   function buildRetrievedDocsHtml(docs, refUrls) {
     if (!docs || !docs.length) return '<p style="color:#aaa;padding:6px 0;font-size:0.85rem">검색 결과 없음</p>';
     const RRF_MAX = 2 / 61;
-    const SRC_COLORS = { jira:'#0052CC', confluence:'#0065FF', sharepoint:'#038387', teams:'#6264A7' };
-    const SRC_LABEL  = { jira:'J', confluence:'C', sharepoint:'S', teams:'T' };
+    const SRC_COLORS = { jira:'#0052CC', confluence:'#0065FF', sharepoint:'#038387', teams:'#6264A7', docs:'#1F883D' };
+    const SRC_LABEL  = { jira:'J', confluence:'C', sharepoint:'S', teams:'T', docs:'M' };
 
     const rows = docs.map((doc, i) => {
       const src   = doc.source || '?';

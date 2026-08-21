@@ -87,6 +87,7 @@ _SOURCE_COLORS = {
     "confluence": "#0065ff",
     "sharepoint": "#038387",
     "teams": "#6264a7",
+    "docs": "#1f883d",
     "local": "#555",
 }
 
@@ -199,6 +200,12 @@ def _build_ref_link_html(meta: dict, title_esc: str, url: str) -> str:
         doc_link = a(url, doc_name_esc) if url else f'<span>{doc_name_esc}</span>'
         parts_html = [p for p in [site_part, folder_part, doc_link] if p]
         return sep.join(parts_html) if parts_html else doc_link
+
+    elif source == "docs":
+        category = meta.get("docs_category") or ""
+        cat_part = f'<span style="{light}">{category}</span>' if category else ""
+        doc_link = a(url, title_esc) if url else f'<span style="{main_style}">{title_esc}</span>'
+        return f'{cat_part}{sep}{doc_link}' if cat_part else doc_link
 
     elif source == "teams":
         team_name = meta.get("teams_team_name") or ""

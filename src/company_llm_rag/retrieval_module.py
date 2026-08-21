@@ -361,6 +361,9 @@ def retrieve_documents(
             # LLM 위키 질문 매칭 부스트 (#58) — Hub보다 낮은 배수로 Hub 우선 유지
             if doc_map[doc_id].get('metadata', {}).get('is_wiki'):
                 rrf *= settings.WIKI_RRF_BOOST
+            # 플랫폼매뉴얼 부스트 — 일반 소스 중 최상 우선 (Hub 직접답변 다음)
+            if doc_map[doc_id].get('metadata', {}).get('source') == 'docs':
+                rrf *= settings.DOCS_RRF_BOOST
             # 최신성 부스트: created_at 기반 가중치 적용
             if recency_boost:
                 meta = doc_map[doc_id].get('metadata', {})

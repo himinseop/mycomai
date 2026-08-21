@@ -447,6 +447,9 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_i
             break
         doc = retrieved_docs[i]
         meta = doc["metadata"]
+        # 플랫폼매뉴얼(docs)은 답변 컨텍스트로만 사용 — 참고문서 링크 비노출
+        if meta.get("source") == "docs":
+            continue
         # 비우선 문서는 거리 기준치 적용 (단, 인용 문서가 0개면 상위 N개 fallback)
         if not is_priority and doc.get('_distance', 0.0) > _MAX_REF_DISTANCE:
             if priority_count > 0 or len(references) >= _MIN_FALLBACK_REFS:

@@ -657,7 +657,7 @@ def set_collection_date(source: str, collected_at: Optional[str] = None) -> None
 
 def get_collection_dates() -> dict:
     """소스별 최근 수집일자를 반환합니다."""
-    sources = ["jira", "confluence", "sharepoint", "teams", "local"]
+    sources = ["jira", "confluence", "sharepoint", "teams", "docs", "local"]
     with _conn() as con:
         rows = con.execute(
             "SELECT key, value FROM app_settings WHERE key LIKE 'collection_date_%'"

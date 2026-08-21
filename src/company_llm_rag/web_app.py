@@ -470,6 +470,7 @@ def _compute_db_stats() -> dict:
         "confluence": {"label": "페이지", "group_key": "confluence_space_name"},
         "sharepoint": {"label": "파일",  "group_key": "sharepoint_site_name"},
         "teams":      {"label": "메시지", "group_key": "teams_channel_name", "parent_key": "teams_team_name"},
+        "docs":       {"label": "문서",  "group_key": "docs_category"},
     }
 
     # Step 1: ID만 조회 → 소스별 청크 수 집계

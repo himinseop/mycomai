@@ -82,6 +82,10 @@ def doc_source_label(meta: dict) -> str:
     if source == 'teams':
         channel = meta.get('teams_channel_name') or meta.get('teams_chat_topic', '')
         return f"[Teams] 채널/채팅: {channel} | 작성자: {author} | 날짜: {date} | URL: {url}"
+    if source == 'docs':
+        # 링크 비제공 문서 — 프롬프트에 URL을 넣지 않아 답변에 노출되는 것 방지
+        category = meta.get('docs_category', '')
+        return f"[플랫폼매뉴얼] 제목: {title} | 분류: {category} | 날짜: {date}"
     return f"[{source}] 제목: {title} | URL: {url}"
 
 
@@ -148,10 +152,13 @@ def resolve_citations(answer: str, retrieved_docs: List[Dict]) -> Tuple[str, set
         cited.add(idx)
         doc = retrieved_docs[idx]
         meta = doc["metadata"]
+        name = doc_display_name(meta)
+        # 플랫폼매뉴얼(docs)은 링크 비제공 — 제목만 표기
+        if meta.get("source") == "docs":
+            return name
         url = meta.get("url", "") or ""
         if not url or url == "None":
             url = build_teams_url(meta)
-        name = doc_display_name(meta)
         return f"[{name}]({url})" if url else name
 
     new_answer = _REF_PATTERN.sub(replace_ref, answer)
