@@ -635,6 +635,9 @@ def rag_query(
 
     t_inject_start = time.monotonic()
     retrieved_docs = _inject_jira_docs(user_query, retrieved_docs)
+    # 엔티티 주입 (#59 P2): 매뉴얼 엔티티 감지 시 연결 Jira/Confluence 문서 추가
+    from company_llm_rag.graph.entity_link import inject_entity_docs
+    retrieved_docs = inject_entity_docs(user_query, retrieved_docs)
     inject_ms = int((time.monotonic() - t_inject_start) * 1000)
 
     if _docs_out is not None:
@@ -764,6 +767,9 @@ def rag_query_stream(
 
     t_inject_start = time.monotonic()
     retrieved_docs = _inject_jira_docs(user_query, retrieved_docs)
+    # 엔티티 주입 (#59 P2): 매뉴얼 엔티티 감지 시 연결 Jira/Confluence 문서 추가
+    from company_llm_rag.graph.entity_link import inject_entity_docs
+    retrieved_docs = inject_entity_docs(user_query, retrieved_docs)
     inject_ms = int((time.monotonic() - t_inject_start) * 1000)
 
     # 호출자가 원할 경우 retrieved_docs를 외부로 노출 (분석용)

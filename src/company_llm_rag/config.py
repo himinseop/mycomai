@@ -116,6 +116,8 @@ class Settings:
 
     # GraphRAG (#59): 집계형 질문(목록·현황·최근 ~들)을 그래프 전수 조회로 응답
     GRAPH_AGGREGATE_ENABLED: bool = os.getenv("GRAPH_AGGREGATE_ENABLED", "true").lower() == "true"
+    # GraphRAG Phase 2: 질문에서 매뉴얼 엔티티 감지 시 연결 Jira/Confluence 문서 주입
+    GRAPH_ENTITY_INJECT_ENABLED: bool = os.getenv("GRAPH_ENTITY_INJECT_ENABLED", "true").lower() == "true"
 
     # Knowledge Hub 설정 (답변 우선순위 + 질문 전송)
     KNOWLEDGE_HUB_TEAM_NAME: str = os.getenv("KNOWLEDGE_HUB_TEAM_NAME", "")

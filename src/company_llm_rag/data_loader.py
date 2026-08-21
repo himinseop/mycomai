@@ -351,6 +351,7 @@ def load_data_to_chromadb(data_stream):
     chunk_batch: list = []  # 적재 배치 버퍼 (#48)
     collected_sources: set = set()  # 수집된 소스 추적
     jira_graph_docs: list = []      # Jira 그래프 재구축용 (#59) — 이슈 메타만 경량 보관
+    conf_graph_docs: list = []      # Confluence 엔티티 링크용 (#59 P2) — 제목·URL만 경량 보관
 
     logger.info("문서 로드 시작 (스트리밍 처리).")
     start_time = time.time()
@@ -391,6 +392,12 @@ def load_data_to_chromadb(data_stream):
                     "created_at": created_at, "updated_at": updated_at,
                     "metadata": metadata_from_source,
                     "content": content[:500] if isinstance(content, str) else "",
+                })
+            elif source == "confluence":
+                conf_graph_docs.append({
+                    "id": doc_id, "title": title, "url": url,
+                    "updated_at": updated_at,
+                    "content": content[:300] if isinstance(content, str) else "",
                 })
 
             # 거대 스프레드시트 raw-data 덤프 스킵 (#55): 검색 오염·인덱스 bloat 방지
@@ -517,13 +524,15 @@ def load_data_to_chromadb(data_stream):
         set_collection_date(src)
     invalidate_stats_cache()
 
-    # Jira 그래프 재구축 (#59) — 실패해도 적재에는 영향 없음
-    if jira_graph_docs:
+    # 그래프 재구축 (#59) — 실패해도 적재에는 영향 없음
+    if jira_graph_docs or conf_graph_docs:
         try:
-            from company_llm_rag.graph import jira_graph
-            jira_graph.rebuild_from_docs(jira_graph_docs)
+            from company_llm_rag.graph import entity_link, jira_graph
+            if jira_graph_docs:
+                jira_graph.rebuild_from_docs(jira_graph_docs)
+            entity_link.rebuild_entities(conf_graph_docs or None)
         except Exception as e:
-            logger.error(f"[Graph] Jira 그래프 재구축 실패: {e}", exc_info=True)
+            logger.error(f"[Graph] 그래프 재구축 실패: {e}", exc_info=True)
 
     # 위키 신선도 점검 (#58 Phase 2): 소스 변경 페이지 재생성 (실패해도 적재에 영향 없음)
     try:

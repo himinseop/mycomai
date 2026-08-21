@@ -63,7 +63,14 @@ query_rewriter의 분류(#52에서 is_question 추가한 지점)에 `intent` 확
 - "OOO가 담당한 이슈들" → ASSIGNED_TO 조회
 - 기존 `_inject_jira_docs`/recency 필터의 상위 호환 — 해당 로직 흡수 가능
 
-## Phase 2 — 플랫폼매뉴얼 백본 엔티티 링크 (문서↔Jira↔Confluence 연결)
+## Phase 2 — 플랫폼매뉴얼 백본 엔티티 링크 ✅ 구현 완료 (2026-08-22)
+
+구현 결과: `graph/entity_link.py` — 시드 엔티티 9개(매뉴얼 문서당 1개, 코드 내 사전),
+Confluence doc 노드 670개, issue→entity MENTIONS 3,489개.
+설계와 달라진 점: ①엔티티 사전은 코드 내 시드(관리자 편집 UI는 후속) ②링크 매칭은
+**제목만** 사용 — 본문 매칭은 스치듯 언급된 문서까지 연결해 노이즈가 컸음(실측)
+③서빙은 후보 주입이 아니라 질문에서 엔티티 감지 시 매뉴얼 청크+최근 Jira 3건+
+Confluence 2건을 리랭크 후 직접 주입(_injected, 기존 Jira 키 주입과 동일 메커니즘).
 
 목적: Jira 밖(Confluence/SharePoint/Teams) 문서를 엔티티로 연결.
 **2026-08 갱신**: 플랫폼매뉴얼(source=docs) 수집이 추가되면서, 질문 로그 대신
