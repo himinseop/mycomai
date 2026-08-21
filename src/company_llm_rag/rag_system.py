@@ -599,6 +599,15 @@ def rag_query(
         total_ms = int((time.monotonic() - t0) * 1000)
         timing = {"retrieval_ms": 0, "vector_ms": 0, "keyword_ms": 0, "rerank_ms": 0, "rerank_model": "", "inject_ms": 0, "llm_ms": 0, "total_ms": total_ms, "doc_count": 0, "model": "chitchat"}
         return (reply, [], timing) if return_refs else reply
+    # 집계형 질문 (#59): 그래프 전수 조회 경로 (0건/오류 시 기존 파이프라인 폴백)
+    if rewrite.get("intent") == "aggregate":
+        from company_llm_rag.graph.query_router import try_aggregate_answer
+        _agg = try_aggregate_answer(user_query, rewrite)
+        if _agg is not None:
+            _answer, _references, _info = _agg
+            total_ms = int((time.monotonic() - t0) * 1000)
+            timing = {"retrieval_ms": 0, "vector_ms": 0, "keyword_ms": 0, "rerank_ms": 0, "rerank_model": "", "inject_ms": 0, "llm_ms": total_ms, "total_ms": total_ms, "doc_count": _info.get("graph_total", 0), "model": f"graph+{_info.get('model', '')}"}
+            return (_answer, _references, timing) if return_refs else _answer
     _extra_q = [rewrite["rewritten"]] if rewrite["rewritten"] != user_query else None
     _extra_kw = rewrite["keywords"] or None
     retrieved_docs, ret_timing = retrieve_documents(
@@ -718,6 +727,18 @@ def rag_query_stream(
     if _understanding:
         yield {"type": "interpretation", "understanding": _understanding,
                "rewritten": rewrite["rewritten"], "keywords": rewrite["keywords"]}
+    # 집계형 질문 (#59): 그래프 전수 조회 경로 (0건/오류 시 기존 파이프라인 폴백)
+    if rewrite.get("intent") == "aggregate":
+        from company_llm_rag.graph.query_router import try_aggregate_answer
+        _agg = try_aggregate_answer(user_query, rewrite)
+        if _agg is not None:
+            _answer, _references, _info = _agg
+            total_ms = int((time.monotonic() - t0) * 1000)
+            timing = {"retrieval_ms": 0, "vector_ms": 0, "keyword_ms": 0, "rerank_ms": 0, "rerank_model": "", "inject_ms": 0, "llm_ms": total_ms, "total_ms": total_ms, "doc_count": _info.get("graph_total", 0), "model": f"graph+{_info.get('model', '')}"}
+            yield {"type": "token", "text": _answer}
+            yield {"type": "done", "answer": _answer, "references": _references,
+                   "timing": timing, "is_no_answer": False}
+            return
     retrieved_docs, ret_timing = retrieve_documents(
         user_query,
         n_results=effective_n,

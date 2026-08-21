@@ -350,6 +350,7 @@ def load_data_to_chromadb(data_stream):
     fts_buffer: list = []  # FTS 일괄 저장 버퍼
     chunk_batch: list = []  # 적재 배치 버퍼 (#48)
     collected_sources: set = set()  # 수집된 소스 추적
+    jira_graph_docs: list = []      # Jira 그래프 재구축용 (#59) — 이슈 메타만 경량 보관
 
     logger.info("문서 로드 시작 (스트리밍 처리).")
     start_time = time.time()
@@ -381,6 +382,16 @@ def load_data_to_chromadb(data_stream):
             if not doc_id or not content:
                 logger.warning(f"Skipping document due to missing ID or content: {document.get('id')}")
                 continue
+
+            # Jira 그래프 재료 수집 (#59): 이슈 메타 + 본문 앞부분만 보관
+            if source == "jira" and content_type == "issue":
+                jira_graph_docs.append({
+                    "source": "jira", "content_type": "issue",
+                    "title": title, "url": url,
+                    "created_at": created_at, "updated_at": updated_at,
+                    "metadata": metadata_from_source,
+                    "content": content[:500] if isinstance(content, str) else "",
+                })
 
             # 거대 스프레드시트 raw-data 덤프 스킵 (#55): 검색 오염·인덱스 bloat 방지
             _mime = str(metadata_from_source.get("mime_type", "") or "")
@@ -505,6 +516,14 @@ def load_data_to_chromadb(data_stream):
     for src in collected_sources:
         set_collection_date(src)
     invalidate_stats_cache()
+
+    # Jira 그래프 재구축 (#59) — 실패해도 적재에는 영향 없음
+    if jira_graph_docs:
+        try:
+            from company_llm_rag.graph import jira_graph
+            jira_graph.rebuild_from_docs(jira_graph_docs)
+        except Exception as e:
+            logger.error(f"[Graph] Jira 그래프 재구축 실패: {e}", exc_info=True)
 
     # 위키 신선도 점검 (#58 Phase 2): 소스 변경 페이지 재생성 (실패해도 적재에 영향 없음)
     try:

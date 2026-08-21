@@ -16,6 +16,10 @@ src/company_llm_rag/
 ├── data_loader.py     # JSONL → ChromaDB 적재
 ├── retrieval_module.py # ChromaDB 검색
 ├── rag_system.py      # RAG 파이프라인 (검색 + LLM)
+├── graph/             # GraphRAG (#59) — Jira 구조 그래프 + 집계형 질문 라우팅
+│   ├── graph_store.py # nodes/edges (app_data.db) + 조회 템플릿 (자유 SQL 금지)
+│   ├── jira_graph.py  # Jira JSONL → 그래프 재구축 (data_loader 훅)
+│   └── query_router.py # intent=aggregate → 전수 조회, 수치·목록은 서버 조립·LLM은 경향 요약만
 ├── insight_api/       # 도메인별 LLM 인사이트 API (#56, 내부 솔루션용)
 │   ├── router.py      # POST /api/v1/insights/{domain} (인증→검증→통계→LLM→이력)
 │   ├── auth.py        # X-API-Key(SHA-256) + scope + IP allowlist

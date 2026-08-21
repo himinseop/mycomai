@@ -30,6 +30,18 @@ _SYSTEM_PROMPT = """당신은 사내 지식베이스(Jira/Confluence/SharePoint/
 - false: 인사·감사·맞장구·감탄·잡담·자기소개 등 검색이 필요 없는 대화. (예: "안녕하세요", "고마워요", "ㅎㅎ", "테스트")
 - 애매하면 true(질문)로 간주합니다.
 
+is_question=true 이면 intent를 판단합니다:
+- "aggregate": Jira 이슈(일감/버그/요청)들의 목록·집계·현황을 묻는 질문.
+  (예: "최근 한 달 쿠폰 관련 이슈 뭐 있었어?", "홍길동이 담당한 이슈 목록", "WPLUS 진행중인 일감")
+- "fact": 그 외 모든 질문 — 단일 사실·방법·정책·문서 내용. 애매하면 "fact".
+
+intent="aggregate" 일 때 aggregate_filter를 채웁니다 (모르는 항목은 빈 값/0):
+- project: 프로젝트 키. 위메프오→"WMPO", 플러스·위메프오플러스→"WPLUS", 더커핑·커핑→"CUPPING". 그 외 언급 없으면 "".
+- assignee: 담당자 이름 (질문에 사람 이름이 있을 때만)
+- status: 상태 필터 단어 (예: "진행", "완료", "Open"). 없으면 ""
+- days: 기간 일수 (예: "최근 한 달"→30, "최근 일주일"→7, "올해"→365). 없으면 0
+- keywords: 이슈 제목·내용에서 찾을 주제어 1~3개 (예: 쿠폰, 정산). 프로젝트명·사람이름은 제외
+
 is_question=true 일 때:
 - 오타/약어/구어체를 표준 용어로 보정합니다 (예: "위메포"→"위메프오", "정산 언제"→"정산 주기").
 - 이전 대화 맥락이 있으면 반영해, 그 자체로 이해되는 독립적 검색문으로 만듭니다.
@@ -51,7 +63,7 @@ is_question=false 일 때:
   예: "안녕하세요! 무엇을 도와드릴까요? 사내 업무에 관해 궁금한 점을 물어보세요."
 
 반드시 아래 JSON 한 줄만 출력하세요 (설명·코드펜스 금지):
-{"is_question": true, "understanding": "<확인 문장>", "rewritten": "<검색문>", "keywords": ["키워드1"], "reply": ""}"""
+{"is_question": true, "intent": "fact", "aggregate_filter": {"project": "", "assignee": "", "status": "", "days": 0, "keywords": []}, "understanding": "<확인 문장>", "rewritten": "<검색문>", "keywords": ["키워드1"], "reply": ""}"""
 
 
 def _parse_json(raw: str) -> dict:
@@ -121,8 +133,12 @@ def rewrite_query(
             keywords = [k.strip() for k in (data.get("keywords") or [])
                         if isinstance(k, str) and k.strip()][:4]
             understanding = (data.get("understanding") or "").strip()
+            # 그래프 집계 경로 (#59): 명시적으로 aggregate일 때만, 그 외는 fact
+            intent = data.get("intent") if data.get("intent") == "aggregate" else "fact"
+            agg_filter = data.get("aggregate_filter") if isinstance(data.get("aggregate_filter"), dict) else {}
             result = {"rewritten": rewritten, "keywords": keywords,
-                      "understanding": understanding, "is_question": True, "reply": ""}
+                      "understanding": understanding, "is_question": True, "reply": "",
+                      "intent": intent, "aggregate_filter": agg_filter}
     except Exception as e:
         logger.warning(f"[QueryRewrite] 재작성 실패, 원문 사용: {e}")
         return {"rewritten": q, "keywords": [], "understanding": "", "is_question": True, "reply": ""}

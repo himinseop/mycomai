@@ -114,6 +114,9 @@ class Settings:
     # sigmoid(리랭크 점수) 확률에 곱함. 무관한 매뉴얼(낮은 확률)은 여전히 밀림. 1.0이면 비활성.
     DOCS_RERANK_BOOST: float = float(os.getenv("DOCS_RERANK_BOOST", "1.5"))
 
+    # GraphRAG (#59): 집계형 질문(목록·현황·최근 ~들)을 그래프 전수 조회로 응답
+    GRAPH_AGGREGATE_ENABLED: bool = os.getenv("GRAPH_AGGREGATE_ENABLED", "true").lower() == "true"
+
     # Knowledge Hub 설정 (답변 우선순위 + 질문 전송)
     KNOWLEDGE_HUB_TEAM_NAME: str = os.getenv("KNOWLEDGE_HUB_TEAM_NAME", "")
     KNOWLEDGE_HUB_WEBHOOK_URL: str = os.getenv("KNOWLEDGE_HUB_WEBHOOK_URL", "")
