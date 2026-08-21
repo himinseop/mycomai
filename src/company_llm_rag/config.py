@@ -110,6 +110,9 @@ class Settings:
     # 플랫폼매뉴얼 RRF 부스트 — 일반 소스 중 최상 우선.
     # Hub 직접답변(5.0)보다는 낮게, 위키(3.0)보다는 높게.
     DOCS_RRF_BOOST: float = float(os.getenv("DOCS_RRF_BOOST", "4.0"))
+    # 리랭크 후 보정 배수 — 리랭커가 RRF 부스트를 무효화하지 않도록
+    # sigmoid(리랭크 점수) 확률에 곱함. 무관한 매뉴얼(낮은 확률)은 여전히 밀림. 1.0이면 비활성.
+    DOCS_RERANK_BOOST: float = float(os.getenv("DOCS_RERANK_BOOST", "1.5"))
 
     # Knowledge Hub 설정 (답변 우선순위 + 질문 전송)
     KNOWLEDGE_HUB_TEAM_NAME: str = os.getenv("KNOWLEDGE_HUB_TEAM_NAME", "")

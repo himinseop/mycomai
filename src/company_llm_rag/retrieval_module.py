@@ -383,6 +383,15 @@ def retrieve_documents(
             t_rerank_start = time.monotonic()
             rerank_candidates = scored[:settings.RERANKER_TOP_N]
             scored = reranker.rerank(query, rerank_candidates, len(scored))
+            # 플랫폼매뉴얼 리랭크 후 보정: 리랭커가 RRF 부스트를 무효화하지 않도록
+            # sigmoid(로짓) 확률에 배수를 곱해 재정렬. 무관한 매뉴얼(낮은 확률)은 여전히 밀림.
+            if settings.DOCS_RERANK_BOOST != 1.0:
+                def _boosted_prob(c: Dict) -> float:
+                    p = 1.0 / (1.0 + math.exp(-c.get('_rerank_score', 0.0)))
+                    if c.get('metadata', {}).get('source') == 'docs':
+                        p *= settings.DOCS_RERANK_BOOST
+                    return p
+                scored.sort(key=_boosted_prob, reverse=True)
             rerank_ms = int((time.monotonic() - t_rerank_start) * 1000)
             logger.info(f"[검색 성능] rerank={rerank_ms}ms | 모델={reranker.model_name}")
 
