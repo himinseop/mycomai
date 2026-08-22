@@ -749,6 +749,26 @@
         <button class="btn btn-secondary" onclick="loadApiCalls(apiCallsPage+1)">다음 →</button>
       </div>
     </div>
+
+    <!-- ── 엔티티 사전 (#59 P2 — 플랫폼매뉴얼 백본) ── -->
+    <div class="settings-card" style="margin-top:16px">
+      <h2>🔗 엔티티 사전</h2>
+      <p style="font-size:.78rem;color:#999;margin:2px 0 12px">
+        플랫폼매뉴얼 기반 엔티티와 사내 동의어입니다. 질문·Jira/Confluence 제목에서 이 용어가 매칭되면
+        관련 문서가 함께 검색에 주입됩니다. 저장 후 <b>링크 재구축</b>을 눌러야 연결에 반영됩니다.</p>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th style="width:170px">엔티티명</th><th style="width:220px">매뉴얼 경로 (platform/ 기준)</th><th>동의어 (콤마 구분)</th><th style="width:52px">활성</th><th style="width:36px"></th></tr></thead>
+        <tbody id="entities-tbody"><tr><td colspan="5" class="empty">로딩 중...</td></tr></tbody>
+      </table>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+        <button class="btn btn-secondary" onclick="addEntityRow()">+ 행 추가</button>
+        <button class="btn btn-primary" onclick="saveEntities()">저장</button>
+        <button class="btn btn-secondary" onclick="rebuildEntityLinks(this)">링크 재구축</button>
+        <span id="entities-status" style="font-size:.8rem;color:#888"></span>
+      </div>
+    </div>
   </div>
 
 </main>
@@ -792,7 +812,7 @@
       const gbody = document.getElementById('group-tbody');
       if (gbody.children.length === 1 && gbody.children[0].children[0].colSpan > 1) loadGroups(1);
     }
-    if (name === 'settings') { loadSettings(); loadApiClients(); loadApiCalls(1); }
+    if (name === 'settings') { loadSettings(); loadApiClients(); loadApiCalls(1); loadEntities(); }
     if (name === 'wiki') { loadWikiPages(); loadWikiConflicts(); }
   }
 
@@ -2004,6 +2024,71 @@
       document.getElementById('toggle-analyze').checked = !!data.analyze_no_answer;
       renderLlmModels(data);
     } catch(e) {}
+  }
+
+  // ── 엔티티 사전 편집 (#59 P2) ────────────────────────────────────────────
+  function entityRowHtml(e) {
+    const inp = 'width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:.82rem;box-sizing:border-box';
+    return `<tr>
+      <td><input class="ent-name" value="${escHtml(e.name || '')}" placeholder="엔티티명" style="${inp}"></td>
+      <td><input class="ent-manual" value="${escHtml(e.manual || '')}" placeholder="features/xxx.md" style="${inp}"></td>
+      <td><input class="ent-aliases" value="${escHtml((e.aliases || []).join(', '))}" placeholder="동의어1, 동의어2" style="${inp}"></td>
+      <td style="text-align:center"><input type="checkbox" class="ent-active" ${e.is_active === false ? '' : 'checked'}></td>
+      <td><button class="btn btn-secondary" style="padding:3px 8px" onclick="this.closest('tr').remove()">✕</button></td>
+    </tr>`;
+  }
+
+  async function loadEntities() {
+    const tbody = document.getElementById('entities-tbody');
+    try {
+      const res = await fetch('/admin/entities');
+      if (!res.ok) return;
+      const data = await res.json();
+      tbody.innerHTML = (data.entities || []).map(entityRowHtml).join('') ||
+        '<tr><td colspan="5" class="empty">엔티티 없음</td></tr>';
+    } catch(e) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">로딩 실패</td></tr>';
+    }
+  }
+
+  function addEntityRow() {
+    const tbody = document.getElementById('entities-tbody');
+    const empty = tbody.querySelector('.empty');
+    if (empty) empty.closest('tr').remove();
+    tbody.insertAdjacentHTML('beforeend', entityRowHtml({name:'', manual:'', aliases:[]}));
+  }
+
+  async function saveEntities() {
+    const status = document.getElementById('entities-status');
+    const rows = [...document.querySelectorAll('#entities-tbody tr')].map(tr => ({
+      name: tr.querySelector('.ent-name')?.value || '',
+      manual: tr.querySelector('.ent-manual')?.value || '',
+      aliases: tr.querySelector('.ent-aliases')?.value || '',
+      is_active: tr.querySelector('.ent-active')?.checked ?? true,
+    })).filter(r => r.name.trim());
+    try {
+      const res = await fetch('/admin/entities', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({entities: rows}),
+      });
+      const data = await res.json();
+      if (!res.ok) { status.textContent = '저장 실패: ' + (data.error || res.status); return; }
+      status.textContent = `저장됨 (${data.saved}개) — 링크 재구축을 눌러 연결에 반영하세요`;
+      loadEntities();
+    } catch(e) { status.textContent = '저장 실패: ' + e.message; }
+  }
+
+  async function rebuildEntityLinks(btn) {
+    const status = document.getElementById('entities-status');
+    btn.disabled = true; status.textContent = '재구축 중...';
+    try {
+      const res = await fetch('/admin/entities/rebuild', {method: 'POST'});
+      const data = await res.json();
+      status.textContent = res.ok
+        ? `재구축 완료 — 엔티티 ${data.entities}개 · 링크 ${data.mentions.toLocaleString()}개`
+        : '재구축 실패: ' + (data.error || res.status);
+    } catch(e) { status.textContent = '재구축 실패: ' + e.message; }
+    finally { btn.disabled = false; }
   }
 
   // ── LLM 모델/프로바이더 스위치 (역할별 셀렉트, 즉시 반영) ────────────────

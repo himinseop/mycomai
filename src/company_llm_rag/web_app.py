@@ -771,6 +771,44 @@ async def admin_settings_update(request: Request, body: SettingsUpdateRequest):
     return {"success": True}
 
 
+@app.get("/admin/entities")
+async def admin_entities_get(request: Request):
+    """엔티티 사전 조회 (#59 P2 — 관리자 편집용)."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.graph.entity_link import get_entities
+    return {"entities": get_entities(active_only=False, use_cache=False)}
+
+
+class EntitySaveRequest(BaseModel):
+    entities: List[Dict]
+
+
+@app.post("/admin/entities")
+async def admin_entities_save(request: Request, body: EntitySaveRequest):
+    """엔티티 사전 전체 저장 (교체)."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.graph.entity_link import save_entities
+    try:
+        stats = save_entities(body.entities)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=422)
+    logger.info(f"[Admin] 엔티티 사전 저장: {stats}")
+    return {"success": True, **stats}
+
+
+@app.post("/admin/entities/rebuild")
+async def admin_entities_rebuild(request: Request):
+    """엔티티 링크(MENTIONS) 즉시 재구축. doc/issue 노드는 보존."""
+    if not _check_admin_auth(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    from company_llm_rag.graph.entity_link import rebuild_entities
+    loop = asyncio.get_event_loop()
+    stats = await loop.run_in_executor(None, rebuild_entities)
+    return {"success": True, **stats}
+
+
 @app.get("/admin/sessions")
 async def admin_sessions(
     request: Request,

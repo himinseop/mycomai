@@ -20,7 +20,7 @@ src/company_llm_rag/
 │   ├── graph_store.py # nodes/edges (app_data.db) + 조회 템플릿 (자유 SQL 금지)
 │   ├── jira_graph.py  # Jira JSONL → 그래프 재구축 (data_loader 훅)
 │   ├── query_router.py # intent=aggregate → 전수 조회, 수치·목록은 서버 조립·LLM은 경향 요약만
-│   └── entity_link.py # P2: 매뉴얼 백본 엔티티(시드 9개) → Jira/Confluence 제목 매칭 링크 + 질의 시 주입
+│   └── entity_link.py # P2: 매뉴얼 백본 엔티티 사전(entities 테이블, 관리자 편집) → 제목 매칭 링크 + 질의 시 주입
 ├── insight_api/       # 도메인별 LLM 인사이트 API (#56, 내부 솔루션용)
 │   ├── router.py      # POST /api/v1/insights/{domain} (인증→검증→통계→LLM→이력)
 │   ├── auth.py        # X-API-Key(SHA-256) + scope + IP allowlist

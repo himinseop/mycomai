@@ -81,74 +81,160 @@ def _entity_id(name: str) -> str:
     return f"entity:{name}"
 
 
-def rebuild_entities(confluence_docs: Optional[List[Dict]] = None) -> Dict[str, int]:
-    """
-    엔티티 노드 + MENTIONS 엣지를 재구축합니다.
+# ── 엔티티 사전 (DB 기반, 관리자 편집 가능 — SEED_ENTITIES는 최초 시드) ─────
 
-    - Confluence 문서는 doc 노드로 적재 (title/url/doc_id)
-    - MENTIONS: (issue|doc) → entity, 제목·본문 앞부분의 별칭 문자열 매칭
-    - Jira 이슈 노드는 이미 그래프에 있어야 함 (jira_graph.rebuild 이후 호출)
-    """
-    graph_store.init_db()
-    nodes: Dict[str, tuple] = {}
-    edges: Dict[tuple, tuple] = {}
+import time as _time
 
-    for ent in SEED_ENTITIES:
-        eid = _entity_id(ent["name"])
-        nodes[eid] = (eid, "entity", ent["name"], json.dumps({
-            "aliases": ent["aliases"],
-            "manual_relpath": f"{_MANUAL_DIR}/{ent['manual']}",
-        }, ensure_ascii=False))
+_ent_cache: Optional[List[Dict]] = None
+_ent_cache_at: float = 0.0
+_ENT_CACHE_TTL = 60.0
 
-    # Confluence 페이지 → doc 노드
-    for d in (confluence_docs or []):
-        doc_id = d.get("id") or ""
-        title = d.get("title") or ""
-        if not doc_id or not title:
-            continue
-        nid = f"doc:{doc_id}"
-        nodes[nid] = (nid, "doc", title, json.dumps({
-            "source": "confluence",
-            "url": d.get("url", ""),
-            "original_doc_id": doc_id,
-            "updated_at": d.get("updated_at", ""),
-            "summary_text": (d.get("content") or "")[:300],
-        }, ensure_ascii=False))
 
-    # doc(Confluence) → entity MENTIONS (메모리 매칭 — 문서 수백 건 수준)
-    # 제목 매칭만 사용 — 본문 매칭은 스치듯 언급된 문서까지 연결해 노이즈가 큼
-    for d in (confluence_docs or []):
-        doc_id = d.get("id") or ""
-        if not doc_id:
-            continue
-        text = d.get("title") or ""
-        for ent in SEED_ENTITIES:
-            terms = [ent["name"]] + ent["aliases"]
-            if any(t in text for t in terms):
-                edges[(f"doc:{doc_id}", _entity_id(ent["name"]), "MENTIONS")] = (
-                    f"doc:{doc_id}", _entity_id(ent["name"]), "MENTIONS", "{}")
-
-    # 기존 entity/doc 노드 교체 (issue 노드는 보존)
-    graph_store.rebuild(nodes.values(), edges.values(), ["entity", "doc"])
-
-    # issue → entity MENTIONS (SQL LIKE — 이슈 노드는 DB에 있음)
+def init_entities_table() -> None:
+    """entities 테이블을 생성하고, 비어 있으면 시드 사전으로 채웁니다."""
     import sqlite3
     from company_llm_rag.config import settings
     con = sqlite3.connect(settings.APP_DATA_DB_PATH)
     try:
-        # 별칭 변경 시 낡은 링크가 남지 않도록 issue→entity MENTIONS 전량 재생성
         con.execute("""
-            DELETE FROM graph_edges WHERE rel='MENTIONS' AND src_id IN
-                (SELECT id FROM graph_nodes WHERE type='issue')
+            CREATE TABLE IF NOT EXISTS entities (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT UNIQUE NOT NULL,
+                manual     TEXT NOT NULL DEFAULT '',  -- platform/ 기준 상대 경로
+                aliases    TEXT NOT NULL DEFAULT '',  -- 콤마 구분
+                is_active  INTEGER NOT NULL DEFAULT 1,
+                updated_at TEXT
+            )
         """)
+        if con.execute("SELECT COUNT(*) FROM entities").fetchone()[0] == 0:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
+            con.executemany(
+                "INSERT INTO entities (name, manual, aliases, is_active, updated_at) VALUES (?,?,?,1,?)",
+                [(e["name"], e["manual"], ",".join(e["aliases"]), now) for e in SEED_ENTITIES])
+            logger.info(f"[Graph] 엔티티 사전 시드 적재: {len(SEED_ENTITIES)}개")
+        con.commit()
+    finally:
+        con.close()
+
+
+def get_entities(active_only: bool = True, use_cache: bool = True) -> List[Dict]:
+    """엔티티 사전을 반환합니다 (60초 캐시)."""
+    global _ent_cache, _ent_cache_at
+    if use_cache and active_only and _ent_cache is not None \
+            and _time.monotonic() - _ent_cache_at < _ENT_CACHE_TTL:
+        return _ent_cache
+    import sqlite3
+    from company_llm_rag.config import settings
+    init_entities_table()
+    con = sqlite3.connect(settings.APP_DATA_DB_PATH)
+    con.row_factory = sqlite3.Row
+    try:
+        where = "WHERE is_active = 1" if active_only else ""
+        rows = con.execute(f"SELECT * FROM entities {where} ORDER BY id").fetchall()
+    finally:
+        con.close()
+    result = [{
+        "id": r["id"], "name": r["name"], "manual": r["manual"],
+        "aliases": [a.strip() for a in (r["aliases"] or "").split(",") if a.strip()],
+        "is_active": bool(r["is_active"]),
+    } for r in rows]
+    if active_only:
+        _ent_cache, _ent_cache_at = result, _time.monotonic()
+    return result
+
+
+def save_entities(entries: List[Dict]) -> Dict:
+    """엔티티 사전을 전체 교체합니다 (관리자 편집 저장)."""
+    global _ent_cache
+    cleaned = []
+    seen_names = set()
+    for e in entries:
+        name = (e.get("name") or "").strip()
+        manual = (e.get("manual") or "").strip()
+        aliases = e.get("aliases") or []
+        if isinstance(aliases, str):
+            aliases = [a.strip() for a in aliases.split(",")]
+        aliases = [a for a in (a.strip() for a in aliases) if len(a) >= 2]
+        if not name or name in seen_names:
+            continue
+        seen_names.add(name)
+        cleaned.append((name, manual, ",".join(aliases),
+                        1 if e.get("is_active", True) else 0))
+    if not cleaned:
+        raise ValueError("엔티티가 1개 이상 필요합니다")
+
+    import sqlite3
+    from company_llm_rag.config import settings
+    from datetime import datetime, timezone
+    init_entities_table()
+    now = datetime.now(timezone.utc).isoformat()
+    con = sqlite3.connect(settings.APP_DATA_DB_PATH)
+    try:
+        con.execute("DELETE FROM entities")
+        con.executemany(
+            "INSERT INTO entities (name, manual, aliases, is_active, updated_at) VALUES (?,?,?,?,?)",
+            [(n, m, a, act, now) for n, m, a, act in cleaned])
+        con.commit()
+    finally:
+        con.close()
+    _ent_cache = None
+    logger.info(f"[Graph] 엔티티 사전 저장: {len(cleaned)}개")
+    return {"saved": len(cleaned)}
+
+
+def rebuild_entities(confluence_docs: Optional[List[Dict]] = None) -> Dict[str, int]:
+    """
+    엔티티 노드 + MENTIONS 엣지를 재구축합니다.
+
+    - 엔티티 정의는 DB 사전(get_entities) 사용
+    - confluence_docs가 주어지면 doc 노드를 교체, None이면 기존 doc 노드 보존
+    - MENTIONS: (issue|doc) → entity, **제목 매칭만** (본문 매칭은 노이즈가 컸음)
+    - Jira 이슈 노드는 이미 그래프에 있어야 함 (jira_graph.rebuild 이후 호출)
+    """
+    graph_store.init_db()
+    entities = get_entities(use_cache=False)
+    nodes: Dict[str, tuple] = {}
+
+    for ent in entities:
+        eid = _entity_id(ent["name"])
+        nodes[eid] = (eid, "entity", ent["name"], json.dumps({
+            "aliases": ent["aliases"],
+            "manual_relpath": f"{_MANUAL_DIR}/{ent['manual']}" if ent["manual"] else "",
+        }, ensure_ascii=False))
+
+    # Confluence 페이지 → doc 노드 (미제공 시 기존 노드 보존)
+    replace_types = ["entity"]
+    if confluence_docs is not None:
+        replace_types.append("doc")
+        for d in confluence_docs:
+            doc_id = d.get("id") or ""
+            title = d.get("title") or ""
+            if not doc_id or not title:
+                continue
+            nid = f"doc:{doc_id}"
+            nodes[nid] = (nid, "doc", title, json.dumps({
+                "source": "confluence",
+                "url": d.get("url", ""),
+                "original_doc_id": doc_id,
+                "updated_at": d.get("updated_at", ""),
+            }, ensure_ascii=False))
+
+    graph_store.rebuild(nodes.values(), [], replace_types)
+
+    # MENTIONS 전량 재생성 (별칭 변경 시 낡은 링크 제거)
+    import sqlite3
+    from company_llm_rag.config import settings
+    con = sqlite3.connect(settings.APP_DATA_DB_PATH)
+    try:
+        con.execute("DELETE FROM graph_edges WHERE rel='MENTIONS'")
         edge_count = 0
-        for ent in SEED_ENTITIES:
+        for ent in entities:
             eid = _entity_id(ent["name"])
             for term in [ent["name"]] + ent["aliases"]:
-                # 제목 매칭만 사용 — 본문 매칭은 스치듯 언급된 이슈까지 끌어와 노이즈가 큼
                 rows = con.execute("""
                     SELECT id FROM graph_nodes
-                    WHERE type='issue' AND label LIKE ?
+                    WHERE type IN ('issue', 'doc') AND label LIKE ?
                 """, (f"%{term}%",)).fetchall()
                 if rows:
                     con.executemany(
@@ -156,11 +242,11 @@ def rebuild_entities(confluence_docs: Optional[List[Dict]] = None) -> Dict[str, 
                         [(r[0], eid) for r in rows])
                     edge_count += len(rows)
         con.commit()
+        doc_count = con.execute("SELECT COUNT(*) FROM graph_nodes WHERE type='doc'").fetchone()[0]
     finally:
         con.close()
 
-    stats = {"entities": len(SEED_ENTITIES), "conf_docs": len(confluence_docs or []),
-             "issue_mentions": edge_count}
+    stats = {"entities": len(entities), "conf_docs": doc_count, "mentions": edge_count}
     logger.info(f"[Graph] 엔티티 링크 재구축: {stats}")
     return stats
 
@@ -174,12 +260,12 @@ _INJECT_MANUAL_CHUNKS = 2  # 매뉴얼 문서당 주입할 청크 수
 
 
 def detect_entities(query: str) -> List[Dict]:
-    """질문 문자열에서 시드 엔티티를 감지합니다 (별칭 부분 문자열 매칭)."""
+    """질문 문자열에서 엔티티를 감지합니다 (별칭 부분 문자열 매칭, DB 사전)."""
     q = (query or "").strip()
     if not q:
         return []
     found = []
-    for ent in SEED_ENTITIES:
+    for ent in get_entities():
         terms = [ent["name"]] + ent["aliases"]
         matched = next((t for t in terms if t in q), None)
         if matched:
@@ -238,9 +324,10 @@ def inject_entity_docs(query: str, retrieved_docs: List[Dict]) -> List[Dict]:
 
         for ent in entities:
             # 1) 매뉴얼 청크 (해당 문서가 검색 결과에 없을 때만)
-            relpath = f"{_MANUAL_DIR}/{ent['manual']}"
-            if f"docs-{relpath}" not in present_docs:
-                injected.extend(_fetch({"docs_relpath": {"$eq": relpath}}, _INJECT_MANUAL_CHUNKS))
+            if ent.get("manual"):
+                relpath = f"{_MANUAL_DIR}/{ent['manual']}"
+                if f"docs-{relpath}" not in present_docs:
+                    injected.extend(_fetch({"docs_relpath": {"$eq": relpath}}, _INJECT_MANUAL_CHUNKS))
 
             # 2) 최근 관련 Jira 이슈
             for node in _mentioned_nodes(ent["name"], "issue", _INJECT_ISSUES):
