@@ -18,30 +18,62 @@ from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
 
-_MANUAL_DIR = "guides/documents/platform/features"
+_MANUAL_DIR = "guides/documents/platform"
 
-# 시드 엔티티 사전 — 매뉴얼 문서 1개 = 엔티티 1개.
-# aliases는 Jira/Confluence 제목·본문 및 사용자 질문에서 매칭할 사내 용어.
+# 시드 엔티티 사전 — 매뉴얼 문서 1개 = 엔티티 1개 (manual은 platform/ 기준 상대 경로).
+# aliases는 Jira/Confluence 제목 및 사용자 질문에서 매칭할 사내 용어.
 # 주의: 1글자·과도하게 일반적인 단어는 넣지 않는다 (과잉 링크 방지).
 SEED_ENTITIES: List[Dict] = [
-    {"name": "QR 테이블 주문", "manual": "qr-table-order.md",
+    # ── 기능 가이드 (features) ──
+    {"name": "QR 테이블 주문", "manual": "features/qr-table-order.md",
      "aliases": ["테이블오더", "테이블 오더", "QR주문", "QR 주문", "스마트오더", "전자메뉴판", "테이블주문", "테이블 주문", "직원호출", "직원 호출"]},
-    {"name": "배달·픽업 주문", "manual": "delivery-pickup-order.md",
+    {"name": "배달·픽업 주문", "manual": "features/delivery-pickup-order.md",
      "aliases": ["배달주문", "배달 주문", "픽업주문", "픽업 주문", "배달접수", "픽업대기"]},
-    {"name": "키오스크 주문", "manual": "kiosk-order.md",
+    {"name": "배송 주문", "manual": "features/shipping.md",
+     "aliases": ["배송주문", "택배", "송장번호", "송장 번호"]},
+    {"name": "키오스크 주문", "manual": "features/kiosk-order.md",
      "aliases": ["키오스크"]},
-    {"name": "회원", "manual": "member.md",
+    {"name": "회원", "manual": "features/member.md",
      "aliases": ["회원가입", "회원 가입", "본인인증", "본인 인증", "회원탈퇴", "회원 탈퇴", "휴면회원", "휴면 회원"]},
-    {"name": "알림", "manual": "notification.md",
+    {"name": "알림", "manual": "features/notification.md",
      "aliases": ["알림톡", "푸시알림", "푸시 알림", "웹푸시", "앱푸시", "카카오 알림"]},
-    {"name": "POS 실시간 통신", "manual": "pos-socket.md",
+    {"name": "POS 실시간 통신", "manual": "features/pos-socket.md",
      "aliases": ["POS 소켓", "소켓 통신", "주문접수 프로그램", "주문접수 POS", "주문 알림", "자동주문접수", "자동 접수"]},
-    {"name": "매출·정산", "manual": "sales-settlement.md",
+    {"name": "매출·정산", "manual": "features/sales-settlement.md",
      "aliases": ["정산", "정산주기", "정산 주기", "지급대상", "정산내역", "세금계산서", "부가세 신고"]},
-    {"name": "정기구독", "manual": "subscription.md",
+    {"name": "정기구독", "manual": "features/subscription.md",
      "aliases": ["구독", "정기결제", "정기 결제", "구독권", "구독 혜택"]},
-    {"name": "업체·매장", "manual": "company-store.md",
+    {"name": "업체·매장", "manual": "features/company-store.md",
      "aliases": ["입점", "업체 등록", "매장 등록", "폐점 처리", "매장 관리"]},
+    {"name": "쿠폰", "manual": "features/coupon.md",
+     "aliases": ["할인쿠폰", "할인 쿠폰", "배달비 쿠폰", "메뉴 쿠폰", "쿠폰 발급", "프로모션 코드", "쿠폰 수기지급"]},
+    {"name": "E쿠폰", "manual": "features/ecoupon.md",
+     "aliases": ["이쿠폰", "메뉴교환권", "메뉴 교환권", "교환권", "금액권", "선물하기"]},
+    {"name": "포인트", "manual": "features/point.md",
+     "aliases": ["통합포인트", "통합 포인트", "포인트 적립", "포인트 사용", "적립금"]},
+    {"name": "매장 포인트", "manual": "features/store-point.md",
+     "aliases": ["매장포인트"]},
+    {"name": "상품·메뉴", "manual": "features/product-menu.md",
+     "aliases": ["상품 관리", "메뉴 관리", "옵션그룹", "옵션 그룹", "메뉴판", "추천메뉴", "원산지"]},
+    {"name": "후기", "manual": "features/review.md",
+     "aliases": ["리뷰", "별점", "후기 신고", "후기 답글"]},
+    {"name": "티켓", "manual": "features/ticket.md",
+     "aliases": ["티켓형 상품", "딜 상품", "입장권", "사용처"]},
+    {"name": "위메프오플러스", "manual": "features/wmpoplus.md",
+     "aliases": ["플러스 서비스", "브랜드관", "프랜차이즈 본사"]},
+    # ── 사이트 가이드 (sites) ──
+    {"name": "위메프오 통합 어드민", "manual": "sites/admin.md",
+     "aliases": ["통합 어드민", "통합어드민", "어드민 사이트", "관리자 사이트"]},
+    {"name": "위메프오 파트너스", "manual": "sites/partners.md",
+     "aliases": ["파트너스", "사장님 사이트", "사장님 페이지"]},
+    {"name": "위메프오 주문접수 사이트", "manual": "sites/pos.md",
+     "aliases": ["주문접수 사이트", "주문접수 화면", "주문 목록 화면"]},
+    {"name": "위메프오 고객 사이트", "manual": "sites/wmpo.md",
+     "aliases": ["위메프오 앱", "위메프오 웹", "고객 앱"]},
+    {"name": "위메프오플러스 어드민", "manual": "sites/wmpoplus-admin.md",
+     "aliases": ["플러스 어드민", "브랜드 어드민", "플러스어드민"]},
+    {"name": "위메프오플러스 고객 사이트", "manual": "sites/wmpoplus.md",
+     "aliases": ["플러스 앱", "플러스 웹"]},
 ]
 
 

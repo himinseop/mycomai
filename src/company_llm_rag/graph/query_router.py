@@ -89,6 +89,19 @@ def try_aggregate_answer(
 
         result = graph_store.query_issues(limit=_MAX_LIST_ROWS, **filters)
         if result["total"] == 0:
+            # 프로젝트/담당자처럼 강한 구조화 조건이면 0건이 곧 정답 — 벡터 검색 폴백은
+            # 무관한 문서를 관련 이슈처럼 답할 위험이 있어 확정 응답한다.
+            if filters["project"] or filters["assignee"]:
+                cond = " ".join(p for p in [
+                    filters["project"] and f"{filters['project']} 프로젝트",
+                    filters["assignee"] and f"담당자 {filters['assignee']}",
+                    filters["days"] and f"최근 {filters['days']}일",
+                    filters["keywords"] and "·".join(f"'{k}'" for k in filters["keywords"]) + " 관련",
+                ] if p)
+                answer = f"{cond} 조건에 해당하는 Jira 이슈는 **0건**입니다."
+                logger.info(f"[Graph] 조회 0건 확정 응답 (filter={filters})")
+                return answer, [], {"graph_total": 0, "graph_filter": filters,
+                                    "model": current_model_name("summarize")}
             logger.info(f"[Graph] 조회 0건 (filter={filters}) → 기존 파이프라인 폴백")
             return None
 
