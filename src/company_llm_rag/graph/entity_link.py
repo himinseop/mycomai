@@ -18,7 +18,7 @@ from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
 
-_MANUAL_DIR = "guides/documents/platform"
+_MANUAL_DIR = "platform"
 
 # 시드 엔티티 사전 — 매뉴얼 문서 1개 = 엔티티 1개 (manual은 platform/ 기준 상대 경로).
 # aliases는 Jira/Confluence 제목 및 사용자 질문에서 매칭할 사내 용어.

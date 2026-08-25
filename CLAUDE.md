@@ -78,9 +78,9 @@ KNOWLEDGE_HUB_WEBHOOK_URL=...       # Incoming Webhook URL
 KNOWLEDGE_HUB_RRF_BOOST=5.0         # RRF 점수 배수
 
 # 플랫폼매뉴얼 (bitbucket docs 저장소 수집)
-DOCS_REPO_BRANCH=feature/INFRA-39   # 체크아웃 브랜치 가드 (다르면 수집 건너뜀)
+DOCS_REPO_BRANCH=master             # 체크아웃 브랜치 가드 (다르면 수집 건너뜀)
 # DOCS_REPO_HOST_PATH=              # 로컬 체크아웃 경로 (기본: mycomai/../../o2olab/docs)
-# DOCS_REPO_SUBDIRS=                # 기본: guides/documents/platform/features,~/sites
+# DOCS_REPO_SUBDIRS=                # 기본: platform/features,platform/sites
 # DOCS_RRF_BOOST=4.0  BOOST_DOCS=0.5
 
 # OpenAI

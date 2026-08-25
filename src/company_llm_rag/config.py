@@ -100,7 +100,7 @@ class Settings:
     DOCS_REPO_SUBDIRS: List[str] = [
         d.strip().strip("/") for d in os.getenv(
             "DOCS_REPO_SUBDIRS",
-            "guides/documents/platform/features,guides/documents/platform/sites",
+            "platform/features,platform/sites",
         ).split(",") if d.strip()
     ]
     # 참고문서 링크용 소스 뷰 URL prefix (뒤에 /{branch}/{path} 가 붙음)
