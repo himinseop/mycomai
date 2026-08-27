@@ -636,8 +636,16 @@ def rag_query(
     t_inject_start = time.monotonic()
     retrieved_docs = _inject_jira_docs(user_query, retrieved_docs)
     # 엔티티 주입 (#59 P2): 매뉴얼 엔티티 감지 시 연결 Jira/Confluence 문서 추가
+    # 후속 질문 대응: 원문에 엔티티가 없어도 재작성문·직전 질문에서 감지 (sess-4m6keh7)
     from company_llm_rag.graph.entity_link import inject_entity_docs
-    retrieved_docs = inject_entity_docs(user_query, retrieved_docs)
+    _ent_text = user_query
+    if rewrite.get("rewritten") and rewrite["rewritten"] != user_query:
+        _ent_text += " " + rewrite["rewritten"]
+    if conversation_history:
+        _prev_q = next((m.get("content", "") for m in reversed(conversation_history)
+                        if m.get("role") == "user"), "")
+        _ent_text += " " + _prev_q[:200]
+    retrieved_docs = inject_entity_docs(_ent_text, retrieved_docs)
     inject_ms = int((time.monotonic() - t_inject_start) * 1000)
 
     if _docs_out is not None:
@@ -768,8 +776,16 @@ def rag_query_stream(
     t_inject_start = time.monotonic()
     retrieved_docs = _inject_jira_docs(user_query, retrieved_docs)
     # 엔티티 주입 (#59 P2): 매뉴얼 엔티티 감지 시 연결 Jira/Confluence 문서 추가
+    # 후속 질문 대응: 원문에 엔티티가 없어도 재작성문·직전 질문에서 감지 (sess-4m6keh7)
     from company_llm_rag.graph.entity_link import inject_entity_docs
-    retrieved_docs = inject_entity_docs(user_query, retrieved_docs)
+    _ent_text = user_query
+    if rewrite.get("rewritten") and rewrite["rewritten"] != user_query:
+        _ent_text += " " + rewrite["rewritten"]
+    if conversation_history:
+        _prev_q = next((m.get("content", "") for m in reversed(conversation_history)
+                        if m.get("role") == "user"), "")
+        _ent_text += " " + _prev_q[:200]
+    retrieved_docs = inject_entity_docs(_ent_text, retrieved_docs)
     inject_ms = int((time.monotonic() - t_inject_start) * 1000)
 
     # 호출자가 원할 경우 retrieved_docs를 외부로 노출 (분석용)
