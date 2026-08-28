@@ -459,10 +459,25 @@ def inject_entity_docs(query: str, retrieved_docs: List[Dict]) -> List[Dict]:
 
         for ent in entities:
             # 1) 매뉴얼 청크 (해당 문서가 검색 결과에 없을 때만)
+            # 앞 청크(개요) 고정이 아니라 질문과 가장 관련된 절을 벡터 검색으로 선택 (#61 검증 중 개선)
             if ent.get("manual"):
                 relpath = f"{_MANUAL_DIR}/{ent['manual']}"
                 if f"docs-{relpath}" not in present_docs:
-                    injected.extend(_fetch({"docs_relpath": {"$eq": relpath}}, _INJECT_MANUAL_CHUNKS))
+                    try:
+                        q = collection.query(
+                            query_texts=[query],
+                            n_results=_INJECT_MANUAL_CHUNKS,
+                            where={"docs_relpath": {"$eq": relpath}},
+                            include=["documents", "metadatas"],
+                        )
+                        injected.extend([
+                            {"content": q["documents"][0][i], "metadata": q["metadatas"][0][i],
+                             "_distance": 0.0, "_injected": True}
+                            for i in range(len((q.get("ids") or [[]])[0]))
+                        ])
+                    except Exception:
+                        # 임베딩 실패 시 기존 방식(앞 청크) 폴백
+                        injected.extend(_fetch({"docs_relpath": {"$eq": relpath}}, _INJECT_MANUAL_CHUNKS))
 
             # 2) 최근 관련 Jira 이슈
             for node in _mentioned_nodes(ent["name"], "issue", _INJECT_ISSUES):
