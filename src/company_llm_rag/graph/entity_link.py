@@ -11,7 +11,8 @@ Jira 이슈·Confluence 페이지를 MENTIONS 엣지로 연결합니다.
 """
 
 import json
-from typing import Dict, List, Optional
+import re
+from typing import Dict, List, Optional, Tuple
 
 from company_llm_rag.graph import graph_store
 from company_llm_rag.logger import get_logger
@@ -19,6 +20,9 @@ from company_llm_rag.logger import get_logger
 logger = get_logger(__name__)
 
 _MANUAL_DIR = "platform"
+
+# L3: 매뉴얼 본문에서 Jira 이슈키 추출 (예: WMPO-1234, CUPPING-1)
+_ISSUE_KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]+-\d+)\b")
 
 # 시드 엔티티 사전 — 매뉴얼 문서 1개 = 엔티티 1개 (manual은 platform/ 기준 상대 경로).
 # aliases는 Jira/Confluence 제목 및 사용자 질문에서 매칭할 사내 용어.
@@ -183,14 +187,86 @@ def save_entities(entries: List[Dict]) -> Dict:
     return {"saved": len(cleaned)}
 
 
+def _update_best(
+    edge_scores: Dict[Tuple[str, str], Tuple[float, str]],
+    src_id: str, dst_id: str, score: float, method: str,
+) -> None:
+    """(src, dst) 쌍에 여러 방법이 걸리면 score가 높은 쪽으로 갱신합니다."""
+    cur = edge_scores.get((src_id, dst_id))
+    if cur is None or score > cur[0]:
+        edge_scores[(src_id, dst_id)] = (score, method)
+
+
+def _fetch_manual_chunks(collection, relpath: str) -> Tuple[List[str], List[str], List[dict]]:
+    """매뉴얼(docs) 청크를 ChromaDB에서 읽습니다 (docs_repo 마운트 불필요)."""
+    res = collection.get(
+        where={"docs_relpath": {"$eq": relpath}}, include=["documents", "metadatas"])
+    return res.get("ids", []) or [], res.get("documents", []) or [], res.get("metadatas", []) or []
+
+
+def _link_by_embedding(
+    ent: Dict, collection, existing_ids: set,
+    ids: List[str], docs: List[str], metas: List[dict],
+) -> Dict[str, float]:
+    """L2: 엔티티명+매뉴얼 제목+첫 청크를 쿼리 텍스트로 임베딩 검색해 관련 issue/doc를 찾습니다."""
+    from company_llm_rag.config import settings
+    result: Dict[str, float] = {}
+    if not ids:
+        return result
+    chunk0_idx = next((i for i, cid in enumerate(ids) if cid.endswith("-chunk-0")), 0)
+    manual_title = metas[chunk0_idx].get("title", "") if metas else ""
+    first_chunk = docs[chunk0_idx] if docs else ""
+    query_text = f"{ent['name']} {manual_title} {first_chunk}".strip()
+
+    res = collection.query(
+        query_texts=[query_text],
+        n_results=settings.MANUAL_LINK_EMBED_TOP_N,
+        where={"source": {"$in": ["jira", "confluence"]}},
+        include=["metadatas", "distances"],
+    )
+    q_metas = (res.get("metadatas") or [[]])[0]
+    q_dists = (res.get("distances") or [[]])[0]
+    for meta, dist in zip(q_metas, q_dists):
+        if dist > settings.MANUAL_LINK_EMBED_MAX_DIST:
+            continue
+        source = meta.get("source")
+        node_id = ""
+        if source == "jira" and meta.get("jira_issue_key"):
+            node_id = f"issue:{meta['jira_issue_key']}"
+        elif source == "confluence" and meta.get("original_doc_id"):
+            node_id = f"doc:{meta['original_doc_id']}"
+        if not node_id or node_id not in existing_ids:
+            continue
+        score = round(1 - dist, 4)
+        if node_id not in result or score > result[node_id]:
+            result[node_id] = score
+    return result
+
+
+def _link_by_issue_keys(docs: List[str], existing_ids: set) -> Dict[str, float]:
+    """L3: 매뉴얼 청크 본문에서 이슈키(WMPO-123 등)를 추출해 해당 issue 노드에 연결합니다."""
+    result: Dict[str, float] = {}
+    keys = set()
+    for doc in docs:
+        keys.update(_ISSUE_KEY_RE.findall(doc or ""))
+    for key in keys:
+        node_id = f"issue:{key}"
+        if node_id in existing_ids:
+            result[node_id] = 1.0
+    return result
+
+
 def rebuild_entities(confluence_docs: Optional[List[Dict]] = None) -> Dict[str, int]:
     """
-    엔티티 노드 + MENTIONS 엣지를 재구축합니다.
+    엔티티 노드 + MENTIONS 엣지를 재구축합니다 (#61 P1: 3단 링크 빌더).
 
     - 엔티티 정의는 DB 사전(get_entities) 사용
     - confluence_docs가 주어지면 doc 노드를 교체, None이면 기존 doc 노드 보존
-    - MENTIONS: (issue|doc) → entity, **제목 매칭만** (본문 매칭은 노이즈가 컸음)
+    - MENTIONS: (issue|doc) → entity, 3단 매칭
+      L1 제목 별칭 LIKE(score 0.7) / L2 임베딩 검색(score 1-distance) / L3 이슈키 추출(score 1.0)
+      같은 (src,dst) 쌍은 score가 높은 방법으로 갱신
     - Jira 이슈 노드는 이미 그래프에 있어야 함 (jira_graph.rebuild 이후 호출)
+    - web 컨테이너는 docs_repo 마운트가 없으므로 매뉴얼 본문은 ChromaDB에서만 읽음
     """
     graph_store.init_db()
     entities = get_entities(use_cache=False)
@@ -222,31 +298,79 @@ def rebuild_entities(confluence_docs: Optional[List[Dict]] = None) -> Dict[str, 
 
     graph_store.rebuild(nodes.values(), [], replace_types)
 
-    # MENTIONS 전량 재생성 (별칭 변경 시 낡은 링크 제거)
+    # L2/L3에 쓸 ChromaDB 컬렉션 (실패해도 L1은 계속 동작해야 함)
+    collection = None
+    try:
+        from company_llm_rag.database import db_manager
+        collection = db_manager.get_collection()
+    except Exception as e:
+        logger.warning(f"[Graph] ChromaDB 컬렉션 접근 실패 — L2/L3 스킵, L1만 수행: {e}")
+
+    # MENTIONS 전량 재생성 (별칭 변경 시 낡은 링크 제거 → 재구축 멱등성)
     import sqlite3
     from company_llm_rag.config import settings
     con = sqlite3.connect(settings.APP_DATA_DB_PATH)
+    con.row_factory = sqlite3.Row
     try:
         con.execute("DELETE FROM graph_edges WHERE rel='MENTIONS'")
-        edge_count = 0
+        existing_ids = {r["id"] for r in con.execute(
+            "SELECT id FROM graph_nodes WHERE type IN ('issue', 'doc')").fetchall()}
+
+        edge_scores: Dict[Tuple[str, str], Tuple[float, str]] = {}
+
         for ent in entities:
             eid = _entity_id(ent["name"])
+
+            # L1: 엔티티 이름·별칭 ↔ 노드 label(제목) LIKE
             for term in [ent["name"]] + ent["aliases"]:
                 rows = con.execute("""
                     SELECT id FROM graph_nodes
                     WHERE type IN ('issue', 'doc') AND label LIKE ?
                 """, (f"%{term}%",)).fetchall()
-                if rows:
-                    con.executemany(
-                        "INSERT OR IGNORE INTO graph_edges (src_id, dst_id, rel, meta_json) VALUES (?,?,'MENTIONS','{}')",
-                        [(r[0], eid) for r in rows])
-                    edge_count += len(rows)
+                for r in rows:
+                    _update_best(edge_scores, r["id"], eid, 0.7, "title")
+
+            if not ent.get("manual") or collection is None:
+                continue  # 매뉴얼 없는 엔티티는 L1만 (L2/L3는 매뉴얼 본문이 있어야 함)
+
+            relpath = f"{_MANUAL_DIR}/{ent['manual']}"
+            try:
+                ids, docs, metas = _fetch_manual_chunks(collection, relpath)
+            except Exception as e:
+                logger.warning(f"[Graph] 매뉴얼 청크 조회 실패 ({relpath}): {e}")
+                continue
+            if not ids:
+                continue
+
+            try:
+                for nid, score in _link_by_embedding(ent, collection, existing_ids, ids, docs, metas).items():
+                    _update_best(edge_scores, nid, eid, score, "embed")
+            except Exception as e:
+                logger.warning(f"[Graph] L2 임베딩 링크 실패 (엔티티: {ent['name']}): {e}")
+
+            try:
+                for nid, score in _link_by_issue_keys(docs, existing_ids).items():
+                    _update_best(edge_scores, nid, eid, score, "key")
+            except Exception as e:
+                logger.warning(f"[Graph] L3 이슈키 링크 실패 (엔티티: {ent['name']}): {e}")
+
+        method_counts = {"title": 0, "embed": 0, "key": 0}
+        for score, method in edge_scores.values():
+            method_counts[method] = method_counts.get(method, 0) + 1
+
+        con.executemany(
+            "INSERT OR REPLACE INTO graph_edges (src_id, dst_id, rel, meta_json) VALUES (?,?,'MENTIONS',?)",
+            [(src, dst, json.dumps({"method": method, "score": score}, ensure_ascii=False))
+             for (src, dst), (score, method) in edge_scores.items()])
         con.commit()
         doc_count = con.execute("SELECT COUNT(*) FROM graph_nodes WHERE type='doc'").fetchone()[0]
     finally:
         con.close()
 
-    stats = {"entities": len(entities), "conf_docs": doc_count, "mentions": edge_count}
+    stats = {
+        "entities": len(entities), "conf_docs": doc_count, "mentions": len(edge_scores),
+        "title": method_counts["title"], "embed": method_counts["embed"], "key": method_counts["key"],
+    }
     logger.info(f"[Graph] 엔티티 링크 재구축: {stats}")
     return stats
 
@@ -276,7 +400,11 @@ def detect_entities(query: str) -> List[Dict]:
 
 
 def _mentioned_nodes(entity_name: str, node_type: str, limit: int) -> List[Dict]:
-    """엔티티를 언급한 노드를 최근 순으로 반환합니다."""
+    """엔티티를 언급한 노드를 최신순으로 반환합니다 (동점 시 method: key > title > embed).
+
+    #61 설계는 method 우선이었으나, 매뉴얼에 인용된 오래된 이슈가 최신 이슈를 밀어내
+    "최근 문제" 질문이 실패해 최신순을 1차 기준으로 변경 (검증 중 실측).
+    """
     import sqlite3
     from company_llm_rag.config import settings
     con = sqlite3.connect(settings.APP_DATA_DB_PATH)
@@ -287,7 +415,14 @@ def _mentioned_nodes(entity_name: str, node_type: str, limit: int) -> List[Dict]
             SELECT n.id, n.label, n.meta_json FROM graph_edges e
             JOIN graph_nodes n ON n.id = e.src_id
             WHERE e.rel='MENTIONS' AND e.dst_id = ? AND n.type = ?
-            ORDER BY json_extract(n.meta_json, '{date_key}') DESC
+            ORDER BY
+                json_extract(n.meta_json, '{date_key}') DESC,
+                CASE json_extract(e.meta_json, '$.method')
+                    WHEN 'key' THEN 0
+                    WHEN 'title' THEN 1
+                    WHEN 'embed' THEN 2
+                    ELSE 3
+                END
             LIMIT ?
         """, (_entity_id(entity_name), node_type, limit)).fetchall()
         return [{"id": r["id"], "label": r["label"],
@@ -346,6 +481,10 @@ def inject_entity_docs(query: str, retrieved_docs: List[Dict]) -> List[Dict]:
         if injected:
             logger.info(
                 f"[Graph] 엔티티 주입: {[e['name'] for e in entities]} → {len(injected)}개 청크")
+            # Hub 직접응답 보호: 검색 1위가 Hub 문서면 상위 2개(우세 판정 대상) 뒤에 주입한다.
+            # 앞에 끼워 넣으면 hub_direct가 retrieved_docs[0]만 보기 때문에 직접응답이 차단된다.
+            if retrieved_docs and retrieved_docs[0].get("metadata", {}).get("is_hub_direct"):
+                return retrieved_docs[:2] + injected + retrieved_docs[2:]
         return injected + retrieved_docs
     except Exception as e:
         logger.error(f"[Graph] 엔티티 주입 실패 (원본 결과 유지): {e}", exc_info=True)

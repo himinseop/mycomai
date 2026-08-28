@@ -118,6 +118,9 @@ class Settings:
     GRAPH_AGGREGATE_ENABLED: bool = os.getenv("GRAPH_AGGREGATE_ENABLED", "true").lower() == "true"
     # GraphRAG Phase 2: 질문에서 매뉴얼 엔티티 감지 시 연결 Jira/Confluence 문서 주입
     GRAPH_ENTITY_INJECT_ENABLED: bool = os.getenv("GRAPH_ENTITY_INJECT_ENABLED", "true").lower() == "true"
+    # #61 P1: 엔티티 링크 재구축 L2(임베딩 매칭) 파라미터
+    MANUAL_LINK_EMBED_TOP_N: int = int(os.getenv("MANUAL_LINK_EMBED_TOP_N", "50"))
+    MANUAL_LINK_EMBED_MAX_DIST: float = float(os.getenv("MANUAL_LINK_EMBED_MAX_DIST", "0.45"))
 
     # Knowledge Hub 설정 (답변 우선순위 + 질문 전송)
     KNOWLEDGE_HUB_TEAM_NAME: str = os.getenv("KNOWLEDGE_HUB_TEAM_NAME", "")

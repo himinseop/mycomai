@@ -66,7 +66,7 @@ def build_teams_url(meta: dict) -> str:
 
 
 def doc_source_label(meta: dict) -> str:
-    """프롬프트용 출처 한 줄 레이블을 생성합니다."""
+    """프롬프트용 출처 한 줄 레이블을 생성합니다 (#61 6.1: 소스별 역할 라벨 포함)."""
     source = meta.get('source', 'unknown')
     title = meta.get('title', '')
     url = meta.get('url') or build_teams_url(meta) or ''
@@ -74,18 +74,23 @@ def doc_source_label(meta: dict) -> str:
     date = (meta.get('created_at') or meta.get('updated_at') or '')[:10]
 
     if source == 'jira':
-        return f"[Jira] 제목: {title} | URL: {url} | 담당자: {author} | 날짜: {date}"
+        # Epic/Story = 정책이 도입된 배경("변경 기원"), 그 외(Bug/Support/Task 등) = 시점이 있는 개별 사례
+        issue_type = meta.get('jira_issue_type', '')
+        role = "변경 기원" if issue_type in ("Epic", "Story") else "개별 사례 — 정책 일반화 금지"
+        status = meta.get('status', '')
+        return (f"[Jira | {role}] 제목: {title} | 유형: {issue_type} | 상태: {status} "
+                f"| 담당자: {author} | 날짜: {date} | URL: {url}")
     if source == 'confluence':
-        return f"[Confluence] 제목: {title} | URL: {url} | 작성자: {author} | 날짜: {date}"
+        return f"[Confluence | 참고문서] 제목: {title} | URL: {url} | 작성자: {author} | 날짜: {date}"
     if source == 'sharepoint':
-        return f"[SharePoint] 제목: {title} | URL: {url} | 작성자: {author} | 날짜: {date}"
+        return f"[SharePoint | 세부 스펙 — 시점 주의] 제목: {title} | URL: {url} | 작성자: {author} | 날짜: {date}"
     if source == 'teams':
         channel = meta.get('teams_channel_name') or meta.get('teams_chat_topic', '')
-        return f"[Teams] 채널/채팅: {channel} | 작성자: {author} | 날짜: {date} | URL: {url}"
+        return f"[Teams | 현장 문답 — 단정 금지] 채널/채팅: {channel} | 작성자: {author} | 날짜: {date} | URL: {url}"
     if source == 'docs':
         # 링크 비제공 문서 — 프롬프트에 URL을 넣지 않아 답변에 노출되는 것 방지
         category = meta.get('docs_category', '')
-        return f"[플랫폼매뉴얼] 제목: {title} | 분류: {category} | 날짜: {date}"
+        return f"[플랫폼매뉴얼 | 현행 정책 기준] 제목: {title} | 분류: {category} | 날짜: {date}"
     return f"[{source}] 제목: {title} | URL: {url}"
 
 

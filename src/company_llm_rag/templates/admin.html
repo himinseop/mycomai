@@ -2084,9 +2084,15 @@
     try {
       const res = await fetch('/admin/entities/rebuild', {method: 'POST'});
       const data = await res.json();
-      status.textContent = res.ok
-        ? `재구축 완료 — 엔티티 ${data.entities}개 · 링크 ${data.mentions.toLocaleString()}개`
-        : '재구축 실패: ' + (data.error || res.status);
+      if (res.ok) {
+        let msg = `재구축 완료 — 엔티티 ${data.entities}개 · 링크 ${data.mentions.toLocaleString()}개`;
+        if (data.title !== undefined) {
+          msg += ` (제목 ${data.title} · 임베딩 ${data.embed} · 이슈키 ${data.key})`;
+        }
+        status.textContent = msg;
+      } else {
+        status.textContent = '재구축 실패: ' + (data.error || res.status);
+      }
     } catch(e) { status.textContent = '재구축 실패: ' + e.message; }
     finally { btn.disabled = false; }
   }

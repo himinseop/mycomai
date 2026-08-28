@@ -392,6 +392,14 @@ def retrieve_documents(
                         p *= settings.DOCS_RERANK_BOOST
                     return p
                 scored.sort(key=_boosted_prob, reverse=True)
+            # Hub 직접응답 보호: 리랭커·매뉴얼 보정이 순서를 바꿔도 RRF 최상인 Hub 문서는 최상단 유지.
+            # hub_direct는 retrieved_docs[0]만 검사하고 우세 판정은 _rrf 비율로 별도 수행한다.
+            if scored:
+                top_rrf = max(c.get('_rrf', 0.0) for c in scored)
+                hub_top = [c for c in scored
+                           if c.get('metadata', {}).get('is_hub_direct') and c.get('_rrf', 0.0) >= top_rrf]
+                if hub_top:
+                    scored = hub_top + [c for c in scored if c is not hub_top[0]]
             rerank_ms = int((time.monotonic() - t_rerank_start) * 1000)
             logger.info(f"[검색 성능] rerank={rerank_ms}ms | 모델={reranker.model_name}")
 
