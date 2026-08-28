@@ -158,6 +158,62 @@ link_overrides(
 | 8 | 회귀 | 집계 질문("WPLUS 최근 한 달 쿠폰 이슈") 그래프 경로 정상, 잡담 응대·Hub 직접응답 정상 |
 | 9 | 재구축 멱등성 | 두 번 재구축해도 엣지 수 동일 (중복 없음) |
 
+## 11-A. 다이제스트 수집 (2026-08-29 확정 — 이슈 코멘트의 결정 사항 구체화)
+
+docs 저장소 `platform/sharepoint-index/digests/*.md` (606건, 파일명 `YYYY-MM_제목.md`)를
+수집한다. **다이제스트가 원본 SharePoint 청크를 대체**하는 것이 핵심 원칙.
+
+### 헤더 계약 (파일럿 검증 완료 — voucher)
+blockquote 헤더 블록에서 파싱:
+```
+> **이 문서는 YYYY년 M월 시점의 기획이다. …**       ← 시점 경고 (본문에 유지)
+> - 원본: [파일명](SharePoint URL)                  ← sourcedoc={GUID} 추출 (경로형 URL이면 GUID 없음)
+> - 문서 기록 날짜: YYYY-MM-DD · 종류: 기획서 · 버전: ver0.4   ← 날짜·종류·버전
+> - SharePoint 위치: `/...`
+> - 관련 주제: [voucher](../../features/voucher.md), ... ← 마크다운 링크 또는 평문 슬러그 둘 다 처리
+> - 관련 일감: 구현 WMPO-123(사유) · 후속 WPLUS-45(사유) · 원인 KEY · 미구현(비고)
+```
+- 관련 일감 역할 어휘 4종 고정: 구현/후속/원인/미구현. `> - 관련 일감:` 줄만 인식
+  (본문 산문에 같은 문자열 존재 — 앵커 필수). 4종 외 어휘는 무시+경고 로그.
+- 관련 주제 슬러그: `voucher` → `features/voucher.md`, `site:admin`·`admin` 링크 → `sites/admin.md`
+
+### 수집·메타데이터
+- `DOCS_REPO_SUBDIRS` 기본값에 `platform/sharepoint-index/digests` 추가
+  (master에 디렉토리가 없으면 기존 경고 후 스킵 — 머지 전 야간 수집 안전)
+- content: 헤더의 URL 포함 줄(원본·위치)은 제거, 시점 경고 문장은 유지 (헤지 보존 규칙과 연동)
+- metadata: `docs_category='digest'`, `digest_date`(기록 날짜), `digest_kind`(종류),
+  `digest_version`, `sp_guid`(대문자, 없으면 ''), `digest_topics`(콤마 슬러그),
+  `digest_issues`(JSON 문자열: [{"role":"구현","key":"WMPO-123","note":"사유"}...]),
+  `not_implemented`(bool)
+- url: 원본 SharePoint URL (참고문서 노출용 — 매뉴얼과 달리 다이제스트는 원본 링크 노출)
+
+### 검색 반영
+- **부스트 분리**: `docs_category=='digest'`는 DOCS_RRF_BOOST·DOCS_RERANK_BOOST 제외,
+  `_source_boost`는 BOOST_DIGEST(기본 0.85) 적용. `not_implemented`는 추가 감쇠(×1.2 distance)
+- **원본 대체**: data_loader가 다이제스트의 sp_guid 집합을 app_data.db `digest_guids`
+  테이블에 저장 → retrieval에서 sharepoint 문서 url의 GUID가 집합에 있으면 distance ×1.3
+  (제거 아님 — 원문 상세 질의는 여전히 가능), 캐시 5분
+- **역할 라벨**: `[기획 다이제스트 | {종류} | {YYYY-MM} — 당시 기획]`,
+  미구현이면 `— 미구현 기획` 추가. 참고문서에는 원본 SharePoint 링크로 노출
+  (references 빌더의 docs 제외 규칙에서 digest는 예외)
+- 생성 규칙 추가: 다이제스트는 당시 기획 — 현행 정책 질문에는 매뉴얼 우선,
+  배경·이력·세부 스펙 인용으로만 사용. 미구현 기획은 반드시 그 사실을 밝힘
+- **그래프**: doc 노드(`doc:docs-<relpath>`) + MENTIONS 엣지
+  — digest→entity (topics, method='digest', score 1.0)
+  — digest→issue (digest_issues, meta {"method":"digest","role":...,"note":...})
+
+### TC
+| # | 시나리오 | 기대 |
+|---|---|---|
+| D1 | 브랜치 오버라이드 수집 (INFRA-40 체크아웃) | 606건 파싱, 헤더 필드 누락 시 경고만 (수집은 계속) |
+| D2 | 관련 주제 두 형식 (평문/마크다운) | 동일 슬러그로 정규화 |
+| D3 | 관련 일감 파싱 | 구현14·후속1·미구현2 (2026-08-29 기준) + 본문 산문 오탐 0 |
+| D4 | 부스트 분리 | digest가 매뉴얼 부스트를 받지 않음 (동일 질의에서 매뉴얼이 digest 위) |
+| D5 | 원본 다운랭크 | GUID 매칭 sharepoint 원본이 digest 아래로 |
+| D6 | 참고문서 | digest는 원본 SharePoint 링크로 노출, 매뉴얼은 계속 비노출 |
+| D7 | 미구현 | 답변에 미구현 사실 명시 + 다운랭크 |
+| D8 | 회귀 | 현행 정책 질문(매뉴얼)·Hub 직접응답·집계 경로 불변 |
+
 ## 11. 리스크
 
 | 리스크 | 대응 |
