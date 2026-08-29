@@ -18,11 +18,13 @@ from typing import Optional, Tuple
 
 from company_llm_rag.config import settings
 from company_llm_rag.data_extraction.common import emit_document, fmt_elapsed
+from company_llm_rag.data_extraction.docs_repo.digest_parser import parse_digest
 from company_llm_rag.logger import get_logger
 
 logger = get_logger(__name__)
 
 _MIN_CONTENT_CHARS = 50
+_DIGEST_CATEGORY = "digests"  # platform/sharepoint-index/digests → category="digests"
 
 
 def read_git_info(repo_path: Path) -> Tuple[Optional[str], Optional[str]]:
@@ -119,24 +121,39 @@ def main():
                 md_file.stat().st_mtime, tz=timezone.utc
             ).isoformat()
 
+            doc_url = build_doc_url(branch or "", relpath)
+            emit_content = content
+            metadata = {
+                "docs_repo": settings.DOCS_REPO_NAME,
+                "docs_branch": branch or "",
+                "docs_commit": commit or "",
+                "docs_category": category,
+                "docs_relpath": relpath,
+            }
+
+            # 다이제스트(#61 11-A): 헤더 계약 파싱 — 원본 SharePoint URL이 노출용 url을 대체하고,
+            # 원본/위치 줄은 본문에서 제거된다. 필드 파싱 실패는 경고만 남기고 수집은 계속한다.
+            if category == _DIGEST_CATEGORY:
+                parsed = parse_digest(content, relpath)
+                emit_content = parsed["content"]
+                metadata.update(parsed["metadata"])
+                if parsed["url"]:
+                    doc_url = parsed["url"]
+                for w in parsed["warnings"]:
+                    logger.warning(f"[Docs][digest] {w}")
+
             emit_document({
                 "id": f"docs-{relpath}",
                 "source": "docs",
                 "source_id": relpath,
-                "url": build_doc_url(branch or "", relpath),
+                "url": doc_url,
                 "title": extract_title(content, md_file.stem),
-                "content": content,
+                "content": emit_content,
                 "content_type": "markdown",
                 "created_at": "",
                 "updated_at": updated_at,
                 "author": "",
-                "metadata": {
-                    "docs_repo": settings.DOCS_REPO_NAME,
-                    "docs_branch": branch or "",
-                    "docs_commit": commit or "",
-                    "docs_category": category,
-                    "docs_relpath": relpath,
-                },
+                "metadata": metadata,
             })
             total += 1
 

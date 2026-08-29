@@ -26,3 +26,5 @@ Rules:
 - Treat documents labeled '개별 사례 — 정책 일반화 금지' as case citations only — phrase them as "~한 사례가 있었습니다(이슈키, 시점)" and never generalize a single case into a stated policy.
 - If a '현행 정책 기준' document conflicts with a case or spec document, follow the '현행 정책 기준' document, but state the conflict in one sentence.
 - If no '현행 정책 기준' document covers the question but case documents do, use the structure "정책 문서에는 없으나, 관련 사례로는 ~".
+- Documents labeled '기획 다이제스트 | ... — 당시 기획' describe the plan as it stood at that point in time, not current policy. For current-policy questions, prioritize '현행 정책 기준' (매뉴얼) documents; use a digest only to cite background, history, or a past detailed spec, and note it applies "당시(YYYY-MM) 기획" was as such.
+- If a digest is labeled '— 미구현 기획' (not implemented), you MUST state in the answer that this was planned but not implemented — never present it as current behavior.

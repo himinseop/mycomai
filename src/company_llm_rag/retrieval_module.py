@@ -8,7 +8,9 @@ from typing import List, Dict, Set
 
 from company_llm_rag.config import settings
 from company_llm_rag.database import db_manager
+from company_llm_rag.digest_store import get_guid_set as _get_digest_guid_set
 from company_llm_rag.logger import get_logger
+from company_llm_rag.sp_guid import extract_sp_guid
 
 logger = get_logger(__name__)
 
@@ -206,10 +208,24 @@ def _source_boost(metadata: Dict) -> float:
     mime_type = metadata.get("mime_type", "")
     weights = settings.SOURCE_BOOST_WEIGHTS
 
+    # 다이제스트(#61 11-A): 매뉴얼(BOOST_DOCS)과 분리된 자체 부스트. 미구현 기획은 추가 감쇠.
+    if source == "docs" and metadata.get("docs_category") == "digest":
+        boost = settings.BOOST_DIGEST
+        if metadata.get("not_implemented"):
+            boost *= settings.DIGEST_NOT_IMPLEMENTED_PENALTY
+        return boost
+
     # SharePoint: 문서 파일(PDF/PPTX/DOCX)은 sharepoint 가중치 적용
     if source == "sharepoint" and mime_type not in _DOCUMENT_MIME_TYPES:
         return 1.0  # 일반 파일은 부스트 없음
-    return weights.get(source, 1.0)
+
+    boost = weights.get(source, 1.0)
+    # 원본 대체(#61 11-A): 다이제스트가 존재하는 SharePoint 원본은 다운랭크 (제거는 아님)
+    if source == "sharepoint":
+        guid = extract_sp_guid(metadata.get("url", "") or "")
+        if guid and guid in _get_digest_guid_set():
+            boost *= settings.DIGEST_SP_DOWNRANK
+    return boost
 
 
 def _fix_metadata(metadata: Dict) -> Dict:
@@ -361,8 +377,10 @@ def retrieve_documents(
             # LLM 위키 질문 매칭 부스트 (#58) — Hub보다 낮은 배수로 Hub 우선 유지
             if doc_map[doc_id].get('metadata', {}).get('is_wiki'):
                 rrf *= settings.WIKI_RRF_BOOST
-            # 플랫폼매뉴얼 부스트 — 일반 소스 중 최상 우선 (Hub 직접답변 다음)
-            if doc_map[doc_id].get('metadata', {}).get('source') == 'docs':
+            # 플랫폼매뉴얼 부스트 — 일반 소스 중 최상 우선 (Hub 직접답변 다음). 다이제스트는 제외
+            # (매뉴얼보다 신뢰 서열이 낮음 — BOOST_DIGEST로 별도 부스트, #61 11-A)
+            _doc_meta = doc_map[doc_id].get('metadata', {})
+            if _doc_meta.get('source') == 'docs' and _doc_meta.get('docs_category') != 'digest':
                 rrf *= settings.DOCS_RRF_BOOST
             # 최신성 부스트: created_at 기반 가중치 적용
             if recency_boost:
@@ -388,7 +406,8 @@ def retrieve_documents(
             if settings.DOCS_RERANK_BOOST != 1.0:
                 def _boosted_prob(c: Dict) -> float:
                     p = 1.0 / (1.0 + math.exp(-c.get('_rerank_score', 0.0)))
-                    if c.get('metadata', {}).get('source') == 'docs':
+                    _m = c.get('metadata', {})
+                    if _m.get('source') == 'docs' and _m.get('docs_category') != 'digest':
                         p *= settings.DOCS_RERANK_BOOST
                     return p
                 scored.sort(key=_boosted_prob, reverse=True)

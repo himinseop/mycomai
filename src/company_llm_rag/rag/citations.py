@@ -88,7 +88,14 @@ def doc_source_label(meta: dict) -> str:
         channel = meta.get('teams_channel_name') or meta.get('teams_chat_topic', '')
         return f"[Teams | 현장 문답 — 단정 금지] 채널/채팅: {channel} | 작성자: {author} | 날짜: {date} | URL: {url}"
     if source == 'docs':
-        # 링크 비제공 문서 — 프롬프트에 URL을 넣지 않아 답변에 노출되는 것 방지
+        if meta.get('docs_category') == 'digest':
+            # 다이제스트(#61 11-A): 당시 기획 — 매뉴얼과 신뢰 서열이 다름을 라벨로 명시
+            kind = meta.get('digest_kind') or '다이제스트'
+            digest_month = (meta.get('digest_date') or '')[:7]  # YYYY-MM (없으면 라벨에서 생략)
+            month_part = f" | {digest_month}" if digest_month else ""
+            suffix = ' — 미구현 기획' if meta.get('not_implemented') else ''
+            return f"[기획 다이제스트 | {kind}{month_part} — 당시 기획{suffix}] 제목: {title}"
+        # 매뉴얼: 링크 비제공 — 프롬프트에 URL을 넣지 않아 답변에 노출되는 것 방지
         category = meta.get('docs_category', '')
         return f"[플랫폼매뉴얼 | 현행 정책 기준] 제목: {title} | 분류: {category} | 날짜: {date}"
     return f"[{source}] 제목: {title} | URL: {url}"
@@ -158,8 +165,8 @@ def resolve_citations(answer: str, retrieved_docs: List[Dict]) -> Tuple[str, set
         doc = retrieved_docs[idx]
         meta = doc["metadata"]
         name = doc_display_name(meta)
-        # 플랫폼매뉴얼(docs)은 링크 비제공 — 제목만 표기
-        if meta.get("source") == "docs":
+        # 플랫폼매뉴얼(docs)은 링크 비제공 — 제목만 표기 (다이제스트는 원본 SharePoint 링크 노출, #61 11-A)
+        if meta.get("source") == "docs" and meta.get("docs_category") != "digest":
             return name
         url = meta.get("url", "") or ""
         if not url or url == "None":

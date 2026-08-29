@@ -352,6 +352,8 @@ def load_data_to_chromadb(data_stream):
     collected_sources: set = set()  # 수집된 소스 추적
     jira_graph_docs: list = []      # Jira 그래프 재구축용 (#59) — 이슈 메타만 경량 보관
     conf_graph_docs: list = []      # Confluence 엔티티 링크용 (#59 P2) — 제목·URL만 경량 보관
+    digest_graph_docs: list = []    # 다이제스트 doc 노드용 (#61 11-A) — 헤더 메타만 경량 보관
+    digest_guids: set = set()       # 다이제스트가 대체하는 SharePoint 원본 sp_guid 전체 스냅샷
 
     logger.info("문서 로드 시작 (스트리밍 처리).")
     start_time = time.time()
@@ -399,6 +401,19 @@ def load_data_to_chromadb(data_stream):
                     "updated_at": updated_at,
                     "content": content[:300] if isinstance(content, str) else "",
                 })
+            elif source == "docs" and metadata_from_source.get("docs_category") == "digest":
+                digest_graph_docs.append({
+                    "id": doc_id, "title": title, "url": url,
+                    "updated_at": updated_at,
+                    "digest_date": metadata_from_source.get("digest_date", ""),
+                    "digest_kind": metadata_from_source.get("digest_kind", ""),
+                    "not_implemented": bool(metadata_from_source.get("not_implemented", False)),
+                    "digest_topics": metadata_from_source.get("digest_topics", ""),
+                    "digest_issues": metadata_from_source.get("digest_issues", "[]"),
+                })
+                sp_guid = metadata_from_source.get("sp_guid", "")
+                if sp_guid:
+                    digest_guids.add(sp_guid)
 
             # 거대 스프레드시트 raw-data 덤프 스킵 (#55): 검색 오염·인덱스 bloat 방지
             _mime = str(metadata_from_source.get("mime_type", "") or "")
@@ -524,15 +539,23 @@ def load_data_to_chromadb(data_stream):
         set_collection_date(src)
     invalidate_stats_cache()
 
-    # 그래프 재구축 (#59) — 실패해도 적재에는 영향 없음
-    if jira_graph_docs or conf_graph_docs:
+    # 그래프 재구축 (#59, #61 11-A) — 실패해도 적재에는 영향 없음
+    if jira_graph_docs or conf_graph_docs or digest_graph_docs:
         try:
             from company_llm_rag.graph import entity_link, jira_graph
             if jira_graph_docs:
                 jira_graph.rebuild_from_docs(jira_graph_docs)
-            entity_link.rebuild_entities(conf_graph_docs or None)
+            entity_link.rebuild_entities(conf_graph_docs or None, digest_graph_docs or None)
         except Exception as e:
             logger.error(f"[Graph] 그래프 재구축 실패: {e}", exc_info=True)
+
+    # 다이제스트 sp_guid 스냅샷 갱신 (#61 11-A) — 이번 적재에서 처리한 전체 다이제스트 기준으로 교체
+    if digest_graph_docs:
+        try:
+            from company_llm_rag.digest_store import replace_guids
+            replace_guids(digest_guids)
+        except Exception as e:
+            logger.error(f"[Digest] sp_guid 스냅샷 갱신 실패: {e}", exc_info=True)
 
     # 위키 신선도 점검 (#58 Phase 2): 소스 변경 페이지 재생성 (실패해도 적재에 영향 없음)
     try:

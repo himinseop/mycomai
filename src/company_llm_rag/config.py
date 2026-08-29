@@ -100,7 +100,7 @@ class Settings:
     DOCS_REPO_SUBDIRS: List[str] = [
         d.strip().strip("/") for d in os.getenv(
             "DOCS_REPO_SUBDIRS",
-            "platform/features,platform/sites",
+            "platform/features,platform/sites,platform/sharepoint-index/digests",
         ).split(",") if d.strip()
     ]
     # 참고문서 링크용 소스 뷰 URL prefix (뒤에 /{branch}/{path} 가 붙음)
@@ -113,6 +113,14 @@ class Settings:
     # 리랭크 후 보정 배수 — 리랭커가 RRF 부스트를 무효화하지 않도록
     # sigmoid(리랭크 점수) 확률에 곱함. 무관한 매뉴얼(낮은 확률)은 여전히 밀림. 1.0이면 비활성.
     DOCS_RERANK_BOOST: float = float(os.getenv("DOCS_RERANK_BOOST", "1.5"))
+
+    # 다이제스트 (#61 11-A): 매뉴얼(DOCS_RRF_BOOST/DOCS_RERANK_BOOST) 부스트에서 제외되고
+    # 별도의 낮은 부스트만 받는다 — "당시 기획"이라 매뉴얼보다 신뢰 서열이 낮아야 하기 때문.
+    BOOST_DIGEST: float = float(os.getenv("BOOST_DIGEST", "0.85"))
+    # 미구현 기획 다이제스트에 추가로 곱하는 distance 감쇠 배수 (1보다 크면 더 밀림)
+    DIGEST_NOT_IMPLEMENTED_PENALTY: float = float(os.getenv("DIGEST_NOT_IMPLEMENTED_PENALTY", "1.2"))
+    # 다이제스트가 원본을 대체 — sp_guid가 일치하는 sharepoint 원본 문서에 곱하는 distance 다운랭크 배수
+    DIGEST_SP_DOWNRANK: float = float(os.getenv("DIGEST_SP_DOWNRANK", "1.3"))
 
     # GraphRAG (#59): 집계형 질문(목록·현황·최근 ~들)을 그래프 전수 조회로 응답
     GRAPH_AGGREGATE_ENABLED: bool = os.getenv("GRAPH_AGGREGATE_ENABLED", "true").lower() == "true"

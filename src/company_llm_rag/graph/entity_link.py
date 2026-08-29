@@ -256,14 +256,43 @@ def _link_by_issue_keys(docs: List[str], existing_ids: set) -> Dict[str, float]:
     return result
 
 
-def rebuild_entities(confluence_docs: Optional[List[Dict]] = None) -> Dict[str, int]:
+def _load_existing_doc_nodes(source: str) -> Dict[str, tuple]:
+    """지정 source(confluence/digest)의 기존 doc 노드를 보존용으로 읽어옵니다."""
+    import sqlite3
+    from company_llm_rag.config import settings
+    con = sqlite3.connect(settings.APP_DATA_DB_PATH)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute("""
+            SELECT id, type, label, meta_json FROM graph_nodes
+            WHERE type='doc' AND json_extract(meta_json, '$.source') = ?
+        """, (source,)).fetchall()
+        return {r["id"]: (r["id"], r["type"], r["label"], r["meta_json"]) for r in rows}
+    finally:
+        con.close()
+
+
+def _digest_manual_path(slug: str) -> str:
+    """다이제스트 관련 주제 슬러그 → 매뉴얼 상대 경로. 'site:admin' → 'sites/admin.md', 'voucher' → 'features/voucher.md'"""
+    slug = slug.strip()
+    if slug.startswith("site:"):
+        return f"sites/{slug[len('site:'):]}.md"
+    return f"features/{slug}.md"
+
+
+def rebuild_entities(
+    confluence_docs: Optional[List[Dict]] = None,
+    digest_docs: Optional[List[Dict]] = None,
+) -> Dict[str, int]:
     """
-    엔티티 노드 + MENTIONS 엣지를 재구축합니다 (#61 P1: 3단 링크 빌더).
+    엔티티 노드 + MENTIONS 엣지를 재구축합니다 (#61 P1: 3단 링크 빌더 / 11-A: 다이제스트).
 
     - 엔티티 정의는 DB 사전(get_entities) 사용
-    - confluence_docs가 주어지면 doc 노드를 교체, None이면 기존 doc 노드 보존
-    - MENTIONS: (issue|doc) → entity, 3단 매칭
+    - confluence_docs/digest_docs가 각각 주어지면 해당 소스의 doc 노드를 교체,
+      None이면 그 소스의 기존 doc 노드만 보존 (다른 소스는 서로 영향 없음)
+    - MENTIONS: (issue|doc) → entity, 4단 매칭
       L1 제목 별칭 LIKE(score 0.7) / L2 임베딩 검색(score 1-distance) / L3 이슈키 추출(score 1.0)
+      / 다이제스트 관련 주제·관련 일감(score 1.0, method='digest')
       같은 (src,dst) 쌍은 score가 높은 방법으로 갱신
     - Jira 이슈 노드는 이미 그래프에 있어야 함 (jira_graph.rebuild 이후 호출)
     - web 컨테이너는 docs_repo 마운트가 없으므로 매뉴얼 본문은 ChromaDB에서만 읽음
@@ -279,22 +308,47 @@ def rebuild_entities(confluence_docs: Optional[List[Dict]] = None) -> Dict[str, 
             "manual_relpath": f"{_MANUAL_DIR}/{ent['manual']}" if ent["manual"] else "",
         }, ensure_ascii=False))
 
-    # Confluence 페이지 → doc 노드 (미제공 시 기존 노드 보존)
+    # doc 노드: confluence/digest 각각 미제공 시 그 소스의 기존 노드만 보존
     replace_types = ["entity"]
-    if confluence_docs is not None:
+    if confluence_docs is not None or digest_docs is not None:
         replace_types.append("doc")
-        for d in confluence_docs:
-            doc_id = d.get("id") or ""
-            title = d.get("title") or ""
-            if not doc_id or not title:
-                continue
-            nid = f"doc:{doc_id}"
-            nodes[nid] = (nid, "doc", title, json.dumps({
-                "source": "confluence",
-                "url": d.get("url", ""),
-                "original_doc_id": doc_id,
-                "updated_at": d.get("updated_at", ""),
-            }, ensure_ascii=False))
+
+        if confluence_docs is None:
+            nodes.update(_load_existing_doc_nodes("confluence"))
+        else:
+            for d in confluence_docs:
+                doc_id = d.get("id") or ""
+                title = d.get("title") or ""
+                if not doc_id or not title:
+                    continue
+                nid = f"doc:{doc_id}"
+                nodes[nid] = (nid, "doc", title, json.dumps({
+                    "source": "confluence",
+                    "url": d.get("url", ""),
+                    "original_doc_id": doc_id,
+                    "updated_at": d.get("updated_at", ""),
+                }, ensure_ascii=False))
+
+        if digest_docs is None:
+            nodes.update(_load_existing_doc_nodes("digest"))
+        else:
+            for d in digest_docs:
+                doc_id = d.get("id") or ""
+                title = d.get("title") or ""
+                if not doc_id or not title:
+                    continue
+                nid = f"doc:{doc_id}"
+                nodes[nid] = (nid, "doc", title, json.dumps({
+                    "source": "docs",
+                    "docs_category": "digest",
+                    "url": d.get("url", ""),
+                    "updated_at": d.get("updated_at", ""),
+                    "digest_date": d.get("digest_date", ""),
+                    "digest_kind": d.get("digest_kind", ""),
+                    "not_implemented": bool(d.get("not_implemented", False)),
+                    "digest_topics": d.get("digest_topics", ""),
+                    "digest_issues": d.get("digest_issues", "[]"),
+                }, ensure_ascii=False))
 
     graph_store.rebuild(nodes.values(), [], replace_types)
 
@@ -354,14 +408,55 @@ def rebuild_entities(confluence_docs: Optional[List[Dict]] = None) -> Dict[str, 
             except Exception as e:
                 logger.warning(f"[Graph] L3 이슈키 링크 실패 (엔티티: {ent['name']}): {e}")
 
-        method_counts = {"title": 0, "embed": 0, "key": 0}
+        # 다이제스트 → 엔티티/이슈 MENTIONS (#61 11-A)
+        # graph_nodes에 저장된 모든 digest 노드를 대상으로 하므로, 이번 호출에 digest_docs가
+        # 없어도(다른 소스만 재구축된 경우) 기존 다이제스트 노드 기준으로 매번 재계산된다.
+        digest_issue_extra: Dict[Tuple[str, str], Dict] = {}
+        manual_to_entity = {ent["manual"]: _entity_id(ent["name"]) for ent in entities if ent.get("manual")}
+        digest_rows = con.execute("""
+            SELECT id, meta_json FROM graph_nodes
+            WHERE type='doc' AND json_extract(meta_json, '$.docs_category') = 'digest'
+        """).fetchall()
+        for row in digest_rows:
+            digest_id = row["id"]
+            meta = json.loads(row["meta_json"] or "{}")
+
+            for slug in [t.strip() for t in (meta.get("digest_topics") or "").split(",") if t.strip()]:
+                manual = _digest_manual_path(slug)
+                eid = manual_to_entity.get(manual)
+                if not eid:
+                    logger.warning(f"[Graph] 다이제스트 관련 주제 매칭 실패 (엔티티 없음): {slug!r} ({digest_id})")
+                    continue
+                _update_best(edge_scores, digest_id, eid, 1.0, "digest")
+
+            try:
+                issues = json.loads(meta.get("digest_issues") or "[]")
+            except (json.JSONDecodeError, TypeError):
+                issues = []
+            for entry in issues:
+                key = (entry.get("key") or "").strip()
+                if not key:
+                    continue  # 미구현 등 키 없는 항목은 엣지 생성 안 함
+                dst_id = f"issue:{key}"
+                if dst_id not in existing_ids:
+                    continue
+                _update_best(edge_scores, digest_id, dst_id, 1.0, "digest")
+                digest_issue_extra[(digest_id, dst_id)] = {
+                    "role": entry.get("role", ""), "note": entry.get("note", ""),
+                }
+
+        method_counts = {"title": 0, "embed": 0, "key": 0, "digest": 0}
         for score, method in edge_scores.values():
             method_counts[method] = method_counts.get(method, 0) + 1
 
+        edge_rows = []
+        for (src, dst), (score, method) in edge_scores.items():
+            edge_meta = {"method": method, "score": score}
+            edge_meta.update(digest_issue_extra.get((src, dst), {}))
+            edge_rows.append((src, dst, json.dumps(edge_meta, ensure_ascii=False)))
         con.executemany(
             "INSERT OR REPLACE INTO graph_edges (src_id, dst_id, rel, meta_json) VALUES (?,?,'MENTIONS',?)",
-            [(src, dst, json.dumps({"method": method, "score": score}, ensure_ascii=False))
-             for (src, dst), (score, method) in edge_scores.items()])
+            edge_rows)
         con.commit()
         doc_count = con.execute("SELECT COUNT(*) FROM graph_nodes WHERE type='doc'").fetchone()[0]
     finally:
@@ -370,6 +465,7 @@ def rebuild_entities(confluence_docs: Optional[List[Dict]] = None) -> Dict[str, 
     stats = {
         "entities": len(entities), "conf_docs": doc_count, "mentions": len(edge_scores),
         "title": method_counts["title"], "embed": method_counts["embed"], "key": method_counts["key"],
+        "digest": method_counts["digest"],
     }
     logger.info(f"[Graph] 엔티티 링크 재구축: {stats}")
     return stats

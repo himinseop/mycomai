@@ -2087,7 +2087,7 @@
       if (res.ok) {
         let msg = `재구축 완료 — 엔티티 ${data.entities}개 · 링크 ${data.mentions.toLocaleString()}개`;
         if (data.title !== undefined) {
-          msg += ` (제목 ${data.title} · 임베딩 ${data.embed} · 이슈키 ${data.key})`;
+          msg += ` (제목 ${data.title} · 임베딩 ${data.embed} · 이슈키 ${data.key} · 다이제스트 ${data.digest ?? 0})`;
         }
         status.textContent = msg;
       } else {
