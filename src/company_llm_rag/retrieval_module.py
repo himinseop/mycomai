@@ -432,6 +432,15 @@ def retrieve_documents(
 
         # 문서 단위 중복 제거: 같은 문서의 여러 청크 중 최상위 1개만 유지
         # (검색결과에 같은 파일이 여러 번 노출되는 문제 방지, 카운트 정확화)
+        # 원본 대체(#61 11-A): 다이제스트의 url은 원본 SharePoint 링크와 동일 —
+        # 같은 URL로 충돌하면 다이제스트가 그 자리를 대표한다 (원본이 위여도 다이제스트로 교체).
+        _digest_by_key: Dict[str, Dict] = {}
+        for c in scored:
+            meta = c.get("metadata", {})
+            if meta.get("docs_category") == "digest":
+                key = meta.get("url") or meta.get("original_doc_id") or meta.get("title")
+                if key and key not in _digest_by_key:
+                    _digest_by_key[key] = c
         _seen_docs: Set = set()
         _deduped = []
         for c in scored:
@@ -442,6 +451,8 @@ def retrieve_documents(
                 if key in _seen_docs:
                     continue
                 _seen_docs.add(key)
+                if key in _digest_by_key:
+                    c = _digest_by_key[key]
             _deduped.append(c)
         scored = _deduped
 

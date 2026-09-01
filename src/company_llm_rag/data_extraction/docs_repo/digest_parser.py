@@ -24,8 +24,10 @@ from company_llm_rag.sp_guid import extract_sp_guid
 # 관련 일감 역할 어휘 4종 고정 (설계 11-A). 그 외 어휘는 무시 + 경고.
 _ROLE_WORDS = {"구현", "후속", "원인", "미구현"}
 
-_ORIGIN_URL_RE = re.compile(r"\((https?://[^)]+)\)")
-_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+# 닫는 괄호 누락 오타 허용 — ')' 또는 공백 전까지를 URL로 취급
+_ORIGIN_URL_RE = re.compile(r"\((https?://[^)\s]+)")
+# 일 단위 없는 YYYY-MM 표기 허용
+_DATE_RE = re.compile(r"(\d{4}-\d{2}(?:-\d{2})?)")
 _KIND_RE = re.compile(r"종류:\s*([^·]+?)\s*(?:·|$)")
 _VERSION_RE = re.compile(r"버전:\s*([^\s·]+)")
 _LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
@@ -178,7 +180,8 @@ def parse_digest(content: str, relpath: str) -> Dict:
             digest_date = m_date.group(1) if m_date else ""
             digest_kind = m_kind.group(1).strip() if m_kind else ""
             digest_version = m_ver.group(1).strip() if m_ver else ""
-            if not digest_date:
+            # '없음'/'확인 불가'는 의도된 무날짜 표기 — 경고 없이 빈 날짜로 처리
+            if not digest_date and not re.search(r"날짜:\s*(없음|확인 불가)", stripped):
                 warnings.append(f"[{relpath}] 문서 기록 날짜 파싱 실패: {stripped!r}")
             if not digest_kind:
                 warnings.append(f"[{relpath}] 종류 파싱 실패: {stripped!r}")
