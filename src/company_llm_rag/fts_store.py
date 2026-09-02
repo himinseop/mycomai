@@ -57,6 +57,15 @@ def fts_bulk_upsert(docs: List[tuple]) -> None:
         con.commit()
 
 
+def fts_delete(chunk_ids: List[str]) -> None:
+    """지정된 chunk_id들을 FTS 인덱스에서 삭제합니다 (#62, 문서 삭제 반영용)."""
+    if not chunk_ids:
+        return
+    with _conn() as con:
+        con.executemany("DELETE FROM doc_fts WHERE chunk_id = ?", [(cid,) for cid in chunk_ids])
+        con.commit()
+
+
 def fts_search(keywords: List[str], limit: int = 21) -> List[str]:
     """
     키워드 prefix 검색으로 매칭 chunk_id 리스트를 반환합니다.

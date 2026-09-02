@@ -27,13 +27,19 @@ src/company_llm_rag/
 │   ├── ratelimit.py   # 키별 분당 sliding window
 │   ├── store.py       # api_clients / api_call_history (app_data.db)
 │   └── domains/       # 레지스트리 (sales, voc) — 수치는 서버 선계산, LLM은 해석만
+├── platform_docs_store.py  # 플랫폼 문서 S3 수집 상태 (app_data.db, #62)
 └── data_extraction/
     ├── jira/          # Jira API v3 (nextPageToken 페이지네이션)
     ├── confluence/    # Confluence REST API (size<limit 페이지네이션)
     ├── m365/
     │   ├── sharepoint_extractor.py
     │   └── teams_extractor.py  # 채널 메시지 + 일반 채팅(TEAMS_CHAT_IDS)
-    └── docs_repo/     # 플랫폼매뉴얼 (로컬 git checkout 마크다운, source=docs)
+    └── docs_repo/     # 플랫폼매뉴얼 (source=docs)
+        ├── docs_extractor.py  # 로컬 git checkout 마크다운 수집 (build_document() — S3 수집과 파싱 로직 공유)
+        ├── digest_parser.py   # 다이제스트 카테고리 헤더 파싱 (#61)
+        ├── s3_client.py       # S3Client 인터페이스 + Boto3S3Client + FakeS3Client(테스트용) (#62)
+        ├── s3_release.py      # current.json/artifact/tar/manifest 검증·안전 해제 (#62)
+        └── s3_docs_ingest.py  # S3 수집 오케스트레이터 (#62)
 ```
 
 ## 플랫폼매뉴얼 수집 (source=docs)
@@ -43,6 +49,25 @@ bitbucket `o2olab/docs` 저장소의 개발 문서를 지식허브 답변에 활
 - **검색 우선순위 최상**: `DOCS_RRF_BOOST`(4.0, Hub 5.0 다음·위키 3.0 위) + `BOOST_DOCS`(0.5 거리 부스트)
 - **링크 비노출**: 답변 컨텍스트로만 사용. 참고문서 목록 제외, [REF] 인용은 제목만 치환, 프롬프트에 URL 미포함
 - README.md는 작성 규칙/목차 문서라 수집 제외
+
+### S3 수집 (source=docs, #62)
+Docs CI가 비공개 S3(`o2olab-devops`)에 게시한 아티팩트를 로컬 체크아웃 없이 직접 읽어 색인하는 대안 소스.
+`PLATFORM_DOCS_S3_BUCKET` 설정 시 **단일 소스**가 되며 `docs_extractor.py`(로컬 체크아웃)는 자동으로 건너뜀.
+- **절차**: `docs/current.json`(sourceCommit·artifact sha256/size) 검증 → 동일 버전이면 스킵 → artifact(`docs/releases/{sourceCommit}/platform.tar.gz`) 다운로드·무결성 검증 → 안전 tar 해제(절대경로·`..`·symlink·hardlink·특수파일·용량 상한 거부) → `catalog.json`/`manifest.json` 버전·해시 검증 → 파싱(문서 파싱 로직은 `docs_extractor.build_document()` 재사용) → id+contentHash로 신규/변경/삭제 판별 → 변경분만 in-process 적재, 삭제분은 Chroma+FTS에서 제거 → 전부 성공한 뒤에만 상태 갱신
+- **상태 저장**: `platform_docs_store.py` (app_data.db) — 마지막 성공 sourceCommit + 문서 스냅샷(catalog_id→doc_id·content_hash). 실패 시 이전 성공 상태 그대로 유지
+- **실행**: `PYTHONPATH=src python3 company_llm_rag/data_extraction/docs_repo/s3_docs_ingest.py [--force]` (data-loader 파이프라인에 자동 포함, 미설정/실패 시 파이프라인은 계속됨)
+- **필요 IAM 권한**: `s3:GetObject`만 (ListBucket 불필요) — `arn:aws:s3:::o2olab-devops/docs/current.json`, `arn:aws:s3:::o2olab-devops/docs/releases/*`
+- **환경변수**:
+  ```bash
+  PLATFORM_DOCS_S3_BUCKET=o2olab-devops       # 비우면 S3 수집 비활성(기본), 로컬 체크아웃 사용
+  PLATFORM_DOCS_S3_CURRENT_KEY=docs/current.json
+  AWS_REGION=ap-northeast-2
+  # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 등은 .env에 넣지 않음 — 표준 자격증명 체인(IAM 역할) 사용
+  PLATFORM_DOCS_MAX_FILES=20000        # tar 해제 상한 (압축 폭탄 방지)
+  PLATFORM_DOCS_MAX_FILE_MB=20
+  PLATFORM_DOCS_MAX_TOTAL_MB=1024
+  ```
+- 설계 상세: `docs/issues/62/design.md`
 
 ## 실행 환경
 - Docker Compose 기반 (`docker/docker-compose.yml`)
@@ -82,6 +107,10 @@ DOCS_REPO_BRANCH=master             # 체크아웃 브랜치 가드 (다르면 �
 # DOCS_REPO_HOST_PATH=              # 로컬 체크아웃 경로 (기본: mycomai/../../o2olab/docs)
 # DOCS_REPO_SUBDIRS=                # 기본: platform/features,platform/sites
 # DOCS_RRF_BOOST=4.0  BOOST_DOCS=0.5
+
+# 플랫폼매뉴얼 S3 수집 (#62, 설정 시 위 로컬 체크아웃 수집을 대체)
+# PLATFORM_DOCS_S3_BUCKET=o2olab-devops
+# PLATFORM_DOCS_S3_CURRENT_KEY=docs/current.json  AWS_REGION=ap-northeast-2
 
 # OpenAI
 OPENAI_API_KEY=...

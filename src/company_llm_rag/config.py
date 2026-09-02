@@ -107,6 +107,16 @@ class Settings:
     DOCS_REPO_URL_BASE: str = os.getenv(
         "DOCS_REPO_URL_BASE", "https://bitbucket.org/o2olab/docs/src"
     )
+    # 플랫폼 문서 S3 수집 (#62) — Docs CI가 비공개 S3에 게시한 아티팩트를 직접 읽어 색인.
+    # 설정 시 로컬 체크아웃 수집(docs_extractor.py)은 건너뜀 (문서 소스의 단일 소스 원칙, 이중 적재 방지).
+    PLATFORM_DOCS_S3_BUCKET: str = os.getenv("PLATFORM_DOCS_S3_BUCKET", "")
+    PLATFORM_DOCS_S3_CURRENT_KEY: str = os.getenv("PLATFORM_DOCS_S3_CURRENT_KEY", "docs/current.json")
+    AWS_REGION: str = os.getenv("AWS_REGION", "ap-northeast-2")
+    # tar 해제 상한 (압축 폭탄 방지)
+    PLATFORM_DOCS_MAX_FILES: int = int(os.getenv("PLATFORM_DOCS_MAX_FILES", "20000"))
+    PLATFORM_DOCS_MAX_FILE_MB: float = float(os.getenv("PLATFORM_DOCS_MAX_FILE_MB", "20"))
+    PLATFORM_DOCS_MAX_TOTAL_MB: float = float(os.getenv("PLATFORM_DOCS_MAX_TOTAL_MB", "1024"))
+
     # 플랫폼매뉴얼 RRF 부스트 — 일반 소스 중 최상 우선.
     # Hub 직접답변(5.0)보다는 낮게, 위키(3.0)보다는 높게.
     DOCS_RRF_BOOST: float = float(os.getenv("DOCS_RRF_BOOST", "4.0"))

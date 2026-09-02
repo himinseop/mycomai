@@ -43,6 +43,7 @@ services:
         python3 company_llm_rag/data_extraction/m365/sharepoint_extractor.py > data/sharepoint_data.jsonl 2> >(tee data/sharepoint_errors.log >&2) &&
         python3 company_llm_rag/data_extraction/m365/teams_extractor.py > data/teams_data.jsonl 2> >(tee data/teams_errors.log >&2) &&
         python3 company_llm_rag/data_extraction/docs_repo/docs_extractor.py > data/docs_data.jsonl 2> >(tee data/docs_errors.log >&2) &&
+        (python3 company_llm_rag/data_extraction/docs_repo/s3_docs_ingest.py 2> >(tee data/docs_s3_errors.log >&2) || echo '[DocsS3] 실패 또는 미설정 — 기존 색인 유지, 파이프라인 계속') &&
         echo 'Data extraction complete. Starting data loading...' &&
         cat data/jira_data.jsonl data/confluence_data.jsonl data/sharepoint_data.jsonl data/teams_data.jsonl data/docs_data.jsonl | python3 company_llm_rag/data_loader.py &&
         echo 'Data loading complete!'

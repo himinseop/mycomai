@@ -37,3 +37,6 @@ sentence-transformers>=3.0
 fastapi==0.115.12
 uvicorn==0.34.0
 python-multipart==0.0.20
+
+# AWS S3 (플랫폼 문서 수집, #62 — PLATFORM_DOCS_S3_BUCKET 설정 시에만 사용)
+boto3==1.43.86

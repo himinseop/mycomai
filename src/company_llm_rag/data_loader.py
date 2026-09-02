@@ -336,13 +336,17 @@ def _flush_chunk_batch(collection, batch: list, stats: dict, fts_buffer: list):
     batch.clear()
 
 
-def load_data_to_chromadb(data_stream):
+def load_data_to_chromadb(data_stream, finalize_graph=True):
     """
     JSONL 데이터를 읽고, 청크로 분할하고, 임베딩을 생성하여 ChromaDB에 로드합니다.
     ChromaDB upsert와 동시에 SQLite FTS5 인덱스를 갱신합니다.
 
     Args:
         data_stream: JSONL 라인의 iterable
+        finalize_graph: 적재 후 그래프 재구축·digest_guids 스냅샷 교체 수행 여부.
+            이 마무리 단계는 스트림이 해당 소스의 "전체" 문서라는 가정 하에 교체
+            방식으로 동작하므로, 변경분만 흘리는 증분 적재(#62 S3 수집)에서는
+            False로 두고 호출부가 전체 기준으로 직접 마무리해야 한다.
     """
     _init_db()  # FTS5 테이블 포함 DB 초기화 보장
     collection = db_manager.get_collection()
@@ -540,7 +544,7 @@ def load_data_to_chromadb(data_stream):
     invalidate_stats_cache()
 
     # 그래프 재구축 (#59, #61 11-A) — 실패해도 적재에는 영향 없음
-    if jira_graph_docs or conf_graph_docs or digest_graph_docs:
+    if finalize_graph and (jira_graph_docs or conf_graph_docs or digest_graph_docs):
         try:
             from company_llm_rag.graph import entity_link, jira_graph
             if jira_graph_docs:
@@ -550,7 +554,7 @@ def load_data_to_chromadb(data_stream):
             logger.error(f"[Graph] 그래프 재구축 실패: {e}", exc_info=True)
 
     # 다이제스트 sp_guid 스냅샷 갱신 (#61 11-A) — 이번 적재에서 처리한 전체 다이제스트 기준으로 교체
-    if digest_graph_docs:
+    if finalize_graph and digest_graph_docs:
         try:
             from company_llm_rag.digest_store import replace_guids
             replace_guids(digest_guids)

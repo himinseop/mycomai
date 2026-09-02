@@ -27,6 +27,21 @@ _MIN_CONTENT_CHARS = 50
 _DIGEST_CATEGORY = "digests"  # platform/sharepoint-index/digests → category="digests"
 
 
+def category_from_path(relpath: str) -> str:
+    """저장소 루트 기준 상대 경로에서 문서 카테고리를 판별합니다.
+
+    DOCS_REPO_SUBDIRS 중 relpath의 접두사가 되는 항목을 찾아 그 마지막 경로
+    구성요소(예: "platform/features" → "features")를 카테고리로 사용합니다.
+    로컬 체크아웃 수집(main())과 S3 수집(s3_docs_ingest.py)이 동일한 판별 규칙을
+    공유해 카테고리 분류가 어긋나지 않도록 합니다.
+    """
+    for subdir in settings.DOCS_REPO_SUBDIRS:
+        prefix = subdir.rstrip("/") + "/"
+        if relpath.startswith(prefix):
+            return Path(subdir).name
+    return Path(relpath).parent.name
+
+
 def read_git_info(repo_path: Path) -> Tuple[Optional[str], Optional[str]]:
     """git 바이너리 없이 현재 브랜치명과 커밋 해시(7자리)를 읽습니다."""
     git_dir = repo_path / ".git"
@@ -73,7 +88,63 @@ def build_doc_url(branch: str, relpath: str) -> str:
     return f"{base}/{branch}/{relpath}"
 
 
+def build_document(
+    *, relpath: str, content: str, updated_at: str,
+    branch: str = "", commit: str = "", doc_url: str = "",
+) -> Optional[dict]:
+    """마크다운 문서 1건을 표준 스키마 dict로 변환합니다.
+
+    로컬 체크아웃 수집(main())과 S3 수집(s3_docs_ingest.py, #62)이 공유하는 파싱 로직 —
+    카테고리 판별, 제목 추출, 다이제스트(#61) 헤더 파싱을 한 곳에서 수행합니다.
+    내용이 _MIN_CONTENT_CHARS 미만이면 None을 반환합니다(호출부에서 스킵 로그 처리).
+    """
+    if len(content.strip()) < _MIN_CONTENT_CHARS:
+        return None
+
+    category = category_from_path(relpath)
+    emit_content = content
+    metadata = {
+        "docs_repo": settings.DOCS_REPO_NAME,
+        "docs_branch": branch,
+        "docs_commit": commit,
+        "docs_category": category,
+        "docs_relpath": relpath,
+    }
+
+    # 다이제스트(#61 11-A): 헤더 계약 파싱 — 원본 SharePoint URL이 노출용 url을 대체하고,
+    # 원본/위치 줄은 본문에서 제거된다. 필드 파싱 실패는 경고만 남기고 수집은 계속한다.
+    if category == _DIGEST_CATEGORY:
+        parsed = parse_digest(content, relpath)
+        emit_content = parsed["content"]
+        metadata.update(parsed["metadata"])
+        if parsed["url"]:
+            doc_url = parsed["url"]
+        for w in parsed["warnings"]:
+            logger.warning(f"[Docs][digest] {w}")
+
+    return {
+        "id": f"docs-{relpath}",
+        "source": "docs",
+        "source_id": relpath,
+        "url": doc_url,
+        "title": extract_title(content, Path(relpath).stem),
+        "content": emit_content,
+        "content_type": "markdown",
+        "created_at": "",
+        "updated_at": updated_at,
+        "author": "",
+        "metadata": metadata,
+    }
+
+
 def main():
+    if settings.PLATFORM_DOCS_S3_BUCKET:
+        logger.info(
+            "[Docs] S3 수집 모드 — 로컬 체크아웃 수집 건너뜀 "
+            f"(PLATFORM_DOCS_S3_BUCKET={settings.PLATFORM_DOCS_S3_BUCKET!r})"
+        )
+        return
+
     repo_path = Path(settings.DOCS_REPO_PATH) if settings.DOCS_REPO_PATH else None
     if not repo_path or not repo_path.is_dir():
         logger.warning(
@@ -122,39 +193,15 @@ def main():
             ).isoformat()
 
             doc_url = build_doc_url(branch or "", relpath)
-            emit_content = content
-            metadata = {
-                "docs_repo": settings.DOCS_REPO_NAME,
-                "docs_branch": branch or "",
-                "docs_commit": commit or "",
-                "docs_category": category,
-                "docs_relpath": relpath,
-            }
+            doc = build_document(
+                relpath=relpath, content=content, updated_at=updated_at,
+                branch=branch or "", commit=commit or "", doc_url=doc_url,
+            )
+            if doc is None:
+                logger.debug(f"[Docs][{category}] 내용 부족 스킵: {md_file.name}")
+                continue
 
-            # 다이제스트(#61 11-A): 헤더 계약 파싱 — 원본 SharePoint URL이 노출용 url을 대체하고,
-            # 원본/위치 줄은 본문에서 제거된다. 필드 파싱 실패는 경고만 남기고 수집은 계속한다.
-            if category == _DIGEST_CATEGORY:
-                parsed = parse_digest(content, relpath)
-                emit_content = parsed["content"]
-                metadata.update(parsed["metadata"])
-                if parsed["url"]:
-                    doc_url = parsed["url"]
-                for w in parsed["warnings"]:
-                    logger.warning(f"[Docs][digest] {w}")
-
-            emit_document({
-                "id": f"docs-{relpath}",
-                "source": "docs",
-                "source_id": relpath,
-                "url": doc_url,
-                "title": extract_title(content, md_file.stem),
-                "content": emit_content,
-                "content_type": "markdown",
-                "created_at": "",
-                "updated_at": updated_at,
-                "author": "",
-                "metadata": metadata,
-            })
+            emit_document(doc)
             total += 1
 
     logger.info(f"[Docs] 완료: {total}개 | 소요: {fmt_elapsed(time.time() - start_time)}")
