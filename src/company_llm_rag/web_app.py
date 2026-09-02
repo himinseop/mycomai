@@ -843,6 +843,15 @@ async def admin_session_detail(request: Request, session_id: str):
     return detail
 
 
+@app.get("/health")
+async def health():
+    """서비스 생존 확인 — devops 접속 점검용. 무인증, 외부 의존성(ChromaDB 등) 조회 없음.
+
+    프로세스가 응답하면 200 — 의존성 상태는 /health/search 등 별도 엔드포인트 사용.
+    """
+    return {"status": "ok", "service": "knowledge-hub", "version": _BUILD_VERSION}
+
+
 @app.get("/health/search")
 async def health_search():
     """검색 엔진(ChromaDB) 가용 여부 — 채팅 페이지 상태 표시용 (#60). 캐시된 결과."""
