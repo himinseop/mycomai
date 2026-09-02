@@ -177,6 +177,28 @@ def query_issues(
     return {"total": total, "rows": results}
 
 
+def get_nodes(node_ids: List[str]) -> Dict[str, Dict]:
+    """id 목록에 해당하는 노드를 조회합니다 (존재하는 것만 반환, 파라미터 바인딩).
+
+    출처 기반 참고문서(#61 §12)에서 다이제스트 doc 노드·이슈 노드 존재 검증에 사용합니다.
+    """
+    ids = [n for n in dict.fromkeys(node_ids) if n]  # dedup(순서 보존) + 빈 문자열 제거
+    if not ids:
+        return {}
+    init_db()
+    placeholders = ",".join("?" * len(ids))
+    with _conn() as con:
+        rows = con.execute(
+            f"SELECT id, type, label, meta_json FROM graph_nodes WHERE id IN ({placeholders})",
+            ids,
+        ).fetchall()
+    return {
+        r["id"]: {"id": r["id"], "type": r["type"], "label": r["label"],
+                   "meta": json.loads(r["meta_json"] or "{}")}
+        for r in rows
+    }
+
+
 def linked_issues(issue_key: str) -> List[Dict]:
     """이슈와 링크로 연결된 이웃 이슈 목록을 반환합니다."""
     init_db()

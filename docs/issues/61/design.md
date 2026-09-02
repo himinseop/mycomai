@@ -226,3 +226,67 @@ blockquote 헤더 블록에서 파싱:
 | 오래된 SharePoint 스펙이 현행 정책과 상충 | 라벨에 날짜 + "과거 기획" 규칙, 버전 시리즈 최신만 |
 | 역할 라벨로 프롬프트 길이 증가 | 라벨은 한 줄, 기존 헤더 대체 |
 | 재구축 시 임베딩 비용 | 엔티티당 1회 쿼리 — 26회/야간 |
+
+## 12. 출처 기반 참고문서 (2026-09-02 확정)
+
+문제: 참고문서가 검색 결과(키워드 유사성) 그대로라, 매뉴얼 근거 답변에서 지라/컨플/
+쉐어포인트가 무관하게 딸려온다.
+
+방향: 매뉴얼 저자가 해당 구문 옆에 지정한 출처(인라인 다이제스트 링크·이슈키)를
+참고문서로 제공한다. 없으면 비운다.
+
+### 모드 결정
+- **매뉴얼 근거 모드**: LLM 컨텍스트에 포함된 문서 중 최상위가 매뉴얼(source=docs,
+  docs_category≠digest)일 때. Hub 직접응답·집계·폴백 RAG는 기존 로직 유지.
+
+### 매뉴얼 근거 모드의 참고문서 구성 (우선순위 순)
+1. 컨텍스트에 포함된 매뉴얼 청크 본문에서 다이제스트 링크 추출
+   (`../sharepoint-index/digests/X.md` — 매뉴얼 relpath 기준 normpath 정규화)
+   → 그래프 doc 노드에서 원본 SharePoint URL 조회 → 기존 digest ref 형식으로 노출
+2. 그 다이제스트의 관련 일감(digest_issues) — 구현 역할 우선, 다이제스트당 최대 2
+3. 매뉴얼 청크에 직접 인용된 지라 이슈키 — **그래프에 실존하는 이슈만** (기능 ID
+   `ECP-C-01` 류 오탐 방지)
+4. LLM이 [REF]로 실제 인용한 문서 + injected/hub 문서는 유지
+5. 그 외 검색 결과(키워드로만 걸린 지라/컨플/쉐어포인트)는 제외. 0건이면 빈 목록.
+
+- 전부 app_data.db 그래프 조회 — LLM 추가 호출·지연 없음
+- URL·이슈키 dedup, 전체 상한은 기존 _MAX_REFERENCES 준수
+
+### 구현 노트 (2026-09-02 구현 시 확인한 사실)
+- 다이제스트 doc 노드 id는 `doc:{doc_id}` (`doc_id`=`docs-{repo-root-relpath}`,
+  예: `doc:docs-platform/sharepoint-index/digests/2023-02_voucher.md`) —
+  `docs_relpath`는 항상 `platform/` 접두사 포함 저장소 루트 기준 경로
+  (`config.py: DOCS_REPO_SUBDIRS` 기본값이 `platform/...`로 시작, `docs_extractor.build_document()`).
+  이슈 노드 id는 `issue:{KEY}`(`jira_graph.py`).
+- `graph_store.py`에 파라미터 바인딩 배치 조회 `get_nodes(node_ids) -> Dict[id, {id,type,label,meta}]`를
+  신규 추가 — provenance 모듈이 다이제스트 doc 노드·이슈 노드 존재 검증에 공용으로 사용.
+- 매뉴얼 본문의 다이제스트 인라인 링크(`관련 기획: [...](../sharepoint-index/digests/X.md)`)는
+  이 저장소에는 실제 예시가 없다(docs_repo는 별도 마운트 저장소이며 매뉴얼 저자가 앞으로
+  추가할 링크). `extract_from_chunks`는 특정 문구가 아니라 **마크다운 링크 href에
+  `sharepoint-index/digests/`가 포함되는지**로 일반화 구현했고, 매뉴얼의 `docs_relpath`
+  기준 `posixpath.normpath(dirname(docs_relpath) + href)`로 정규화한다.
+  href의 URL 인코딩·타이포그래피 문자는 디코딩하지 않고 그대로 보존(문자열 경로 연산만 수행).
+- `rag_system._build_references`에 `only_priority`/`max_refs_override` 파라미터를 추가해
+  기존 로직(인용/injected/Hub 문서 판별, distance 필터, teams URL, hub_reply 조회 등)을
+  그대로 재사용 — 매뉴얼 근거 모드에서 "인용·injected·Hub 문서만" 뽑을 때 로직 중복 없이 호출.
+- 모드 판정(`_is_manual_grounded`)은 `retrieved_docs[0]`(build_rag_prompt에 그대로 전달되는
+  최종 리스트의 첫 항목)을 "컨텍스트 최상위 1순위"로 본다 — `rag_query`/`rag_query_stream`
+  모두 `_inject_jira_docs`/`inject_entity_docs` 이후 별도 top-K 절단이 없어 이 리스트가
+  곧 LLM 프롬프트 컨텍스트와 동일하다(확인 완료).
+- 구현 파일: `src/company_llm_rag/rag/provenance.py`(신규), `src/company_llm_rag/graph/graph_store.py`
+  (`get_nodes` 추가), `src/company_llm_rag/rag_system.py`(`_is_manual_grounded`,
+  `_build_manual_grounded_references`, `_build_references` 파라미터 확장), 테스트
+  `tests/test_provenance_refs.py`(신규).
+
+### §12 검증 후 확정 (2026-09-02 E2E)
+- **주입(entity link) 문서는 참고문서에서 제외** — 주제 수준 연결이라 구문 출처가 아님.
+  E2E에서 무관한 지라/컨플이 그대로 재유입되는 것 확인 후 결정 (`include_injected=False`)
+- **컨텍스트 다이제스트 유지** — 부스트·리랭크를 통과해 컨텍스트에 든 다이제스트는 답변의
+  정책 근거. relpath를 provenance에 합류시켜 원본 링크 + 관련 일감까지 노출
+- **모드 확장**: 다이제스트 최상위도 출처 기반 모드 (다이제스트 근거 답변도 잡음 제외)
+- **추출 범위 축소**: 1순위 문서와 같은 매뉴얼(docs_relpath)의 청크에서만 링크·이슈키 추출
+  — 컨텍스트 하위의 다른 주제 매뉴얼 청크에서 긁으면 무관 링크 유입 (E2E 확인)
+- **1순위 판정**: inject_entity_docs가 주입 문서를 리스트 앞에 붙이므로 `_injected` 제외
+  첫 문서를 검색 1순위로 판정 (`_top_retrieved_doc`)
+- 잔존(범위 밖): 비-docs 근거 답변(지라 목록형 등)의 기존 경로에는 주입 문서가 참고문서
+  상단에 남음 — 재작성문 기반 엔티티 감지의 보수화와 함께 후속 튜닝 후보

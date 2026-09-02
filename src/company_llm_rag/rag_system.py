@@ -402,8 +402,17 @@ def _suggest_followups(question: str, answer: str, references: list) -> List[str
         return []
 
 
-def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_indices: set = None) -> List[Dict]:
-    """retrieved_docs에서 참고 링크 목록을 생성합니다."""
+def _build_references(
+    retrieved_docs: List[Dict], listing: bool = False, cited_indices: set = None,
+    only_priority: bool = False, max_refs_override: Optional[int] = None,
+    include_injected: bool = True,
+) -> List[Dict]:
+    """retrieved_docs에서 참고 링크 목록을 생성합니다.
+
+    only_priority=True면 인용/injected/Hub 문서만 대상으로 하고(검색 결과 전반의
+    거리 기준 fallback 없음) — 매뉴얼 근거 모드(#61 §12)에서 provenance refs와
+    합칠 "기존 ref" 목록을 만들 때 사용합니다.
+    """
     # URL별 슬라이드/페이지 번호 사전 수집 (같은 파일의 여러 청크에서 합산)
     url_slides: dict = {}
     for doc in retrieved_docs:
@@ -423,22 +432,25 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_i
             if nums:
                 url_slides.setdefault(url, set()).update(nums)
 
-    max_refs = int(_MAX_REFERENCES * 1.5) if listing else _MAX_REFERENCES
+    if max_refs_override is not None:
+        max_refs = max_refs_override
+    else:
+        max_refs = int(_MAX_REFERENCES * 1.5) if listing else _MAX_REFERENCES
     seen: set = set()          # URL 기반 중복 제거
     seen_issue_keys: set = set()  # Jira issue_key 기반 중복 제거
     references = []
 
     # 2-pass: 인용 문서 우선 → 나머지 거리 필터 적용
     # pass 1: LLM이 답변에서 직접 인용한 문서 + injected 문서 (최상단 배치)
-    # pass 2: 나머지 문서 (거리 기준치 적용)
+    # pass 2: 나머지 문서 (거리 기준치 적용) — only_priority=True면 생략
     pass_order = []
     for i, doc in enumerate(retrieved_docs):
         is_cited = cited_indices is not None and i in cited_indices
         is_hub = (settings.KNOWLEDGE_HUB_TEAM_NAME
                   and doc.get('metadata', {}).get('teams_team_name', '') == settings.KNOWLEDGE_HUB_TEAM_NAME)
-        if is_cited or doc.get('_injected', False) or is_hub:
+        if is_cited or (include_injected and doc.get('_injected', False)) or is_hub:
             pass_order.insert(len([p for p in pass_order if p[1]]), (i, True))  # 우선 그룹
-        else:
+        elif not only_priority:
             pass_order.append((i, False))
 
     priority_count = sum(1 for _, p in pass_order if p)
@@ -533,6 +545,95 @@ def _build_references(retrieved_docs: List[Dict], listing: bool = False, cited_i
             "hub_reply": hub_reply,
         })
     return references
+
+
+def _is_manual_grounded(retrieved_docs: List[Dict]) -> bool:
+    """LLM 컨텍스트 최상위(1순위) 문서가 docs(매뉴얼 또는 다이제스트)인지 판정합니다.
+
+    출처 기반 참고문서 모드 여부 — Hub 직접응답·집계·잡담은 그 이전에 이미 반환되므로
+    여기 도달하는 것은 항상 기존 LLM RAG 경로다. E2E 검증 후 다이제스트 최상위도
+    포함하도록 확장 — 다이제스트 근거 답변에서도 키워드·주입 잡음을 제외해야 한다(#61 §12).
+    """
+    top = _top_retrieved_doc(retrieved_docs)
+    if top is None:
+        return False
+    top_meta = top.get('metadata', {}) or {}
+    return top_meta.get('source') == 'docs'
+
+
+def _top_retrieved_doc(retrieved_docs: List[Dict]) -> Optional[Dict]:
+    """주입(entity link) 문서를 제외한 첫 문서 — 검색 순위 기준 1순위.
+
+    inject_entity_docs가 주입 문서를 리스트 앞에 붙이므로 retrieved_docs[0]은
+    검색 1순위가 아닐 수 있다 (E2E에서 확인).
+    """
+    for d in retrieved_docs:
+        if not d.get('_injected', False):
+            return d
+    return None
+
+
+def _build_manual_grounded_references(retrieved_docs: List[Dict], cited_indices: set) -> List[Dict]:
+    """docs 근거 모드 참고문서 (#61 §12): 출처 기반(provenance) + 컨텍스트 다이제스트 + 인용/Hub.
+
+    - 링크·이슈키 추출은 **1순위 문서와 같은 매뉴얼(docs_relpath)의 청크에서만** —
+      컨텍스트 하위의 다른 주제 매뉴얼 청크에서 긁으면 무관한 링크가 섞인다 (E2E에서 확인)
+    - 컨텍스트에 포함된 다이제스트는 relpath를 provenance에 합류시켜 관련 일감까지 노출
+    - 그 외 검색 결과·주입(entity link) 문서는 제외. 전부 없으면 빈 목록(정상 동작).
+    """
+    from company_llm_rag.rag import provenance
+
+    top = _top_retrieved_doc(retrieved_docs) or {}
+    top_meta = top.get('metadata', {}) or {}
+    top_relpath = top_meta.get('docs_relpath', '') or ''
+    top_is_manual = top_meta.get('docs_category') != 'digest'
+
+    manual_chunks = [
+        d for d in retrieved_docs
+        if (d.get('metadata', {}) or {}).get('source') == 'docs'
+        and (d.get('metadata', {}) or {}).get('docs_category') != 'digest'
+        and (d.get('metadata', {}) or {}).get('docs_relpath', '') == top_relpath
+    ] if (top_is_manual and top_relpath) else []
+    extracted = provenance.extract_from_chunks(manual_chunks)
+
+    # 컨텍스트에 포함된 다이제스트의 relpath도 합류 — 관련 일감(digest_issues)까지 그래프에서 노출
+    digest_relpaths = list(extracted['digest_relpaths'])
+    for d in retrieved_docs:
+        m = d.get('metadata', {}) or {}
+        if m.get('source') == 'docs' and m.get('docs_category') == 'digest':
+            rp = m.get('docs_relpath', '') or ''
+            if rp and rp not in digest_relpaths:
+                digest_relpaths.append(rp)
+
+    references = provenance.build_provenance_references(
+        digest_relpaths, extracted['issue_keys'], max_refs=_MAX_REFERENCES,
+    )
+
+    remaining = _MAX_REFERENCES - len(references)
+    if remaining > 0:
+        # 주입(entity link) 문서는 주제 수준 연결이라 구문 출처가 아님 — 제외.
+        # 컨텍스트에 포함된 다이제스트는 답변의 정책 근거(#61 11-A 원본 링크 노출 대상)라
+        # 인용과 동급으로 유지한다. 그 외 검색 결과(지라/컨플/쉐어포인트)는 제외.
+        digest_indices = {
+            i for i, d in enumerate(retrieved_docs)
+            if (d.get('metadata', {}) or {}).get('source') == 'docs'
+            and (d.get('metadata', {}) or {}).get('docs_category') == 'digest'
+        }
+        existing = _build_references(
+            retrieved_docs, listing=False,
+            cited_indices=(cited_indices or set()) | digest_indices,
+            only_priority=True, max_refs_override=remaining, include_injected=False,
+        )
+        seen_urls = {r.get('url') for r in references if r.get('url')}
+        for ref in existing:
+            url = ref.get('url')
+            if url and url in seen_urls:
+                continue
+            if url:
+                seen_urls.add(url)
+            references.append(ref)
+
+    return references[:_MAX_REFERENCES]
 
 
 def get_llm_response(
@@ -694,6 +795,9 @@ def rag_query(
 
     if is_no_answer:
         references = []
+    elif _is_manual_grounded(retrieved_docs):
+        # 매뉴얼 근거 모드(#61 §12): 출처 기반 참고문서(provenance) + 인용/injected/Hub 문서만
+        references = _build_manual_grounded_references(retrieved_docs, cited_indices=cited)
     else:
         # [REFn] 인용 제거 이후: 검색된 전체 문서를 참고문서로 표시 (거리 필터는 _build_references 내부)
         references = _build_references(retrieved_docs, listing, cited_indices=cited)
@@ -852,6 +956,9 @@ def rag_query_stream(
 
     if is_no_answer:
         references = []
+    elif _is_manual_grounded(retrieved_docs):
+        # 매뉴얼 근거 모드(#61 §12): 출처 기반 참고문서(provenance) + 인용/injected/Hub 문서만
+        references = _build_manual_grounded_references(retrieved_docs, cited_indices=cited)
     else:
         # [REFn] 인용 제거 이후: 검색된 전체 문서를 참고문서로 표시 (거리 필터는 _build_references 내부)
         references = _build_references(retrieved_docs, listing, cited_indices=cited)
