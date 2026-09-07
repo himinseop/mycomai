@@ -22,6 +22,7 @@ class Settings:
     OPENAI_CHAT_MODEL: str = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o")
     OPENAI_SUMMARIZE_MODEL: str = os.getenv("OPENAI_SUMMARIZE_MODEL", "gpt-4o-mini")
     OPENAI_TEMPERATURE: float = float(os.getenv("OPENAI_TEMPERATURE", "0.7"))
+    OPENAI_RATE_LIMIT_RETRIES: int = int(os.getenv("OPENAI_RATE_LIMIT_RETRIES", "3"))  # 429/일시 오류 재시도 횟수
 
     # LLM 제공자 (openai | ollama) — ollama는 OpenAI 호환 /v1 API 재사용 (#38)
     # 주의: 임베딩은 항상 OpenAI 유지 (ChromaDB 인덱스가 text-embedding-3-small 1536d로 구축됨).
@@ -143,6 +144,16 @@ class Settings:
     # Knowledge Hub 설정 (답변 우선순위 + 질문 전송)
     KNOWLEDGE_HUB_TEAM_NAME: str = os.getenv("KNOWLEDGE_HUB_TEAM_NAME", "")
     KNOWLEDGE_HUB_WEBHOOK_URL: str = os.getenv("KNOWLEDGE_HUB_WEBHOOK_URL", "")
+    # Hub 직접응답 절대 유사도 게이트: 1위 Hub 문서의 벡터 거리가 이 값을 넘으면 RRF 우세여도 직접응답 안 함.
+    # (RRF ×5 부스트 때문에 거리 0.45~0.47(벡터 23위)의 엉뚱한 Hub 답변이 원문 반환되던 문제. 실제 유사 질문은 0.18~0.32)
+    KNOWLEDGE_HUB_DIRECT_MAX_DISTANCE: float = float(os.getenv("KNOWLEDGE_HUB_DIRECT_MAX_DISTANCE", "0.40"))
+
+    # /health 계열 CORS 허용 Origin (devops 등 브라우저 호출용, 쉼표 구분). "*"면 전체 허용.
+    # 항목 형식: 'https://host:port'(정확 일치) 또는 'host' / 'host:port'(스킴 무관).
+    # 무인증 헬스체크에만 적용되며 다른 API에는 CORS를 열지 않는다.
+    HEALTH_CORS_ORIGINS: list = [
+        o.strip() for o in os.getenv("HEALTH_CORS_ORIGINS", "*").split(",") if o.strip()
+    ]
     KNOWLEDGE_HUB_RRF_BOOST: float = float(os.getenv("KNOWLEDGE_HUB_RRF_BOOST", "5.0"))
 
     # LLM 위키 (#58) — 위키 질문 매칭 RRF 부스트 (Hub 5.0보다 낮게 = Hub 우선)
@@ -290,6 +301,10 @@ class Settings:
             }
         else:
             raise ValueError(f"Unknown service: {service}")
+
+    # RAG 평가(#63 1단계) — 골든셋 기반 faithfulness/correctness LLM-judge 모델.
+    # 판정은 temperature 0 고정(스크립트 쪽에서 지정), 여기서는 모델명만 관리.
+    EVAL_JUDGE_MODEL: str = os.getenv("EVAL_JUDGE_MODEL", "gpt-4o")
 
 
 # 싱글톤 인스턴스

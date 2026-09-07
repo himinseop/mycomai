@@ -43,6 +43,12 @@ def try_hub_direct_answer(retrieved_docs: List[Dict]) -> Optional[str]:
     meta = top.get('metadata', {})
     if not meta.get('is_hub_direct'):
         return None
+    # 절대 유사도 게이트: 질문이 Hub 질문과 실제로 비슷할 때만 (RRF 부스트만으로 1위가 된 경우 배제)
+    distance = top.get('_distance')
+    max_dist = settings.KNOWLEDGE_HUB_DIRECT_MAX_DISTANCE
+    if max_dist > 0 and isinstance(distance, (int, float)) and distance > max_dist:
+        logger.info(f"[Hub] 직접응답 보류 — 벡터 거리 {distance:.3f} > {max_dist} (질문 유사도 부족)")
+        return None
     # RRF 점수 비교: 2위 대비 충분히 높을 때만
     top_rrf = top.get('_rrf', 0)
     second_rrf = retrieved_docs[1].get('_rrf', 0) if len(retrieved_docs) > 1 else 0

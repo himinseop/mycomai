@@ -102,6 +102,9 @@ KNOWLEDGE_HUB_TEAM_NAME=Knowledge Hub
 KNOWLEDGE_HUB_WEBHOOK_URL=...       # Incoming Webhook URL
 KNOWLEDGE_HUB_RRF_BOOST=5.0         # RRF 점수 배수
 
+# 헬스체크 CORS(/health 계열만) 허용 도메인은 관리자 대시보드 설정 탭에서 관리(app_settings.health_cors_origins).
+# HEALTH_CORS_ORIGINS=*   # 대시보드 목록이 없을 때만 적용되는 기본값
+
 # 플랫폼매뉴얼 (bitbucket docs 저장소 수집)
 DOCS_REPO_BRANCH=master             # 체크아웃 브랜치 가드 (다르면 수집 건너뜀)
 # DOCS_REPO_HOST_PATH=              # 로컬 체크아웃 경로 (기본: mycomai/../../o2olab/docs)
@@ -142,6 +145,13 @@ PYTHONPATH=src python3 -c "from company_llm_rag.database import db_manager; prin
 
 # 설정 확인 (로컬)
 PYTHONPATH=src python3 -c "from company_llm_rag.config import settings; print(settings.COLLECTION_NAME)"
+```
+
+## 평가 (#63 1단계)
+골든셋 기반 faithfulness/correctness/abstain/source_hit 자동 채점. 상세: `tests/eval/README.md`.
+```bash
+python scripts/build_golden_set.py   # 골든셋 초안 생성(LLM) → tests/eval/golden.jsonl
+python scripts/eval_rag.py            # 골든셋 평가 실행 → tests/eval/results/{timestamp}.json
 ```
 
 ## chat_history 스키마 (현재)

@@ -63,13 +63,16 @@ def extract_from_chunks(manual_chunks: List[Dict]) -> Dict[str, List[str]]:
         content = doc.get("content", "") or ""
         manual_relpath = meta.get("docs_relpath", "") or ""
 
-        for href in _DIGEST_LINK_RE.findall(content):
+        # 표 행(| … |)의 링크는 문서 말미 '출처·기획 계보' 표 — 해당 절의 근거가 아니라 문서 전체 이력이라
+        # 무관한 다이제스트(예: 정산 질문에 전통시장 운영 프로세스)가 딸려온다. 본문 인라인 링크만 쓴다.
+        prose = "\n".join(line for line in content.split("\n") if not line.lstrip().startswith("|"))
+        for href in _DIGEST_LINK_RE.findall(prose):
             relpath = _normalize_digest_href(manual_relpath, href)
             if relpath and relpath not in seen_digests:
                 seen_digests.add(relpath)
                 digest_relpaths.append(relpath)
 
-        for key in _ISSUE_KEY_RE.findall(content):
+        for key in _ISSUE_KEY_RE.findall(prose):
             if key not in seen_keys:
                 seen_keys.add(key)
                 issue_keys.append(key)

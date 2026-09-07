@@ -701,6 +701,26 @@
       </div>
     </div>
 
+    <!-- ── /health CORS 허용 도메인 (devops 브라우저 호출) ── -->
+    <div class="settings-card" style="margin-top:16px">
+      <h2>🌐 헬스체크 허용 도메인</h2>
+      <p style="font-size:.8rem;color:#666;margin:0 0 10px">
+        devops 등 외부 대시보드가 브라우저에서 <code>/health</code>를 호출할 때 허용할 Origin입니다.
+        <code>host</code> · <code>host:port</code> · <code>https://host:port</code> · <code>*</code>(전체) 형식. 저장 즉시 반영됩니다.
+      </p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+        <input id="cors-new" placeholder="예: devops.wmpo.co.kr 또는 http://devops.wmpo.local:9090" onkeydown="if(event.key==='Enter')addCorsOrigin()" style="flex:1;min-width:280px;padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:.85rem">
+        <button class="btn btn-primary" onclick="addCorsOrigin()">추가</button>
+        <span id="cors-source" style="font-size:.78rem;color:#999"></span>
+      </div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>허용 항목</th><th style="width:80px"></th></tr></thead>
+        <tbody id="cors-tbody"><tr><td colspan="2" class="empty">로딩 중...</td></tr></tbody>
+      </table>
+      </div>
+    </div>
+
     <!-- ── LLM 모델 스위치 (역할별, 즉시 반영) ── -->
     <div class="settings-card" style="margin-top:16px">
       <h2>🤖 LLM 모델</h2>
@@ -2022,8 +2042,51 @@
       if (!res.ok) return;
       const data = await res.json();
       document.getElementById('toggle-analyze').checked = !!data.analyze_no_answer;
+      renderCorsOrigins(data);
       renderLlmModels(data);
     } catch(e) {}
+  }
+
+  // ── /health CORS 허용 도메인 ─────────────────────────────────────────────
+  let _corsOrigins = [];
+  function renderCorsOrigins(data) {
+    _corsOrigins = Array.isArray(data.health_cors_origins) ? data.health_cors_origins : [];
+    const tb = document.getElementById('cors-tbody');
+    const src = document.getElementById('cors-source');
+    if (!tb) return;
+    src.textContent = data.health_cors_source === 'db' ? '' : '(.env 기본값 표시 중 — 저장하면 대시보드 목록이 우선)';
+    if (!_corsOrigins.length) {
+      tb.innerHTML = '<tr><td colspan="2" class="empty">허용 항목 없음 — 브라우저 교차출처 호출이 모두 차단됩니다</td></tr>';
+      return;
+    }
+    tb.innerHTML = _corsOrigins.map((o, i) => `<tr>
+      <td><code>${escHtml(o)}</code>${o === '*' ? ' <span style="color:#999;font-size:.78rem">(전체 허용)</span>' : ''}</td>
+      <td><button class="btn btn-secondary" style="padding:4px 10px;font-size:.78rem" onclick="removeCorsOrigin(${i})">삭제</button></td>
+    </tr>`).join('');
+  }
+  async function saveCorsOrigins(list) {
+    const res = await fetch('/admin/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ health_cors_origins: list }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || '허용 도메인 저장 실패');
+      return false;
+    }
+    await loadSettings();
+    return true;
+  }
+  async function addCorsOrigin() {
+    const inp = document.getElementById('cors-new');
+    const v = (inp.value || '').trim();
+    if (!v) return;
+    if (await saveCorsOrigins([..._corsOrigins, v])) inp.value = '';
+  }
+  async function removeCorsOrigin(i) {
+    const target = _corsOrigins[i];
+    if (!confirm(`'${target}' 항목을 삭제할까요?`)) return;
+    await saveCorsOrigins(_corsOrigins.filter((_, idx) => idx !== i));
   }
 
   // ── 엔티티 사전 편집 (#59 P2) ────────────────────────────────────────────

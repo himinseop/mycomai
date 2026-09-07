@@ -85,6 +85,105 @@ def _compact_retrieved_docs(docs: list) -> list:
 app = FastAPI(title="오사장 - 슈퍼커넥트 AI")
 app.mount("/static", StaticFiles(directory="/app/company_llm_rag/static"), name="static")
 
+
+# /health 계열 CORS — devops(devops.wmpo.local 등) 브라우저 호출 허용.
+# 앱 전체 CORSMiddleware 대신 무인증 헬스체크 경로에만 헤더를 붙인다 (세션·관리자 API는 미개방).
+_HEALTH_CORS_SETTING_KEY = "health_cors_origins"   # app_settings: JSON 배열 (대시보드 관리)
+_HEALTH_CORS_CACHE_TTL = 10.0
+_health_cors_cache: Dict[str, object] = {"at": 0.0, "entries": None}
+_HEALTH_CORS_HOST_RE = __import__("re").compile(
+    r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$")
+
+
+def _health_cors_entries() -> List[str]:
+    """유효 허용 목록: 대시보드(app_settings)에 저장된 목록이 있으면 그것, 없으면 .env 기본값.
+    /health 호출마다 DB를 읽지 않도록 10초 캐시."""
+    now = time.monotonic()
+    if _health_cors_cache["entries"] is not None and now - _health_cors_cache["at"] < _HEALTH_CORS_CACHE_TTL:
+        return _health_cors_cache["entries"]
+    entries = None
+    try:
+        raw = get_setting(_HEALTH_CORS_SETTING_KEY, "")
+        if raw:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                entries = [str(e) for e in parsed]
+    except Exception as e:
+        logger.warning(f"[HealthCORS] 설정 읽기 실패, .env 기본값 사용: {e}")
+    if entries is None:
+        entries = list(settings.HEALTH_CORS_ORIGINS)
+    _health_cors_cache.update(at=now, entries=entries)
+    return entries
+
+
+def _health_cors_invalidate() -> None:
+    _health_cors_cache.update(at=0.0, entries=None)
+
+
+def _normalize_cors_entry(entry: str) -> Optional[str]:
+    """허용 항목 정규화. '*', 'host', 'host:port', 'scheme://host[:port]'만 허용. 무효면 None."""
+    e = (entry or "").strip().lower().rstrip("/")
+    if not e:
+        return None
+    if e == "*":
+        return e
+    if "://" in e:
+        from urllib.parse import urlsplit
+        u = urlsplit(e)
+        if u.scheme not in ("http", "https") or not u.hostname or u.path or u.query or u.fragment:
+            return None
+        return e
+    return e if _HEALTH_CORS_HOST_RE.match(e) else None
+
+
+def _health_cors_origin(request: Request) -> Optional[str]:
+    origin = request.headers.get("origin")
+    if not origin or not request.url.path.startswith("/health"):
+        return None
+    allowed = _health_cors_entries()
+    if "*" in allowed:
+        return "*"
+    return origin if _origin_allowed(origin, allowed) else None
+
+
+def _origin_allowed(origin: str, allowed: List[str]) -> bool:
+    """Origin 허용 판정. 항목에 스킴이 있으면(https://a.b:9090) 정확히 일치,
+    없으면(a.b 또는 a.b:9090) 스킴 무관 호스트[:포트] 일치로 본다."""
+    from urllib.parse import urlsplit
+    o = urlsplit(origin)
+    if not o.hostname:
+        return False
+    host = o.hostname.lower()
+    host_port = f"{host}:{o.port}" if o.port else host
+    for entry in allowed:
+        e = entry.strip().lower()
+        if not e:
+            continue
+        if "://" in e:
+            if e.rstrip("/") == origin.lower().rstrip("/"):
+                return True
+        elif e in (host, host_port):
+            return True
+    return False
+
+
+@app.middleware("http")
+async def _health_cors_middleware(request: Request, call_next):
+    allow_origin = _health_cors_origin(request)
+    if allow_origin and request.method == "OPTIONS":
+        response = JSONResponse(content=None, status_code=204)
+    else:
+        response = await call_next(request)
+    if allow_origin:
+        response.headers["Access-Control-Allow-Origin"] = allow_origin
+        response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = request.headers.get(
+            "access-control-request-headers", "*")
+        response.headers["Access-Control-Max-Age"] = "600"
+        if allow_origin != "*":
+            response.headers["Vary"] = "Origin"
+    return response
+
 # DB 초기화 (앱 시작 시 마이그레이션 + 만료 레코드 정리)
 init_db()
 
@@ -146,6 +245,7 @@ class ChatResponse(BaseModel):
     record_id: int = 0
     turn_index: int = 1
     is_group_root: bool = True
+    grounding: str = ""   # 'manual' | 'digest' | '' — 답변 근거 표시(플랫폼매뉴얼 기준 등)
 
 
 class InquiryRequest(BaseModel):
@@ -273,6 +373,7 @@ async def chat(req: ChatRequest):
         record_id=record_id,
         turn_index=turn_index,
         is_group_root=(turn_index == 1),
+        grounding=timing.get("grounding", ""),
     )
 
 
@@ -355,6 +456,7 @@ async def chat_stream(req: ChatRequest):
                     "inquiry_available": is_inquiry_configured(),
                     "is_no_answer": is_no_answer,
                     "ref_count": len(references),  # 실제 참고문서 수 (검색결과와 별개)
+                    "grounding": done_event.get("grounding", ""),
                 }
                 yield f"data: {json.dumps(meta_ev, ensure_ascii=False)}\n\n"
         finally:
@@ -719,6 +821,8 @@ async def admin_settings_get(request: Request):
     ollama_up = await loop.run_in_executor(None, _ollama_available)
     return {
         "analyze_no_answer": get_setting("analyze_no_answer", "0") == "1",
+        "health_cors_origins": _health_cors_entries(),
+        "health_cors_source": "db" if get_setting(_HEALTH_CORS_SETTING_KEY, "") else "env",
         "llm_models": llm_models,
         "llm_model_choices": _LLM_MODEL_CHOICES,
         "llm_provider": settings.LLM_PROVIDER,
@@ -730,6 +834,7 @@ async def admin_settings_get(request: Request):
 
 class SettingsUpdateRequest(BaseModel):
     analyze_no_answer: Optional[bool] = None
+    health_cors_origins: Optional[List[str]] = None
     llm_model_chat: Optional[str] = None
     llm_model_rewrite: Optional[str] = None
     llm_model_summarize: Optional[str] = None
@@ -746,6 +851,21 @@ async def admin_settings_update(request: Request, body: SettingsUpdateRequest):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     if body.analyze_no_answer is not None:
         set_setting("analyze_no_answer", "1" if body.analyze_no_answer else "0")
+    # /health CORS 허용 도메인 (대시보드 관리, 즉시 반영). 빈 목록 = 브라우저 교차출처 호출 전면 차단.
+    if body.health_cors_origins is not None:
+        normalized: List[str] = []
+        for raw in body.health_cors_origins:
+            n = _normalize_cors_entry(raw)
+            if n is None:
+                return JSONResponse(
+                    {"error": f"허용 도메인 형식 오류: '{raw}' (host, host:port, https://host:port, * 만 가능)"},
+                    status_code=422,
+                )
+            if n not in normalized:
+                normalized.append(n)
+        set_setting(_HEALTH_CORS_SETTING_KEY, json.dumps(normalized, ensure_ascii=False))
+        _health_cors_invalidate()
+        logger.info(f"[Admin] /health CORS 허용 도메인 변경: {normalized}")
     # LLM 모델/프로바이더 오버라이드 (빈 값 = 기본값). 즉시 반영, 재시작 불필요.
     for role in _LLM_ROLES:
         value = getattr(body, f"llm_model_{role}")

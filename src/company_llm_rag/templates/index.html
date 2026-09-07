@@ -153,6 +153,8 @@
     /* ── 참고 문서 ── */
     .refs { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
     .refs-label { font-size: 11px; color: #ccc; margin-bottom: 2px; }
+    .grounding-label { display: inline-flex; align-items: center; gap: 5px; margin-top: 10px; font-size: 11px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 2px 8px; width: fit-content; }
+    .grounding-label.digest { color: #6b21a8; background: #faf5ff; border-color: #e9d5ff; }
     .ref-item { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; }
     .ref-item a { color: #4f46e5; text-decoration: none; word-break: break-word; min-width: 0; flex: 1; }
     .ref-item a:hover { text-decoration: underline; }
@@ -163,6 +165,7 @@
     .src-badge.sharepoint { background: #038387; }
     .src-badge.excel      { background: #217346; }
     .src-badge.teams      { background: #6264A7; }
+    .src-badge.docs       { background: #B45309; }
     .src-badge.local      { background: #6B7280; }
 
     /* ── 피드백 ── */
@@ -418,6 +421,7 @@
       return '<span class="src-badge sharepoint">S</span>';
     }
     if (source === 'teams') return '<span class="src-badge teams">T</span>';
+    if (source === 'docs')  return '<span class="src-badge docs" title="기획 다이제스트">D</span>';
     return '<span class="src-badge local">F</span>';
   }
 
@@ -581,10 +585,20 @@
     return turn;
   }
 
-  function finalizeTurnEl(turnEl, fullText, references) {
+  // 답변 근거 라벨 — 매뉴얼 근거 답변은 참고문서(링크)가 없어도 근거가 무엇인지 보여준다
+  function groundingLabelHtml(grounding) {
+    if (grounding === 'manual') return '<div class="grounding-label" title="플랫폼매뉴얼(현행 정책 기준) 내용을 근거로 작성된 답변입니다">📘 플랫폼매뉴얼 기준</div>';
+    if (grounding === 'digest') return '<div class="grounding-label digest" title="기획 다이제스트(당시 기획 문서)를 근거로 작성된 답변입니다. 현행과 다를 수 있습니다">📝 기획 다이제스트 기준 (당시 기획)</div>';
+    return '';
+  }
+
+  function finalizeTurnEl(turnEl, fullText, references, grounding) {
     const textEl = turnEl.querySelector('.qa-a-content');
     textEl.innerHTML = (turnEl._preamble || '') + renderText(fullText);
     const body = turnEl.querySelector('.qa-a-body');
+
+    const gl = groundingLabelHtml(grounding);
+    if (gl) body.insertAdjacentHTML('beforeend', gl);
 
     if (references && references.length > 0) {
       const refsDiv = document.createElement('div');
@@ -727,7 +741,7 @@
     const loadTimer = _startLoading(loadEl);
     feedScroll.scrollTop = feedScroll.scrollHeight;
 
-    let fullText = '', finalRefs = [];
+    let fullText = '', finalRefs = [], finalGrounding = '';
 
     const scrollDown = () => { feedScroll.scrollTop = feedScroll.scrollHeight; };
 
@@ -765,19 +779,21 @@
           } else if (ev.type === 'token') {
             if (loadEl.parentNode) { _stopLoading(loadEl, loadTimer); setTimeout(() => loadEl.remove(), 350); }
             fullText += ev.text;
-            textEl.innerHTML = preamble() + renderText(fullText);
+            // 답변 끝 근거 마커([[근거:…]])는 서버가 done 이벤트에서 제거 — 스트리밍 중에도 숨긴다
+            textEl.innerHTML = preamble() + renderText(fullText.replace(/\s*\[\[\s*근거[^\]]*(\]\])?\s*$/, ''));
             textEl.appendChild(cursor);
             scrollDown();
           } else if (ev.type === 'followups') {
             followups = ev.questions || [];
           } else if (ev.type === 'done') {
             finalRefs = ev.references || [];
+            finalGrounding = ev.grounding || '';
             if (ev.answer) fullText = ev.answer;  // 인용 치환된 최종 답변으로 교체
           } else if (ev.type === 'meta') {
             cursor.remove();
             writeEl.style.opacity = '0';
             setTimeout(() => writeEl.remove(), 520);
-            finalizeTurnEl(turnEl, fullText, finalRefs);
+            finalizeTurnEl(turnEl, fullText, finalRefs, finalGrounding);
             if (followups.length) renderFollowups(turnEl, ctxId, followups);
             ctxTurns[ctxId].push({ question: text, answer: fullText });
             if (ev.turn_index) ctxTurnIndex[ctxId] = ev.turn_index;

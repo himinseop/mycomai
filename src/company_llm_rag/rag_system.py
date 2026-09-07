@@ -547,6 +547,93 @@ def _build_references(
     return references
 
 
+_LLM_ERROR_PHRASE = "답변 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+
+# LLM 자기보고 근거 마커 (rag_instructions.txt) — 표시 전 제거. 컨텍스트 1순위 문서만으로 판정하면
+# 매뉴얼이 1위여도 실제 내용은 PPT/다이제스트에서 온 답변에 '플랫폼매뉴얼 기준'이 붙는 오표시가 난다.
+_GROUNDING_MARKER_RE = re.compile(r'\s*\[\[\s*근거\s*[:：]\s*(매뉴얼|다이제스트|기타)\s*\]\]\s*')
+_GROUNDING_BY_MARKER = {"매뉴얼": "manual", "다이제스트": "digest", "기타": ""}
+
+
+def _extract_grounding_marker(text: str) -> tuple:
+    """답변 끝의 [[근거:…]] 마커를 떼어 (정리된 답변, 'manual'|'digest'|''|None) 반환. 마커 없으면 None."""
+    s = text or ""
+    found = _GROUNDING_MARKER_RE.findall(s)
+    if not found:
+        return s, None
+    s = _GROUNDING_MARKER_RE.sub("\n", s).strip()
+    return s, _GROUNDING_BY_MARKER.get(found[-1], "")
+
+
+# 수치 가드: 답변의 비율·금액·기간 수치가 '현행 정책 기준'(매뉴얼) 청크에는 없고 다이제스트·기획서·사례
+# 청크에만 있으면 현행 수치로 단정한 것 — 라벨을 내리고 주의 문구를 붙인다 (프랜차이즈 관점 테스트 R1: 2021년
+# 착상품권 수수료 다이제스트의 3.3%를 '현행 정책 기준'이라고 답한 사례). LLM 없이 문자열 대조만 한다.
+_NUMERIC_CLAIM_RE = re.compile(r'\d+(?:\.\d+)?\s*(?:%|퍼센트|원|만원|억|일|주|개월|년|영업일|건|분|시간|초|회)')
+_NUMERIC_CAVEAT = ("※ 위 답변의 수치({nums})는 플랫폼매뉴얼이 아닌 과거 기획·사례 문서에서 나온 값으로, "
+                   "현행 기준은 담당 팀 확인이 필요합니다.")
+
+
+def _unbacked_numbers(answer: str, retrieved_docs: List[Dict]) -> List[str]:
+    """답변 수치 중 매뉴얼(source=docs, docs_category≠digest) 청크 어디에도 없는 것들."""
+    nums = []
+    for m in _NUMERIC_CLAIM_RE.finditer(answer or ""):
+        tok = re.sub(r"\s+", "", m.group(0))
+        if tok not in nums:
+            nums.append(tok)
+    if not nums:
+        return []
+    manual_text = ""
+    for d in retrieved_docs:
+        meta = d.get("metadata", {}) or {}
+        if meta.get("source") == "docs" and meta.get("docs_category") != "digest":
+            manual_text += re.sub(r"\s+", "", d.get("content", "") or "") + "\n"
+    if not manual_text:
+        return nums
+    return [n for n in nums if n not in manual_text]
+
+
+def _apply_numeric_guard(answer: str, grounding: str, retrieved_docs: List[Dict]) -> tuple:
+    """grounding=='manual'인 답변에 근거 없는 수치가 있으면 (주의 문구 붙인 답변, '') 반환."""
+    if grounding != "manual" or not answer:
+        return answer, grounding
+    unbacked = _unbacked_numbers(answer, retrieved_docs)
+    # 절 번호·목록 번호처럼 단위 없는 숫자는 정규식에서 제외되므로 여기 남는 것은 단위 있는 수치뿐
+    if not unbacked:
+        return answer, grounding
+    logger.info(f"[수치 가드] 매뉴얼 미기재 수치 → 라벨 해제·주의 문구: {unbacked}")
+    return answer.rstrip() + "\n\n" + _NUMERIC_CAVEAT.format(nums=", ".join(unbacked[:5])), ""
+
+
+def _decide_grounding(answer_marker, retrieved_docs: List[Dict]) -> str:
+    """마커(LLM 자기보고)가 있으면 그것을, 없으면 컨텍스트 1순위 문서 휴리스틱을 쓴다."""
+    if answer_marker is not None:
+        # LLM이 '매뉴얼'이라 해도 컨텍스트에 매뉴얼 청크가 하나도 없으면 오보고 (Hub/Teams 원문만으로 답한 사례)
+        if answer_marker == "manual" and not _has_manual_chunk(retrieved_docs):
+            return ""
+        return answer_marker
+    return _grounding_label(retrieved_docs)
+
+
+def _has_manual_chunk(retrieved_docs: List[Dict]) -> bool:
+    return any(
+        (d.get("metadata", {}) or {}).get("source") == "docs"
+        and (d.get("metadata", {}) or {}).get("docs_category") != "digest"
+        for d in retrieved_docs
+    )
+
+
+def _grounding_label(retrieved_docs: List[Dict]) -> str:
+    """답변 근거 표시용 라벨: 'manual'(플랫폼매뉴얼) | 'digest'(기획 다이제스트) | ''.
+    매뉴얼 근거 답변은 참고문서가 없어도 '플랫폼매뉴얼 기준'임을 사용자에게 보여준다."""
+    top = _top_retrieved_doc(retrieved_docs)
+    if top is None:
+        return ""
+    meta = top.get('metadata', {}) or {}
+    if meta.get('source') != 'docs':
+        return ""
+    return "digest" if meta.get('docs_category') == 'digest' else "manual"
+
+
 def _is_manual_grounded(retrieved_docs: List[Dict]) -> bool:
     """LLM 컨텍스트 최상위(1순위) 문서가 docs(매뉴얼 또는 다이제스트)인지 판정합니다.
 
@@ -665,7 +752,7 @@ def get_llm_response(
         return _llm.chat(messages, model=model or _model, temperature=temperature)
     except LLMError as e:
         logger.error(f"LLM 호출 실패: {e}", exc_info=True)
-        return "답변 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+        return _LLM_ERROR_PHRASE
 
 
 def rag_query(
@@ -779,6 +866,8 @@ def rag_query(
     llm_ms = int((t_llm - t_retrieval) * 1000)
     total_ms = int((t_llm - t0) * 1000)
 
+    # 근거 마커([[근거:…]]) 분리 → 표시용 답변에서 제거
+    llm_response, _marker = _extract_grounding_marker(llm_response)
     # [REF1] 인용 치환 → 실제 문서명+링크 마크다운
     llm_response, cited = _resolve_citations(llm_response, retrieved_docs)
     # 실답변 뒤 hedge로 붙은 no-answer 문구 정리 + 정확한 no-answer 판정 (#53)
@@ -789,11 +878,16 @@ def rag_query(
         f"총={total_ms}ms | 문서={len(retrieved_docs)}개 | 인용={len(cited)}건"
     )
     timing = {"retrieval_ms": retrieval_ms, "vector_ms": ret_timing["vector_ms"], "keyword_ms": ret_timing["keyword_ms"], "rerank_ms": ret_timing.get("rerank_ms", 0), "rerank_model": ret_timing.get("rerank_model", ""), "inject_ms": inject_ms, "llm_ms": llm_ms, "total_ms": total_ms, "doc_count": len(retrieved_docs), "model": current_model_name("chat")}
+    is_llm_error = llm_response == _LLM_ERROR_PHRASE
+    grounding = "" if (is_no_answer or is_llm_error) else _decide_grounding(_marker, retrieved_docs)
+    llm_response, grounding = _apply_numeric_guard(llm_response, grounding, retrieved_docs)
+    timing["grounding"] = grounding
 
     if not return_refs:
         return llm_response
 
-    if is_no_answer:
+    if is_no_answer or is_llm_error:
+        # 답변이 없거나 생성 실패면 참고문서도 비운다 (오류 문구 밑에 문서가 붙어 나오던 문제)
         references = []
     elif _is_manual_grounded(retrieved_docs):
         # 매뉴얼 근거 모드(#61 §12): 출처 기반 참고문서(provenance) + 인용/injected/Hub 문서만
@@ -943,6 +1037,8 @@ def rag_query_stream(
     llm_ms = int((t_llm - t_llm_start) * 1000)
     total_ms = int((t_llm - t0) * 1000)
 
+    # 근거 마커([[근거:…]]) 분리 → 표시용 답변에서 제거 (done 이벤트의 answer로 화면 텍스트가 교체됨)
+    full_answer, _marker = _extract_grounding_marker(full_answer)
     # [REF1] 인용 치환 → 실제 문서명+링크 마크다운
     full_answer, cited = _resolve_citations(full_answer, retrieved_docs)
     # 실답변 뒤 hedge로 붙은 no-answer 문구 정리 + 정확한 no-answer 판정 (#53)
@@ -954,6 +1050,9 @@ def rag_query_stream(
         f"총={total_ms}ms | 문서={len(retrieved_docs)}개 | 인용={len(cited)}건"
     )
 
+    grounding = "" if is_no_answer else _decide_grounding(_marker, retrieved_docs)
+    full_answer, grounding = _apply_numeric_guard(full_answer, grounding, retrieved_docs)
+    timing["grounding"] = grounding
     if is_no_answer:
         references = []
     elif _is_manual_grounded(retrieved_docs):
@@ -969,7 +1068,8 @@ def rag_query_stream(
         if followups:
             yield {"type": "followups", "questions": followups}
 
-    yield {"type": "done", "answer": full_answer, "references": references, "timing": timing, "is_no_answer": is_no_answer}
+    yield {"type": "done", "answer": full_answer, "references": references, "timing": timing,
+           "is_no_answer": is_no_answer, "grounding": timing["grounding"]}
 
 
 if __name__ == "__main__":

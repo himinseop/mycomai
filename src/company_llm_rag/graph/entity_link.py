@@ -477,17 +477,18 @@ _INJECT_MAX_ENTITIES = 2   # 질문에서 사용할 엔티티 수 상한
 _INJECT_ISSUES = 3         # 엔티티당 주입할 최근 Jira 이슈 수
 _INJECT_CONF_DOCS = 2      # 엔티티당 주입할 Confluence 문서 수
 _INJECT_MANUAL_CHUNKS = 2  # 매뉴얼 문서당 주입할 청크 수
+_INJECT_MAX_OTHER_DOCS = 4 # 질문당 Jira/Confluence 주입 총 상한 (엔티티 2개 × 5개 = 10개가 컨텍스트를 점령하던 문제)
 
 
 def detect_entities(query: str) -> List[Dict]:
     """질문 문자열에서 엔티티를 감지합니다 (별칭 부분 문자열 매칭, DB 사전)."""
-    q = (query or "").strip()
+    q = (query or "").strip().lower()   # 'e쿠폰'↔'E쿠폰' 등 대소문자 무시
     if not q:
         return []
     found = []
     for ent in get_entities():
         terms = [ent["name"]] + ent["aliases"]
-        matched = next((t for t in terms if t in q), None)
+        matched = next((t for t in terms if t and t.lower() in q), None)
         if matched:
             found.append({**ent, "matched": matched})
     # 매칭 문자열이 긴 순서 = 더 구체적인 엔티티 우선
@@ -545,7 +546,8 @@ def inject_entity_docs(query: str, retrieved_docs: List[Dict]) -> List[Dict]:
 
         present_docs = {d["metadata"].get("original_doc_id", "") for d in retrieved_docs}
         present_keys = {d["metadata"].get("jira_issue_key", "") for d in retrieved_docs}
-        injected: List[Dict] = []
+        injected: List[Dict] = []          # 매뉴얼 청크 (현행 정책 — 앞에 둔다)
+        injected_other: List[Dict] = []    # Jira/Confluence (참고용 — 검색 결과 뒤에 둔다)
 
         def _fetch(where: dict, limit: int) -> List[Dict]:
             res = collection.get(where=where, include=["documents", "metadatas"], limit=limit)
@@ -575,28 +577,35 @@ def inject_entity_docs(query: str, retrieved_docs: List[Dict]) -> List[Dict]:
                         # 임베딩 실패 시 기존 방식(앞 청크) 폴백
                         injected.extend(_fetch({"docs_relpath": {"$eq": relpath}}, _INJECT_MANUAL_CHUNKS))
 
-            # 2) 최근 관련 Jira 이슈
+            # 2) 최근 관련 Jira 이슈 (엔티티 간 중복 제거, 총 상한)
             for node in _mentioned_nodes(ent["name"], "issue", _INJECT_ISSUES):
                 key = node["id"].split(":", 1)[1]
                 if key in present_keys or node["meta"].get("placeholder"):
                     continue
-                injected.extend(_fetch({"jira_issue_key": {"$eq": key}}, 1))
+                if len(injected_other) >= _INJECT_MAX_OTHER_DOCS:
+                    break
+                present_keys.add(key)
+                injected_other.extend(_fetch({"jira_issue_key": {"$eq": key}}, 1))
 
             # 3) 관련 Confluence 문서
             for node in _mentioned_nodes(ent["name"], "doc", _INJECT_CONF_DOCS):
                 doc_id = node["meta"].get("original_doc_id", "")
                 if not doc_id or doc_id in present_docs:
                     continue
-                injected.extend(_fetch({"original_doc_id": {"$eq": doc_id}}, 1))
+                if len(injected_other) >= _INJECT_MAX_OTHER_DOCS:
+                    break
+                present_docs.add(doc_id)
+                injected_other.extend(_fetch({"original_doc_id": {"$eq": doc_id}}, 1))
 
-        if injected:
+        if injected or injected_other:
             logger.info(
-                f"[Graph] 엔티티 주입: {[e['name'] for e in entities]} → {len(injected)}개 청크")
+                f"[Graph] 엔티티 주입: {[e['name'] for e in entities]} → 매뉴얼 {len(injected)} / 참고 {len(injected_other)}개 청크")
             # Hub 직접응답 보호: 검색 1위가 Hub 문서면 상위 2개(우세 판정 대상) 뒤에 주입한다.
             # 앞에 끼워 넣으면 hub_direct가 retrieved_docs[0]만 보기 때문에 직접응답이 차단된다.
             if retrieved_docs and retrieved_docs[0].get("metadata", {}).get("is_hub_direct"):
-                return retrieved_docs[:2] + injected + retrieved_docs[2:]
-        return injected + retrieved_docs
+                return retrieved_docs[:2] + injected + retrieved_docs[2:] + injected_other
+        # 매뉴얼 주입 → 검색 결과 → Jira/Confluence 주입 순: [REF] 앞번호를 현행 정책 문서가 차지하도록
+        return injected + retrieved_docs + injected_other
     except Exception as e:
         logger.error(f"[Graph] 엔티티 주입 실패 (원본 결과 유지): {e}", exc_info=True)
         return retrieved_docs
